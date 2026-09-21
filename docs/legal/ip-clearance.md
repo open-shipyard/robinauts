@@ -50,5 +50,29 @@ Entries are never edited after the fact; a correction is a new entry.
 - Attribution added to: this entry. Same authors and the same licence; no
   notice is required.
 
+### 2026-09-21 — sign-in flow (ports and application), derived from neorc
+
+- Source: https://github.com/open-shipyard/neorc, commit `68e3805`:
+  `python/neorc-core/src/neorc_core/_access.py` (beginning a sign-in, taking
+  a pending sign-in, opening a session, sweeping, the cap on pending
+  sign-ins), `neorc_core/ports/_credentials.py` (the shape of the store
+  port), `neorc_core/local/_memory_credentials.py` and
+  `neorc_core/testing/contracts/_credentials.py` (the in-memory store and
+  the idea of a contract suite), `python/neorc/src/neorc/auth/_oidc.py`
+  (discovery, the authorization URL, the code exchange),
+  `python/neorc/src/neorc/manager/_auth_routes.py` (the order of the
+  callback's checks).
+- Their licence: Apache-2.0, Copyright The neorc Authors.
+- Landed as: `backend/src/robinauts/ports/`,
+  `backend/src/robinauts/application/sign_in.py`, `backend/tests/fakes/`,
+  `backend/tests/contracts/credential_store.py`.
+- Modifications: no file was copied. Written again for this project's
+  layers; deadlines are computed by the application from a clock port
+  rather than by the store; the identity provider port only fetches and
+  posts, and the application validates what comes back. Substantially
+  machine-generated, reviewed by the maintainers.
+- Attribution added to: this entry. Same authors and the same licence; no
+  notice is required.
+
 <!-- Entries go above this line. -->
 <!-- REUSE-IgnoreEnd -->

@@ -166,4 +166,9 @@ Routes:
   until the session ends, or an operator clears sessions. A shorter
   `session_hours` is the available control.
 - No sign-out at the identity provider.
-- No rate limit on sign-in beyond the cap on pending sign-ins.
+- No rate limit on sign-in beyond the cap on pending sign-ins. The cap
+  bounds the table; it does not protect sign-in. Beginning a sign-in needs
+  no credentials, so one client that keeps the table full denies sign-in
+  to everyone for as long as it goes on. The protection is a rate limit in
+  front of the platform — the operator's reverse proxy today, the
+  per-client limits of [operations.md](operations.md) later.

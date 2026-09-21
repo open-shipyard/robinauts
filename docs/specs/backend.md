@@ -30,8 +30,9 @@ in [layout.md](../layout.md). This document holds the component choices.
   attachments, search indexes, users, sessions, projects, audit.
 - No ORM. SQL is hand-written in the `datastore` layer, which implements
   the store ports and returns domain objects.
-- Where expiry is involved, time comes from the database clock; stores are
-  given durations, not timestamps.
+- Where expiry is involved, one clock decides: the application computes
+  every deadline from the clock port and gives the stores absolute times,
+  and tells them what "now" is. The stores keep no clock of their own.
 - The schema is entirely the platform's. No framework creates or migrates
   tables in it
   ([ADR 0002](../adr/0002-conversation-persistence.md)).

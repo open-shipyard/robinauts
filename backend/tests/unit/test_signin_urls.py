@@ -1,11 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""Origins and issuers in one form, so that comparing two means something."""
+"""Origins, issuers and endpoints in one form each, and where a sign-in returns to."""
 
 import pytest
 
-from robinauts.core import is_loopback, normalise_issuer, normalise_origin
+from robinauts.core import (
+    DEFAULT_RETURN_TO,
+    MAX_RETURN_TO,
+    is_loopback,
+    normalise_endpoint,
+    normalise_issuer,
+    normalise_origin,
+    safe_return_to,
+)
 from robinauts.domain import InvalidValueError
 
 
@@ -175,3 +183,107 @@ def test_anything_that_is_not_text_is_refused_as_the_contract_says(written: obje
 def test_a_host_that_is_not_text_is_not_loopback() -> None:
     assert not is_loopback(None)  # type: ignore[arg-type]
     assert not is_loopback(42)  # type: ignore[arg-type]
+
+
+ENDPOINTS = [
+    ("https://provider.example/authorize", "https://provider.example/authorize"),
+    ("https://Provider.Example.:443/authorize", "https://provider.example/authorize"),
+    ("https://provider.example", "https://provider.example"),
+    ("https://provider.example/", "https://provider.example/"),
+    # An authorization endpoint may carry a query of its own; Okta's do.
+    ("https://provider.example/authorize?ab=1&c=2", "https://provider.example/authorize?ab=1&c=2"),
+    (
+        "https://provider.example:8443/oauth2/v1/token",
+        "https://provider.example:8443/oauth2/v1/token",
+    ),
+    # Whitespace around it is stripped, as everywhere else in this module;
+    # what would be dangerous is whitespace inside it, and that is refused.
+    ("  https://provider.example/token\r\n", "https://provider.example/token"),
+    # Loopback may speak http: the stand-in provider of a laptop.
+    ("http://127.0.0.1:9000/token", "http://127.0.0.1:9000/token"),
+    ("http://localhost/token", "http://localhost/token"),
+]
+
+NOT_ENDPOINTS = [
+    # urlsplit drops these wherever they are, exactly as a browser does, so
+    # each parses as a good URL -- and the string would then be a Location
+    # header, with whatever follows the newline a header of its own.
+    "https://provider.example/authorize\nX-Injected: yes",
+    "https://provider.example/autho\trize",
+    "https://provider.example\r\n@evil.example/token",
+    # Userinfo: the host a person reads is not the host that is reached.
+    "https://provider.example@evil.example/token",
+    "https://user:pass@provider.example/token",
+    # A fragment means nothing in a request and everything in a browser.
+    "https://provider.example/authorize#fragment",
+    # http anywhere but loopback, and anything that is not http at all.
+    "http://provider.example/token",
+    "ftp://provider.example/token",
+    "javascript:alert(1)",
+    "//provider.example/token",
+    "/authorize",
+    "",
+    "https:///token",
+    "https://provider.example:0/token",
+    "https://bücher.example/token",
+]
+
+
+@pytest.mark.parametrize(("written", "used"), ENDPOINTS)
+def test_an_endpoint_is_used_in_the_form_it_was_checked_in(written: str, used: str) -> None:
+    assert normalise_endpoint(written) == used
+
+
+@pytest.mark.parametrize("written", NOT_ENDPOINTS)
+def test_an_endpoint_that_is_not_one_is_refused(written: str) -> None:
+    with pytest.raises(InvalidValueError):
+        normalise_endpoint(written)
+
+
+RETURN_TO = ["/", "/#/chat/7", "/#/settings", "/conversations/8a1c?from=panel", "/a" * 200]
+
+NOT_RETURN_TO = [
+    # Another origin, spelt every way a browser reads as one.
+    "https://evil.example/steal",
+    "http://evil.example/steal",
+    "//evil.example/steal",
+    "/\\evil.example/steal",
+    "\\\\evil.example",
+    "javascript:alert(1)",
+    "data:text/html,<script>",
+    "mailto:someone@example.com",
+    # Not a path of ours at all.
+    "chat/7",
+    "#/chat/7",
+    "",
+    " /#/chat",
+    # A Location header carries printable ASCII: a newline is a header of its
+    # own, and a zero-width space is a second target that looks like the first.
+    "/#/chat\n",
+    "/#/chat\rHeader: x",
+    "/#/ch\tat",
+    "/#/chat\x00",
+    "/#/chat\u200b",
+    "/#/caf\u00e9",
+    "/#/chat ",
+    "/a" * (MAX_RETURN_TO // 2 + 1),
+]
+
+
+@pytest.mark.parametrize("target", RETURN_TO)
+def test_a_place_in_this_deployment_is_returned_to(target: str) -> None:
+    assert safe_return_to(target) == target
+
+
+@pytest.mark.parametrize("target", NOT_RETURN_TO)
+def test_anything_that_could_leave_this_origin_is_not(target: str) -> None:
+    assert safe_return_to(target) is None
+
+
+@pytest.mark.parametrize("target", [None, 7, b"/#/chat", ["/#/chat"], object()])
+def test_a_return_target_that_is_not_text_is_refused(target: object) -> None:
+    assert safe_return_to(target) is None
+
+
+def test_the_default_return_target_is_a_place_in_this_deployment() -> None:
+    assert safe_return_to(DEFAULT_RETURN_TO) == DEFAULT_RETURN_TO

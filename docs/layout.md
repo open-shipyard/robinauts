@@ -102,8 +102,23 @@ is produced, then finish, suspend or fail the run. Also the sign-in flow, conver
 This is the "controller" of the core spec: it knows the `Agent` port and
 nothing about any agent framework.
 
-Stateful only through the store ports. Receives all port implementations
-by injection; never constructs them.
+Receives all port implementations by injection; never constructs them.
+
+Stateful through the store ports, and **in the process only where the state
+is one of three things**: a cache of something public the deployment fetched
+(a provider's OpenID discovery document, with the one fetch of it that is in
+flight, which is what keeps ten callers to one fetch); a scheduling hint
+(when expired rows were last swept); or a diagnostic counter, which exists to
+be read by an operator and by no code at all (how many sweeps failed, and
+what the last one raised, until there is somewhere to log it). Nothing else.
+In particular, nothing a request's correctness or its security may depend on:
+no session, no pending sign-in, no ownership, no counter that enforces a
+limit. The test is whether losing it is invisible — a cache is rebuilt by
+asking again, a hint means one extra sweep, a counter means a number nobody
+read — and whether a second process, which has its own copy, would disagree
+about anything that matters. Each process therefore sweeps on its own
+schedule and discovers for itself; both are safe, because the answers are the
+same for everyone and the rows they touch are already expired.
 
 Depends on ports, core and domain.
 
