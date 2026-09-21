@@ -152,79 +152,87 @@ Also out, all specified and all addable later without rework:
 
 ## Order of work
 
-Each step is one branch, reviewed until clean, landed as one signed-off
-commit. A step aims at under a thousand lines of diff and one concern, so
-that a review is quick and its findings are about one thing.
+Each step is one branch, `feature/poc-<n>-<name>`, stacked on the previous
+one, built by an implementer agent, reviewed by a fresh reviewer agent
+until clean, and landed by the driver as one signed-off commit. The process
+is the three-agent recipe (`recipes/three-agent-steps.md`, beside this
+repository); each step's summary and review counts are recorded in
+[poc-progress.md](poc-progress.md).
+
+A step aims at under a thousand lines of diff and one concern, so that a
+review is quick and its findings are about one thing.
 
 **Groundwork**
 
-1. Repository documents: `NOTICE`, `AUTHORS`, `CONTRIBUTING.md`,
+0. `poc-0-documents` — Repository documents: `NOTICE`, `AUTHORS`, `CONTRIBUTING.md`,
    `DEPENDENCIES.md`, `docs/legal/*`, `REUSE.toml`.
-2. CI for Python: tests with the architecture contracts, ruff, black, the
+1. `poc-1-ci-python` — CI for Python: tests with the architecture contracts, ruff, black, the
    licence gate, `pip-audit`, `reuse lint`, the DCO check.
 
 **Sign-in, from the core outward**
 
-3. Domain and core for sign-in: identity, the allow-list matchers, the
+2. `poc-2-signin-core` — Domain and core for sign-in: identity, the allow-list matchers, the
    claim checks, configuration validation.
-4. Ports and fakes for sign-in, and the application flow: begin, callback,
+3. `poc-3-signin-application` — Ports and fakes for sign-in, and the application flow: begin, callback,
    session, sign-out, user creation.
-5. The schema definition and the credential store on asyncpg, with its
+4. `poc-4-credential-store` — The schema definition and the credential store on asyncpg, with its
    contract suite.
-6. The OIDC adapter, the configuration reader, the stand-in provider.
-7. `api`: the auth routes, cookies, origin checks, the permission
+5. `poc-5-oidc-adapter` — The OIDC adapter, the configuration reader, the stand-in provider.
+6. `poc-6-auth-api` — `api`: the auth routes, cookies, origin checks, the permission
    declaration and its test, `create_app`, the health endpoint.
-8. The local development mode.
+7. `poc-7-dev-mode` — The local development mode.
 
 **Conversations and runs**
 
-9. Domain and core for the conversation format: the tree, the kinds of
+8. `poc-8-conversation-format` — Domain and core for the conversation format: the tree, the kinds of
    content, what an answer records.
-10. Conversation and run ports, fakes, and the application for
+9. `poc-9-conversations-application` — Conversation and run ports, fakes, and the application for
     conversations: list, open, rename, delete, ownership.
-11. The run lifecycle in the application, against a fake agent: start,
+10. `poc-10-run-lifecycle` — The run lifecycle in the application, against a fake agent: start,
     persist as produced, one active run, cancel, interrupted.
-12. The conversation and run stores on asyncpg, with their contract
+11. `poc-11-conversation-stores` — The conversation and run stores on asyncpg, with their contract
     suites.
-13. The run executor adapter: tasks, the registry, the lifespan, timeouts.
-14. `api`: the conversation routes, the OpenAPI snapshot.
-15. `api`: the AG-UI stream, re-attaching.
+12. `poc-12-run-executor` — The run executor adapter: tasks, the registry, the lifespan, timeouts.
+13. `poc-13-conversations-api` — `api`: the conversation routes, the OpenAPI snapshot.
+14. `poc-14-agui-stream` — `api`: the AG-UI stream, re-attaching.
 
 **Engines**
 
-16. The agent contract suite and the first engine; provider
+15. `poc-15-first-engine` — The agent contract suite and the first engine; provider
     configuration, keys from the environment.
-17. The second engine, and the swap test.
+16. `poc-16-second-engine` — The second engine, and the swap test.
 
 **Frontend**
 
-18. Skeleton and CI for JavaScript: Vite, TypeScript, ESLint with the rule
+17. `poc-17-frontend-skeleton` — Skeleton and CI for JavaScript: Vite, TypeScript, ESLint with the rule
     that confines assistant-ui, the bundle licence gate,
     `bundled-packages.txt`, `npm audit`.
-19. The shell: tokens, the Tailwind theme, the panel and its rail, the
+18. `poc-18-shell` — The shell: tokens, the Tailwind theme, the panel and its rail, the
     profile block, session handling, the sign-in page, the banner of the
     local development mode.
-20. History in the panel, routing, conversation management against the
+19. `poc-19-history` — History in the panel, routing, conversation management against the
     API.
-21. The vendored assistant-ui components: only the copy, its README, the
+20. `poc-20-vendor-assistant-ui` — The vendored assistant-ui components: only the copy, its README, the
     MIT text and the `ip-clearance` entry. A large diff, and a mechanical
     one: the review is about provenance.
-22. The chat behind `src/chat/`: the AG-UI client, streaming, re-attaching,
+21. `poc-21-chat` — The chat behind `src/chat/`: the AG-UI client, streaming, re-attaching,
     cancel, the agent picker; edit and regenerate if they come cheaply.
 
 **Delivery**
 
-23. The frontend in the wheel, `robinauts start` and `robinauts db init`,
+22. `poc-22-wheel` — The frontend in the wheel, `robinauts start` and `robinauts db init`,
     the wheel as a CI artifact.
-24. The deployment guide and the real deployment, with what broke written
+23. `poc-23-deployment` — The deployment guide and the real deployment, with what broke written
     down.
 
 **What this order gives**
 
-- After step 8, signing in works end to end, before any chat code exists.
-- After step 15, the backend is complete and testable with a fake agent.
-- Steps 18 to 20 depend only on steps 7 and 14, so the frontend can
-  proceed in parallel with steps 9 to 17.
+- After step 7, signing in works end to end, before any chat code exists.
+- After step 14, the backend is complete and testable with a fake agent.
+- Steps 17 to 19 depend only on steps 6 and 13, so the frontend can
+  proceed in parallel with steps 8 to 16.
+- Steps 0 and 8 are implemented by the driver itself: what they record was
+  settled in discussion, not in the repository.
 
 ## To settle before starting
 
