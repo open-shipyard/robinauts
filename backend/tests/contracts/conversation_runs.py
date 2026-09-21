@@ -82,7 +82,7 @@ from robinauts.domain import (
     RunState,
     TextDelta,
 )
-from robinauts.ports import MAX_SWEPT, ConversationStore, Document, Snapshot
+from robinauts.ports import MAX_PAGE, MAX_SWEPT, ConversationStore, Document, Snapshot
 
 OTHER_RUN = uuid.UUID("66666666-6666-4666-8666-666666666666")
 """A second run, for the conversation beside the one under test."""
@@ -429,6 +429,27 @@ class ConversationRunsContract(ConversationStoreContract):
             )
 
             assert [kept.id for kept in await store.runs_of(CONVERSATION)] == [OTHER_RUN, RUN]
+
+    @asyncio_test
+    async def test_a_caller_that_wants_the_most_recent_run_asks_for_one(self) -> None:
+        # Opening a conversation wants the last run and nothing else; a
+        # conversation answered a thousand times must not be read a thousand
+        # rows at a time to look at one of them.
+        async with self.opened() as store:
+            asked = await _begun(store, created_at=at(0))
+            await _ended(store, RunState.FINISHED)
+            await store.start_run(
+                conversation=None,
+                message=None,
+                run=run(id=OTHER_RUN, message_id=asked.id, created_at=at(5)),
+                now=at(5),
+            )
+
+            assert [kept.id for kept in await store.runs_of(CONVERSATION, limit=1)] == [OTHER_RUN]
+            with pytest.raises(InvalidValueError):
+                await store.runs_of(CONVERSATION, limit=0)
+            with pytest.raises(InvalidValueError):
+                await store.runs_of(CONVERSATION, limit=MAX_PAGE + 1)
 
     @asyncio_test
     async def test_the_runs_in_a_state_are_what_a_start_up_sweep_asks_for(self) -> None:

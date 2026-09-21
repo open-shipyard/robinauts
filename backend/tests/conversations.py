@@ -14,6 +14,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from robinauts.domain import (
+    AgentDefinition,
     Channel,
     Conversation,
     Engine,
@@ -40,6 +41,19 @@ T0 = datetime(2026, 9, 21, 9, 0, tzinfo=UTC)
 def at(seconds: float) -> datetime:
     """``seconds`` after the start; what orders the messages of a test."""
     return T0 + timedelta(seconds=seconds)
+
+
+def agent_definition(**changes: object) -> AgentDefinition:
+    """The agent every test that is not about agents runs."""
+    fields: dict[str, object] = {
+        "id": AGENT,
+        "title": "Assistant",
+        "system_prompt": "Play fair.",
+        "model": MODEL,
+        "engine": Engine.PYDANTIC_AI,
+    }
+    fields.update(changes)
+    return AgentDefinition(**fields)  # type: ignore[arg-type]
 
 
 def provenance(**changes: object) -> Provenance:

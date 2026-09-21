@@ -107,10 +107,18 @@ from it on every turn ([agents.md](agents.md)).
 **Reasoning**
 
 - It is stored, as its own kind of content.
-- **Not in this version**, which keeps none of it: an engine may stream it,
-  every watcher sees it arrive, and what an engine returns as reasoning
-  with a finished answer is dropped rather than refused — an engine is not
-  asked to know what the platform keeps.
+- **Not in this version**, which keeps none of it **in a message**: an engine
+  may stream it, every watcher sees it arrive, and what an engine returns as
+  reasoning with a finished answer is dropped rather than refused — an engine
+  is not asked to know what the platform keeps.
+- **It is in the run's events all the same, and only there.** What is
+  published while an answer is being produced is what a watcher re-attaching
+  in the middle of it is replayed ([runs.md](runs.md)), so the reasoning
+  deltas are stored with the other deltas of that run — and nowhere else. No
+  message holds any of it, so it is in no conversation, is never sent back to
+  a model on a later turn, and is in no export; and a run's events are
+  removed once nobody can re-attach to them. "Stored nowhere" means "in no
+  message", and the difference is the life of a run's events.
 - If dropping it leaves an answer with nothing in it — a model that only
   thought, or that said nothing at all — what is stored is one empty piece
   of text. A message always has content, and a turn where the agent

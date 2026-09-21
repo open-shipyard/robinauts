@@ -327,15 +327,20 @@ class MemoryConversationStore(ConversationStore):
             going = self._active.get(conversation_id)
             return None if going is None else self._runs[going]
 
-    async def runs_of(self, conversation_id: uuid.UUID) -> tuple[Run, ...]:
+    async def runs_of(
+        self, conversation_id: uuid.UUID, *, limit: int | None = None
+    ) -> tuple[Run, ...]:
+        if limit is not None:
+            _page(limit)
         async with self._locked():
-            return tuple(
+            found = tuple(
                 sorted(
                     (run for run in self._runs.values() if run.conversation_id == conversation_id),
                     key=lambda run: _position(run, "created_at"),
                     reverse=True,
                 )
             )
+        return found if limit is None else found[:limit]
 
     async def runs_in(
         self, states: Collection[RunState], *, limit: int = MAX_SWEPT
@@ -702,9 +707,13 @@ def _cursor(cursor: str | None) -> tuple[datetime, bytes] | None:
 
 
 def _page(limit: object) -> int:
-    """``limit`` if a page may be that long; ``InvalidValueError`` if not."""
+    """``limit`` if a page may be that long; ``InvalidValueError`` if not.
+
+    The same bound for every listing this store pages -- conversations, and
+    the runs of one -- so the refusal names neither.
+    """
     if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_PAGE:
-        raise InvalidValueError(f"a page holds between 1 and {MAX_PAGE} conversations")
+        raise InvalidValueError(f"a page holds between 1 and {MAX_PAGE} rows")
     return limit
 
 

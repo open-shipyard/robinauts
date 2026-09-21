@@ -58,12 +58,28 @@ depend on the request that started it.
   through and releases what it holds ([agents.md](agents.md)). What was
   produced before it stays: a message that was complete is in the
   conversation, and the one in flight is not.
+- **Cancelling reaches a run two ways, and the database is the one that
+  counts.** The process executing a run keeps the task, keyed by run id, and
+  cancelling that task is what releases the provider connection promptly. When
+  no task is known — after a restart, or from another process — the run is
+  ended `cancelled` in the store instead, with its `RunEnded` at the next
+  position. That is not a weaker cancellation: **a run that has ended takes no
+  more writes**, so a task still executing it is refused at its next event and
+  stops there. The registry is the fast path; the store is the rule.
 - An engine reports a failure by **raising**. The run ends `failed`, with a
   description of what was raised recorded on it — made storable and cut to
   fit — and the answer that was in flight is left uncompleted.
 - **A turn that ends without an answer is a failed run**, never a finished
   one: the run records that the engine produced no answer. A `finished` run
-  has at least one message in the conversation.
+  has at least one message in the conversation. So is a turn that **announced
+  an answer and never completed it** while neither raising nor being
+  cancelled: a finished run leaves nothing half-written, and a turn that
+  stopped without saying so is a turn that went wrong.
+- **An answer that does not match what was published fails the run.** If any
+  text was published for an answer and the answer completes with different
+  text, the promise a watcher was given is broken, and what would be stored is
+  a stream that cannot be read back against the conversation. The run is
+  failed and the answer is not stored, rather than either being kept.
 
 ## States
 
@@ -151,7 +167,15 @@ Tool usage is planned ([agents.md](agents.md)); runs are designed for it.
   whose owner is gone is marked `interrupted`. **Whoever marks it appends the
   event that ends it** — `interrupted`, at the next position, which the store
   knows — so that every ended run's stored stream is complete and a watcher
-  of one is told it is over rather than waiting.
+  of one is told it is over rather than waiting. A `waiting` run holds no
+  process and is never interrupted; the state machine already says so, and the
+  sweep asks it rather than repeating it.
+- **A run ended before anything of its stream was stored is given its
+  beginning.** A run cancelled in the instant after it was created, or left
+  behind by a process that died before it wrote anything, would otherwise have
+  a stream beginning with its end, which nothing can read. Whoever ends a run
+  with no events writes the `RunStarted` first and then the event that ends
+  it.
 - An `interrupted` or `failed` run can be retried by the author. The retry
   is a new run from the conversation as it stands, so nothing already
   produced is lost or repeated.
@@ -179,8 +203,11 @@ Tool usage is planned ([agents.md](agents.md)); runs are designed for it.
   - the run ended, once, last, with the state it ended in. Nothing follows
     it.
 
-  Reasoning is published as it arrives and stored nowhere: this version keeps
-  none of it ([conversations.md](conversations.md)).
+  Reasoning is published as it arrives and kept **in the run's events alone**:
+  no message holds any of it, so it is in no conversation and in no export,
+  and it is in the events because a watcher that re-attaches in the middle of
+  an answer must be able to rebuild what it is watching
+  ([conversations.md](conversations.md)).
 
   A run that ended `finished` completed at least one message and left none
   half-written. One that failed, was cancelled or was interrupted may leave a
@@ -233,6 +260,34 @@ Tool usage is planned ([agents.md](agents.md)); runs are designed for it.
   transaction**, and is refused while a run is active — which is decided
   inside that transaction, so a run cannot begin in the window between the
   check and the delete and nothing can be left orphaned.
+
+## Known limits of this version
+
+- **A run whose end cannot be written stays `running`.** Ending a run is the
+  one write with nobody to report a failure to, so it is shielded from
+  cancellation, it reads its position back rather than trusting what it
+  counted, and it is tried again a few times when the store **cannot be
+  reached or does not answer** — each attempt under a bound of its own, so
+  that a store which never replies cannot hold the task for ever where
+  nothing could even cancel it. If it still cannot be written, the failure is
+  logged and the run is left as it is: the **start-up sweep of the next
+  restart** is what ends it, and until then its conversation refuses a new
+  message. The periodic sweep that would shorten that window is part of the
+  several-processes work above.
+- **A refused position is a question, never a repetition.** The application is
+  a run's single writer, so a position that is refused, or a write whose
+  answer never came back, is answered by reading what is actually stored where
+  the event was offered: it is already there and nothing more is needed, the
+  run has ended and this writer stops, or something that is not this writer's
+  is there — which is a fault, and the run is failed saying so. An event is
+  never simply offered again at the next free position: two writers that both
+  did that would store a run's beginning twice and leave a stream nobody can
+  read back.
+- **A run's events are kept until its conversation is deleted.** They exist to
+  be re-attached to, and removing them once a run has been over for a while is
+  the housekeeping described above; until it exists, what a run published —
+  including the reasoning it published — is kept as long as the conversation
+  is.
 
 ## Details likely to change
 

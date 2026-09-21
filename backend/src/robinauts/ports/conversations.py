@@ -430,11 +430,20 @@ class ConversationStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def runs_of(self, conversation_id: uuid.UUID) -> tuple[Run, ...]:
+    async def runs_of(
+        self, conversation_id: uuid.UUID, *, limit: int | None = None
+    ) -> tuple[Run, ...]:
         """That conversation's runs, the most recently created first.
 
         Ties are broken by id, for the reason the listing's are. An empty
         tuple for a conversation with no runs, and for one that is not there.
+
+        ``limit`` is how many of them are wanted, between 1 and ``MAX_PAGE``
+        (``InvalidValueError`` outside that); ``None`` is all of them. The
+        caller that asks for **one** is opening a conversation, which wants
+        nothing but the most recent run and whether it ended badly: a
+        conversation answered a thousand times would otherwise be read a
+        thousand rows at a time to look at one of them.
         """
         raise NotImplementedError
 

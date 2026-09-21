@@ -680,6 +680,114 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   `runs_of`, which needs no change to the port — so that somebody who reloads
   a conversation after a run failed, was cancelled or was interrupted is told
   so, instead of finding a turn that simply stops.
+- The **run lifecycle** in the application, against a fake engine (standard
+  library only). `domain/agents.py` gains `AgentDefinition` -- an operator's
+  agent as a record (id, title, system prompt, model, engine), validated in
+  `__post_init__`, with **no configuration parsing**: a later step reads the
+  file. `ports/agents.py`: the `Agent` port, **one method**, `run_turn(agent,
+  history)`, which hands back an async iterator of `EngineEvent`s. The
+  **history is the path ending in the user message being answered**, already
+  trimmed (`core.trim_history`) -- so there is no second argument for "the new
+  message", and a regeneration and a resumed turn look like every other turn.
+  An engine reports failure by raising and must let `CancelledError` through;
+  "waiting on tool calls" is a sentence in the docstring and nothing more.
+  `backend/tests/contracts/agents.py` is the suite both real engines will
+  subclass with a stubbed model (`new_agent(script)`): a streamed answer, an
+  unstreamed one, several in a turn, what was streamed is what completed, a
+  failure by raising mid-answer (`check_engine_events(cut_short=True)`), and a
+  cancellation that comes through promptly. `backend/tests/fakes/agents.py` is
+  the engine a test writes the script for -- events, `Gate`s the test opens
+  (so nothing sleeps and a gate nobody opens is an engine that hangs), and
+  `Raise` -- and it passes the suite now.
+  `application/turns.py`: `Turns`, with the store, the clock, the id source, a
+  mapping of agent id to `AgentDefinition` and one of `Engine` to `Agent`, plus
+  two limits with defaults (`history_chars`, `turn_seconds`); an agent whose
+  engine is not wired is refused **at wiring**. `start(user, agent_id | conversation_id, text,
+  parent_id)` and `regenerate(user, conversation_id, message_id)` are the three
+  request shapes of `wire.md` -- a new chat (titled with `core.derive_title`), a
+  message in one that exists (continue or edit, told apart only by the parent,
+  checked with `ConversationTree.check_attachment`), and a regeneration, which
+  appends nothing and answers the question its turn began with -- and **each is
+  one `start_run`**. `execute(run)` is the lifecycle a later step's executor
+  will schedule as a task: the run stamped as taken up (`update_run`),
+  `RunStarted` at position 1, the history read and
+  trimmed, the engine consumed inside one
+  `asyncio.timeout` for the whole turn, text through `publishable`/`flush`,
+  reasoning published and kept **in the run's events alone** (a re-attaching
+  watcher needs it; no message holds any), and each answer built with
+  `kept_parts` and stored with its `MessageCompleted` in one
+  `complete_message`; then `finished`, or `failed` (the engine raised -- the
+  type and what it said through `core.run_error`, never a traceback, the whole
+  of it escaped and bounded to the log through `domain.chain` / `domain.where`
+  -- no answer at all, an answer left announced, an answer
+  that did not complete with what it published, or the turn's timeout), or
+  `cancelled`, with the `CancelledError` **re-raised**.
+  **Ending a run is one routine for every path**, and it is the careful one:
+  it is shielded and waited on to its end (a cancel landing on it must not
+  leave a run `running` with its conversation blocked), each attempt is
+  bounded (`ENDING_SECONDS`, so a store that never answers cannot hold a task
+  nothing can reap), and a store that cannot be reached is tried again a few
+  times -- after which what it says is what is true, decided by **re-reading
+  the run**: one somebody else ended is not reported at all, and one still
+  active gets the ERROR naming the next start-up sweep, whatever went wrong
+  here. That is the known limit now written into `runs.md`. Letting go of the
+  run in this process's registry happens whatever the release does, including
+  being cancelled inside it, and the release itself never swallows a
+  cancellation: it records the abandonment and raises it again.
+  **A refused position is a question, never a repetition** (`_Stream`): every
+  refusal and every write whose answer never came back is settled by reading
+  what is stored **where the event was offered** -- already there (nothing to
+  do), a `RunEnded` there (stop quietly), somebody else's event there (fail
+  the run, `TWO_WRITERS`), or not there (offer it again from the position the
+  store reports; running out of attempts is `UNWRITABLE_STREAM` and fails the
+  run, never "somebody ended it"). Any `RunStarted` of the run counts as ours,
+  so a cancel or a sweep racing the task cannot start one run twice.
+  `_end_elsewhere` plans from the store on every attempt, and one run it
+  cannot end does not stop the sweep. Something raising while the task is
+  being cancelled
+  (`asyncio.current_task().cancelling()`) is a cancellation and not a failure.
+  **The engine is read by a task of its own** through a bounded queue
+  (`_Pump`, `QUEUE_DEPTH`): the lifecycle awaits the queue, so a cancellation
+  or a timeout reaches it at once however long the engine then takes to let
+  go, back-pressure is kept, and what the engine raises is raised in the
+  lifecycle's own frame. The engine is cancelled and closed **after** the run
+  has ended, waited for `CLOSING_SECONDS` and then abandoned (its result read,
+  so the loop says nothing), which is why an engine that will not let go holds
+  up nothing. `cancel(user, run_id)` cancels the task if this process has one and
+  otherwise ends the run in the **store**, which is what actually stops it
+  across processes; `claim(run_id)` / `let_go(run_id)` are how the executor
+  says a run is its **before** the task exists, so a sweep cannot interrupt a
+  run that is about to be answered, and a second `execute` of one run is
+  refused. `sweep_interrupted()` ends every active run this process
+  does not own, skipping `waiting` (nothing interrupts a run that holds no
+  process) and tolerating a run somebody ended first. Whoever ends a run whose
+  stream holds nothing writes its `RunStarted` first, so **every** stored
+  stream satisfies `core.check_event_order` -- which the tests assert over the
+  stored documents in every scenario, re-attachment included.
+  `Conversations.open` now also answers `ended_badly`: the most recent run when
+  nothing is in flight and it failed, was cancelled or was interrupted, so a
+  reload after a failure says so -- through the new `runs_of(..., limit=1)`, so
+  that opening a conversation answered a thousand times reads one row.
+  `domain/logs.py` now holds `shown`, `chain` and `where`, which `api.logs` and
+  `api.errors` re-export: the rule about escaping and bounding what somebody
+  else wrote is one rule, and the application logs what an engine raised by it.
+  Ownership is one function,
+  `application.owner_of`, shared by both services; a run is reached through its
+  conversation and "not yours" is "not there" for it too
+  (`RunNotFoundError`). New: `domain.UnknownAgentError` (a `NotFoundError`,
+  404 in `api/errors.py`'s exhaustive table). The tests are
+  `tests/unit/test_turn_start.py`, `test_turn_lifecycle.py` and
+  `test_fake_agent.py`, over the wiring in `tests/turns.py`.
+  **For the next steps:** the executor (12) `claim`s a run, creates the task
+  for `Turns.execute` (and `let_go`s it if it could not), calls
+  `sweep_interrupted()` at start-up and drains at shutdown; the
+  registry of executing tasks moves behind that port and `cancel` asks it. The
+  PostgreSQL store (11) meets `start_run`, `complete_message`, `end_run` and
+  `append_event` exactly as the fake does, and the refusals of an ended run and
+  of a taken position are what stops a run, so they are not optional. The api
+  (13/14) hands `start` / `regenerate` a `User` and gets the `Run` back at
+  once, streams from `resume_point` and the events after it, and calls
+  `cancel`; `execute` is never awaited by a request.
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -1225,4 +1333,61 @@ Important design decisions made / open questions:
 - "Not yours" and "not there" are the same `ConversationNotFoundError`.
 - For the next step: opening should also surface the most recent run's
   state and error when it ended badly (`runs_of`).
+
+### Step 10 — run-lifecycle   (feature/poc-10-run-lifecycle)
+
+Summary: a turn, from a request to a stored answer. `AgentDefinition`; the
+`Agent` port (an async generator of engine events) with `AgentContract`
+and a scriptable fake; `application.Turns` — `start` / `regenerate` (the
+three request shapes, one `start_run` each), `claim` / `let_go`,
+`execute(run)`, `cancel`, `sweep_interrupted`. In `execute` a child task
+reads the engine into a bounded queue; the lifecycle publishes numbered
+events through the store, stores each completed answer with its event, and
+ends the run through one shielded, bounded, retried routine.
+`Conversations.open` reports a last run that ended badly. The pure log
+helpers moved to `domain/logs.py`. No executor, no PostgreSQL store, no
+routes, no real engines yet.
+
+Review: 3 rounds.
+- High: 4
+  - A write that committed while its await was interrupted left the
+    position one behind, and the ending then mistook its own gap for
+    "somebody ended it" — the run stayed `running` for ever (reproduced by
+    the turn timeout alone).
+  - Only the cancelled ending was shielded; a cancel during any other
+    ending left the run `running` with its answer stored.
+  - With a second writer (cancel with no task, the sweep), re-offering a
+    refused event stored two `RunStarted` and made the stream unreadable.
+  - Exhausted write attempts were read as "somebody ended it first".
+  All fixed by two rules: a refused or unknown-outcome write is settled by
+  reading what is stored at the offered position (never re-offered
+  blindly), and every ending goes through one shielded routine that
+  re-plans from the store, with a timeout per attempt.
+- Medium: 9 (9/0)
+- Low: 15 (15/0)
+
+Checks: `scripts/check-all.sh` with the database required: all green; this
+step's modules 30 times under `-X dev -W error`, no flakes. Reviewers
+fuzzed about 600 store-fault and engine-fault scenarios: one `RunEnded`,
+gap-free positions, a readable stream, at most one message per answer,
+deltas joining to the stored text, nothing escaping but cancellation.
+Not done / to watch: about 4,500 lines with tests, over the aim. A run
+whose ending cannot be written (store unreachable or silent) stays
+`running` until the start-up sweep of the next restart — logged at ERROR;
+a run's events are kept until its conversation is deleted; agent
+definitions are fixed at start-up (all three in the specs' known limits).
+Important design decisions made / open questions:
+- The `Agent` port: `run_turn(definition, history)` — the history is the
+  trimmed path ending in the user message being answered; failure by
+  raising; release by closing the generator (bounded by the application).
+- The scheduler of step 12 calls `Turns.claim(run_id)` synchronously
+  BEFORE creating the task for `execute(run)`; the sweep skips claimed
+  runs; `cancel` cancels a known task, otherwise ends the run in the store.
+- Reasoning is kept in the run's events only (needed to re-attach), never
+  in a message.
+- An unknown agent is a not-found; a turn with no answer, an answer left
+  announced, or an answer that does not match what was published is a
+  failed run.
+- The application logs failures as one escaped, bounded record
+  (`domain.chain` / `domain.where`), never `exc_info`.
 

@@ -10,14 +10,30 @@
   one deployment. Changing an agent's engine or model takes effect at the
   next turn of its existing conversations — which is the swap the
   persistence design guarantees.
+- **In this version that means the next turn after a restart.** The
+  configuration is read once, at start-up, and the definitions are handed to
+  the controller then; a turn looks its agent up afresh, so nothing but a
+  reload of the configuration stands between this and the sentence above, and
+  a reload is not built. Known limit of the first version, not of the design.
 
 ## The agent port
 
-- The controller knows one port, `Agent`: given a history and a new user
-  message, **stream the engine's own events** — an answer has begun, more of
+- The controller knows one port, `Agent`: given the agent's definition and a
+  history, **stream the engine's own events** — an answer has begun, more of
   its text, more of its thinking, the answer is complete and here are its
-  parts — with the tokens they cost, and end either "finished" or "waiting on
-  these tool calls" ([runs.md](runs.md)).
+  parts — and end either "finished" or "waiting on these tool calls"
+  ([runs.md](runs.md)). **No usage**: what a turn cost is reported in the
+  platform's own terms when usage reporting is built, and until then an
+  engine's events carry none and no field is written for one.
+- **The history is a path of the conversation ending in the user message being
+  answered**, already trimmed to what the model will take, and the system
+  prompt is the agent's and is not one of the messages. So there is no second
+  argument for "the new message": the message to answer is the last of the
+  history, which is also what a resumed turn and a regenerated one look like,
+  and an engine has one thing to translate rather than two.
+- **An agent named by a request that this deployment does not have is not
+  there**: it is refused exactly as an id that reaches nothing is refused, and
+  so is a conversation bound to an agent the operator has since removed.
 - Those events carry no ids, no times and no provenance, because an engine
   has none: it was given a history and a model. The application turns them
   into the platform's messages and its own turn events, which is where an id,
@@ -33,7 +49,8 @@
   so an engine whose framework rewrites the final message builds its parts
   from what it streamed, or does not stream at all.
 - An engine may stream reasoning, and may return it with a finished answer.
-  This version shows it and stores none of it
+  This version shows it, keeps it in the run's events so that a watcher can
+  re-attach, and puts none of it in a message
   ([conversations.md](conversations.md)).
 - **A turn produces at least one answer.** A turn that ends without one is
   a failed run ([runs.md](runs.md)), not a finished turn with nothing in
@@ -66,8 +83,9 @@ Both engines are stateless per turn
 background, independent of the request that started it. The controller
 runs every turn the same way:
 
-1. Load the conversation's messages from the database.
-2. Call the agent port with the history and the new user message; publish
+1. Load the conversation's messages from the database, and take the path
+   down to the message being answered.
+2. Call the agent port with the agent and that history, trimmed; publish
    the events, which the UI watches ([wire.md](wire.md)).
 3. Translate each new message into the platform's format and append it to
    the conversation as it is produced.

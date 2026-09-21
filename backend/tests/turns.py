@@ -1,0 +1,141 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+
+"""The wiring the run lifecycle's tests share: the service over every fake.
+
+``application.Turns`` with an in-memory store, a clock that stands still, ids
+a test knows in advance and an engine a test writes the script for. Nothing
+here decides anything -- it is the four ports and the two services, built the
+way a deployment builds them -- and the readers at the bottom are what a test
+looks at afterwards: the messages that were stored, the events that were
+published, and whether the stream reads back.
+
+``readable`` is the one that matters. **Everything ``execute`` stores must
+satisfy ``core.check_event_order``**, in every scenario -- finished, failed,
+cancelled, timed out, swept -- so every test of a lifecycle ends by asking it,
+over the documents as they are stored rather than over what the service
+returned.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from dataclasses import dataclass
+
+from conversations import AGENT, OWNER, agent_definition, at
+from fakes import CountingIdSource, FakeClock, MemoryConversationStore, ScriptedAgent, Step
+from robinauts.application import Conversations, Turns
+from robinauts.core import check_event_order, message_from_stored, run_event_from_stored
+from robinauts.domain import AgentDefinition, Message, Run, RunEvent, User
+from robinauts.ports import ConversationStore
+
+NOW = at(100)
+"""What the clock says while a test runs, unless the test moves it."""
+
+STRANGER = uuid.UUID("77777777-7777-4777-8777-777777777777")
+"""Somebody else, who owns nothing here and to whom nothing here belongs."""
+
+AUTHOR = User(id=OWNER, provider="google", subject="1", name="Ada", email=None, created_at=at(0))
+SOMEBODY_ELSE = User(
+    id=STRANGER, provider="google", subject="2", name="Bob", email=None, created_at=at(0)
+)
+
+
+@dataclass(frozen=True, slots=True)
+class Wiring:
+    """The service, the ports under it, and the store a test looks in."""
+
+    turns: Turns
+    conversations: Conversations
+    store: MemoryConversationStore
+    clock: FakeClock
+    ids: CountingIdSource
+    agent: ScriptedAgent
+    definition: AgentDefinition
+
+
+def wired(
+    *steps: Step,
+    definition: AgentDefinition | None = None,
+    store: MemoryConversationStore | None = None,
+    history_chars: int = 100_000,
+    turn_seconds: float = 30.0,
+) -> Wiring:
+    """``Turns`` over the fakes, with an engine that runs that script."""
+    kept = definition if definition is not None else agent_definition()
+    store = store if store is not None else MemoryConversationStore()
+    clock = FakeClock(now=NOW)
+    ids = CountingIdSource()
+    agent = ScriptedAgent(*steps)
+    return Wiring(
+        turns=Turns(
+            store=store,
+            clock=clock,
+            ids=ids,
+            agents={kept.id: kept},
+            engines={kept.engine: agent},
+            history_chars=history_chars,
+            turn_seconds=turn_seconds,
+        ),
+        conversations=Conversations(store=store, clock=clock),
+        store=store,
+        clock=clock,
+        ids=ids,
+        agent=agent,
+        definition=kept,
+    )
+
+
+async def begun(wiring: Wiring, text: str = "What is a robinaut?") -> Run:
+    """A new conversation with one question in it, and the run answering it."""
+    return (await wiring.turns.start(AUTHOR, agent_id=AGENT, text=text)).run
+
+
+async def stored_messages(store: ConversationStore, conversation_id: uuid.UUID) -> list[Message]:
+    """The messages of that conversation, as they are stored, oldest first."""
+    return [message_from_stored(document) for document in await store.messages_of(conversation_id)]
+
+
+async def stored_events(
+    store: ConversationStore, run_id: uuid.UUID, after: int = 0
+) -> list[RunEvent]:
+    """That run's events, as they are stored, in order of position."""
+    return [
+        run_event_from_stored(document) for document in await store.events_of(run_id, after=after)
+    ]
+
+
+async def written(store: ConversationStore, run_id: uuid.UUID, position: int) -> None:
+    """Wait until that run's stream has reached ``position``.
+
+    **The checkpoint a test needs, now that the engine is read by a task of
+    its own.** A gate says where the *engine* is; it says nothing about how
+    much of what it yielded the lifecycle has written, because the events
+    ahead of the writer sit in a queue. So a test that is about what is stored
+    waits for what is stored. Nothing sleeps: it yields to the loop, and the
+    writer is the only thing that can run.
+    """
+    while await store.last_position(run_id) < position:
+        await asyncio.sleep(0)
+
+
+def readable(events: list[RunEvent], run: Run, *, ended: bool = True) -> None:
+    """The whole of a run's stored stream, read back; raises if it does not.
+
+    The three things ``core.check_event_order`` is not allowed to guess are
+    the three a run knows: which run, which conversation, and what the first
+    message of the stream hangs under -- the question the run answers.
+    """
+    check_event_order(
+        events,
+        run_id=run.id,
+        conversation_id=run.conversation_id,
+        follows=run.message_id,
+        ended=ended,
+    )
+
+
+def kinds(events: list[RunEvent]) -> list[str]:
+    """The kinds of the events of a stream, in order: what a test reads at a glance."""
+    return [type(event.event).__name__ for event in events]

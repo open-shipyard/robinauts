@@ -53,15 +53,12 @@ from robinauts.api.cookies import (
 from robinauts.api.errors import (
     GENERIC_DETAIL,
     INTERNAL_ERROR,
-    MAX_CAUSES,
     MAX_DETAIL_CHARS,
-    MAX_FRAMES,
     NOT_FOUND_DETAIL,
     NOT_FOUND_ERROR,
     SIGN_IN_DETAIL,
     STATUS_OF,
     UNREADABLE_DETAIL,
-    chain,
     error_body,
     http_error_detail,
     http_error_name,
@@ -69,7 +66,6 @@ from robinauts.api.errors import (
     refusal,
     status_of,
     unreadable_detail,
-    where,
 )
 from robinauts.api.logs import MAX_SHOWN, shown
 from robinauts.api.protection import (
@@ -106,6 +102,7 @@ from robinauts.api.web import (
     create_api,
     openapi_document,
 )
+from robinauts.domain import MAX_CAUSES, MAX_FRAMES, chain, where
 
 __all__ = [
     "API_VERSION",

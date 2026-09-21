@@ -121,13 +121,16 @@ There so far:
   one: an id is public and goes in a URL, and a test's id source may be
   predictable where a test's secrets may not.
 
+- `Agent`: run one turn — given the agent's definition and a history whose
+  last message is the user message being answered, already trimmed, stream the
+  engine's own `EngineEvent`s as an **async generator**, which the application
+  closes to release what the engine holds. Failure is reported by raising and
+  a cancellation is let through. The application turns those events into
+  messages and `TurnEvent`s: an engine has no ids, no clock and no rows.
+  Implementations: LangGraph and Pydantic AI.
+
 Still to come:
 
-- `Agent`: run one turn — given a history and a new user message, stream
-  `EngineEvent`s with their token usage, and end either finished or waiting
-  on tool calls. The application turns those into messages and `TurnEvent`s:
-  an engine has no ids, no clock and no rows. Implementations: LangGraph and
-  Pydantic AI.
 - `RunExecutor`: execute a run in the background, subscribe to its events
   from a given position, cancel it. Version 1: asyncio tasks in the
   backend process.

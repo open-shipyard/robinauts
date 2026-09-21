@@ -237,6 +237,51 @@ async def test_a_run_that_has_ended_is_not_a_run_to_attach_to() -> None:
     opened = await wiring.service.open(AUTHOR, CONVERSATION)
 
     assert (opened.run_id, opened.resume) == (None, None)
+    # It finished; there is nothing to be told about.
+    assert opened.ended_badly is None
+
+
+@asyncio_test
+async def test_a_conversation_whose_last_run_went_wrong_says_so_when_it_is_opened() -> None:
+    # Otherwise somebody who reloads after a failure finds a turn that simply
+    # stops, with nothing anywhere saying why (``docs/specs/runs.md``).
+    wiring = wired()
+    asked = question(seconds=0)
+    await wiring.written(asked)
+    await wiring.answering(asked, RunStarted(run_id=RUN, conversation_id=CONVERSATION))
+    over = RunEvent(
+        run_id=RUN,
+        seq=FIRST_POSITION + 1,
+        event=RunEnded(run_id=RUN, state=RunState.FAILED, error="the provider said no"),
+    )
+    going = await wiring.store.run_by_id(RUN)
+    assert going is not None
+    await wiring.store.end_run(
+        transition(going, RunState.FAILED, now=at(10), error="the provider said no"),
+        over,
+        run_event_to_data(over),
+    )
+
+    opened = await wiring.service.open(AUTHOR, CONVERSATION)
+
+    assert opened.run_id is None
+    assert opened.ended_badly is not None
+    assert opened.ended_badly.state is RunState.FAILED
+    assert opened.ended_badly.error == "the provider said no"
+
+
+@asyncio_test
+async def test_a_conversation_with_a_run_in_flight_is_told_about_the_run_and_nothing_else() -> None:
+    wiring = wired()
+    asked = question(seconds=0)
+    await wiring.written(asked)
+    await wiring.answering(asked, RunStarted(run_id=RUN, conversation_id=CONVERSATION))
+
+    opened = await wiring.service.open(AUTHOR, CONVERSATION)
+
+    # What matters while one is going is the run that is going.
+    assert opened.run_id == RUN
+    assert opened.ended_badly is None
 
 
 # --- renaming ----------------------------------------------------------------

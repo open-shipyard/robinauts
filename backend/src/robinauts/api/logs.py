@@ -11,7 +11,9 @@ line -- they make new ones, of whatever shape whoever sent them chose, in the
 middle of the record of what the deployment did.
 
 So every log call in ``robinauts.api`` that carries text from a request puts
-it through ``shown``:
+it through ``shown``, which lives in ``robinauts.domain.logs`` -- the
+application logs what an engine or a store raised by the same rule, and one
+rule is one function -- and is re-exported here, where ``api`` reaches for it:
 
 - **escaped**, with ``ascii()``, which quotes the text and writes every
   control character, every newline and everything outside ASCII as an escape.
@@ -27,26 +29,6 @@ for the log, where the particulars are the point.
 
 from __future__ import annotations
 
-MAX_SHOWN = 120
-"""How much of a value from outside a log line repeats.
+from robinauts.domain import MAX_SHOWN, shown
 
-Enough to recognise a path or an origin; far too little to bury the line
-before it. What is dropped is counted, so a line never quietly says less than
-it means to.
-"""
-
-
-def shown(value: object, *, most: int = MAX_SHOWN) -> str:
-    """``value`` as a log line may carry it: quoted, escaped and bounded.
-
-    The clipping happens **before** the escaping, so the bound is on the text
-    that arrived rather than on its spelling; an escape is up to six
-    characters, so what comes out is longer than ``most`` and still bounded by
-    it. What was dropped is counted rather than left to be guessed at.
-    """
-    text = value if isinstance(value, str) else str(value)
-    clipped = text[:most]
-    escaped = ascii(clipped)
-    if len(clipped) == len(text):
-        return escaped
-    return f"{escaped}+{len(text) - len(clipped)} more"
+__all__ = ["MAX_SHOWN", "shown"]

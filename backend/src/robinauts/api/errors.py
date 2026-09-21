@@ -50,7 +50,6 @@ rather than quietly answering 500.
 from __future__ import annotations
 
 import logging
-import traceback
 from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any
@@ -62,6 +61,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from robinauts.api.logs import shown
 from robinauts.domain import (
+    MAX_LOGGED,
     AuthenticationError,
     ConfigError,
     ConversationNotFoundError,
@@ -83,10 +83,13 @@ from robinauts.domain import (
     SignInError,
     SignInErrorCode,
     StoredDataError,
+    UnknownAgentError,
     UnknownProviderError,
     UnsupportedContentError,
     UnsupportedFormatError,
     UnsupportedMediaTypeError,
+    chain,
+    where,
 )
 
 _log = logging.getLogger(__name__)
@@ -109,26 +112,14 @@ UNREADABLE_DETAIL = "the request could not be read"
 MAX_DETAIL_CHARS = 300
 """How long a detail built out of a request may be. It is a sentence, not a dump."""
 
-_LOGGED = 600
+_LOGGED = MAX_LOGGED
 """How much of one of our own messages a log line carries.
 
-Longer than what comes from a request (``logs.MAX_SHOWN``): these are written
-here, for an operator, and a configuration error lists every problem it found.
-Bounded all the same, because some of them are built out of a request.
+``domain.MAX_LOGGED``, kept under its old name for the callers in this module.
 """
 
 MAX_REPORTED_FIELDS = 5
 """How many fields a "could not be read" answer names before it stops."""
-
-MAX_CAUSES = 5
-"""How far down a chain of causes a log line follows before it stops."""
-
-MAX_FRAMES = 15
-"""How many frames of the innermost cause a log line carries.
-
-The last ones, which are the ones nearest what went wrong. Enough to find the
-line; not a page of stack for every refusal.
-"""
 
 SIGN_IN_DETAIL: Mapping[SignInErrorCode, str] = {
     SignInErrorCode.EXPIRED: "the sign-in took too long, or was already used",
@@ -176,6 +167,11 @@ STATUS_OF: dict[type[RobinautsError], int] = {
     MessageNotFoundError: 404,
     RunNotFoundError: 404,
     NotTheOwnerError: 404,
+    # An agent id that names no configured agent. Not a secret -- the picker
+    # lists the agents there are -- and it answers the same body all the same,
+    # since it is under `NotFoundError` and there is one answer for everything
+    # that is not there.
+    UnknownAgentError: 404,
     # The conversation is busy answering, or the run has moved on: the state
     # of something else is what refuses, and trying again may well work.
     RunAlreadyActiveError: 409,
@@ -213,54 +209,6 @@ def error_body(exc: BaseException, status: int) -> dict[str, Any]:
     if isinstance(exc, SignInError):
         return {"error": type(exc).__name__, "detail": SIGN_IN_DETAIL[exc.code]}
     return {"error": type(exc).__name__, "detail": str(exc)}
-
-
-def chain(exc: BaseException, *, most: int = _LOGGED) -> str:
-    """``exc`` and what raised it, each escaped and bounded, in one line.
-
-    An error of ours often says only what kind of thing went wrong -- "a
-    stored message cannot be read by this build" is the whole of it, on
-    purpose, because the browser must learn nothing from it. Which message,
-    and what exactly was wrong with it, is in the error it was raised **from**,
-    and without that an operator is told that something is broken and nothing
-    about what. So the chain is followed and written out.
-
-    Escaped and bounded like anything else a log line carries
-    (``robinauts.api.logs``): the deepest cause is frequently the one built
-    out of a row, and a row is as much somebody's text as a request is.
-    """
-    said = []
-    seen: BaseException | None = exc
-    while seen is not None and len(said) < MAX_CAUSES:
-        said.append(f"{type(seen).__name__}: {shown(seen, most=most)}")
-        seen = seen.__cause__ or seen.__context__
-    return " <- ".join(said)
-
-
-def where(exc: BaseException, *, most: int = MAX_FRAMES) -> str:
-    """Where the innermost cause was raised: ``file:line in function``.
-
-    A 5xx of ours says nothing to the browser and often little to the log
-    either -- "a stored message cannot be read by this build" is a sentence
-    about a kind of thing, and ``reading_stored`` gives that same sentence to
-    a bug in our own reader. Without the frames there is nothing to look at.
-
-    **Only the frames**, and only their three fields: no source lines, no
-    locals, and not the exception's own message, which ``chain`` carries and
-    escapes. A file name and a function name are the interpreter's, not
-    anybody's input, and they go through ``shown`` all the same, so that
-    nothing here can end a log line or start one.
-    """
-    innermost: BaseException = exc
-    seen = 0
-    while (innermost.__cause__ or innermost.__context__) and seen < MAX_CAUSES:
-        innermost = innermost.__cause__ or innermost.__context__  # type: ignore[assignment]
-        seen += 1
-    frames = traceback.extract_tb(innermost.__traceback__)[-most:]
-    return shown(
-        " < ".join(f"{frame.filename}:{frame.lineno} in {frame.name}" for frame in frames),
-        most=_LOGGED,
-    )
 
 
 def refusal(exc: RobinautsError) -> JSONResponse:

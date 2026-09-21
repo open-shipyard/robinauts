@@ -49,11 +49,13 @@ from robinauts.core import (
     tree_of_stored,
 )
 from robinauts.domain import (
+    FAULTED_RUN_STATES,
     MAX_TITLE_CHARS,
     Conversation,
     ConversationNotFoundError,
     InvalidValueError,
     Message,
+    Run,
     User,
     checked_line,
     checked_uuid,
@@ -84,6 +86,15 @@ class OpenedConversation:
     resume: ResumePoint | None = None
     """Where a watcher of that run attaches, and what the next message there
     will hang under (``core.resume_point``). ``None`` with no run in flight."""
+    ended_badly: Run | None = None
+    """The most recent run, when nothing is in flight and that run failed, was
+    cancelled or was interrupted.
+
+    So that somebody who reloads a conversation after an answer went wrong is
+    told what happened, instead of finding a turn that simply stops
+    (``docs/specs/runs.md``). ``None`` when the last run finished, when there
+    has been none, and while one is in flight -- what matters then is the run
+    itself."""
 
 
 class Conversations:
@@ -126,6 +137,12 @@ class Conversations:
         opening the conversation is shown the wrong thing, and the port is
         what makes it impossible.
 
+        **What went wrong is told too.** When no run is in flight, the most
+        recent one is looked at, and a run that failed, was cancelled or was
+        interrupted comes back on ``ended_badly``: somebody who reloads a
+        conversation after an answer went wrong is told so rather than finding
+        a turn that simply stops.
+
         The snapshot is decoded here and the point is found by
         ``core.resume_point``, rather than asked of the store: the rule is one
         sentence in ``core`` and a store that answered it would be a second
@@ -136,7 +153,7 @@ class Conversations:
         checked_uuid(conversation_id, "a conversation's id")
         checked_uuid(user.id, "a user's id")
         snapshot = await self._store.conversation_snapshot(conversation_id)
-        conversation = self._owner_of(user, conversation_id, snapshot.conversation)
+        conversation = owner_of(user, conversation_id, snapshot.conversation)
         tree = tree_of_stored(
             [message_from_stored(document) for document in snapshot.messages],
             conversation_id=conversation.id,
@@ -144,7 +161,12 @@ class Conversations:
         leaf = tree.default_leaf(conversation)
         active = snapshot.active_run
         if active is None:
-            return OpenedConversation(conversation=conversation, tree=tree, leaf=leaf)
+            return OpenedConversation(
+                conversation=conversation,
+                tree=tree,
+                leaf=leaf,
+                ended_badly=await self._ended_badly(conversation.id),
+            )
         events = [run_event_from_stored(document) for document in snapshot.events]
         return OpenedConversation(
             conversation=conversation,
@@ -153,6 +175,25 @@ class Conversations:
             run_id=active.id,
             resume=resume_point(events, answering=active.message_id),
         )
+
+    async def _ended_badly(self, conversation_id: uuid.UUID) -> Run | None:
+        """The most recent run of that conversation, if it ended badly.
+
+        A **second** read, and deliberately outside the snapshot: it is asked
+        only when nothing is in flight, it changes nothing about the messages
+        or the tree, and what it says is advisory -- a run that began between
+        the two reads is a run the caller will be told about when it opens
+        again. Keeping it in the snapshot would mean a port that returned a
+        conversation's whole run history for every open.
+
+        **One row**, because one is what this is about: a conversation
+        answered a thousand times is not read a thousand runs at a time to
+        look at the last of them.
+        """
+        runs = await self._store.runs_of(conversation_id, limit=1)
+        if not runs or runs[0].state not in FAULTED_RUN_STATES:
+            return None
+        return runs[0]
 
     async def rename(self, user: User, conversation_id: uuid.UUID, title: str) -> Conversation:
         """Give it a new title. A renamed title is never overwritten afterwards.
@@ -224,26 +265,28 @@ class Conversations:
         """
         checked_uuid(conversation_id, "a conversation's id")
         checked_uuid(user.id, "a user's id")
-        return self._owner_of(
+        return owner_of(
             user, conversation_id, await self._store.conversation_by_id(conversation_id)
         )
 
-    @staticmethod
-    def _owner_of(
-        user: User, conversation_id: uuid.UUID, found: Conversation | None
-    ) -> Conversation:
-        """``found`` if it is this person's, however it was read.
 
-        The rule itself, so that the call that reads a conversation on its own
-        and the one that reads a whole snapshot answer with the same error.
-        """
-        if found is None:
-            raise _gone(conversation_id)
-        if found.owner_id != user.id:
-            raise ConversationNotFoundError(
-                f"conversation {conversation_id} belongs to {found.owner_id}, not to {user.id}"
-            )
-        return found
+def owner_of(user: User, conversation_id: uuid.UUID, found: Conversation | None) -> Conversation:
+    """``found`` if it is this person's; ``ConversationNotFoundError`` if not.
+
+    **The ownership rule itself**, in one function, so that every way of
+    reaching a conversation answers the same: read on its own or inside a
+    snapshot, reached directly or through a run of it (``application.turns``).
+    A conversation of somebody else's and one that never existed leave here as
+    the same error, and the detail -- which says which it was, for the log --
+    is not part of what ``api`` answers with.
+    """
+    if found is None:
+        raise _gone(conversation_id)
+    if found.owner_id != user.id:
+        raise ConversationNotFoundError(
+            f"conversation {conversation_id} belongs to {found.owner_id}, not to {user.id}"
+        )
+    return found
 
 
 def _gone(conversation_id: uuid.UUID) -> ConversationNotFoundError:

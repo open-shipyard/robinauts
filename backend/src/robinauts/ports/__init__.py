@@ -9,6 +9,7 @@ constructs none; the fakes under ``backend/tests/fakes/`` implement these same
 classes, and the contract suites say what an implementation must do.
 """
 
+from robinauts.ports.agents import Agent
 from robinauts.ports.clock import Clock
 from robinauts.ports.conversations import (
     MAX_PAGE,
@@ -27,6 +28,7 @@ __all__ = [
     "MAX_PAGE",
     "MAX_SWEPT",
     "SECRET_BITS",
+    "Agent",
     "Clock",
     "ConversationPage",
     "ConversationStore",

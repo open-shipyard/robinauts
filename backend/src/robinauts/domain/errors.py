@@ -100,6 +100,19 @@ class RunNotFoundError(NotFoundError):
     """No run of that id, or none in this person's conversation."""
 
 
+class UnknownAgentError(NotFoundError):
+    """No agent of that id is configured in this deployment.
+
+    Under ``NotFoundError`` because that is what it is -- a name that reaches
+    nothing -- and so that it answers the same fixed body as everything else
+    that is not there (``robinauts.api.errors``). An agent's id is not a
+    secret: the picker lists the ones there are (``docs/specs/agents.md``). It
+    is also what a conversation bound to an agent the operator has since
+    removed meets, and the detail, which reaches the log alone, says which of
+    the two it was.
+    """
+
+
 class NotTheOwnerError(RobinautsError):
     """A conversation belongs to somebody else.
 

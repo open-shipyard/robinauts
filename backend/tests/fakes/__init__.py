@@ -9,6 +9,7 @@ fail to instantiate. The credential store and the conversation store pass
 the same contract suites as the real ones will (``tests/contracts/``).
 """
 
+from fakes.agents import Asked, Gate, Raise, ScriptedAgent, Step, says
 from fakes.clock import START, FakeClock
 from fakes.conversations import MemoryConversationStore
 from fakes.credentials import MemoryCredentialStore
@@ -20,12 +21,18 @@ __all__ = [
     "LENGTH",
     "START",
     "Answer",
+    "Asked",
     "CountingIdSource",
     "CountingSecretSource",
     "FakeClock",
+    "Gate",
     "MemoryConversationStore",
     "MemoryCredentialStore",
+    "Raise",
+    "ScriptedAgent",
     "ScriptedIdentityProvider",
+    "Step",
     "StuntedSecretSource",
     "discovery_for",
+    "says",
 ]
