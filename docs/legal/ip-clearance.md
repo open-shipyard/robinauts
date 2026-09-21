@@ -74,5 +74,22 @@ Entries are never edited after the fact; a correction is a new entry.
 - Attribution added to: this entry. Same authors and the same licence; no
   notice is required.
 
+### 2026-09-21 — OIDC HTTP adapter and the stand-in provider, derived from neorc
+
+- Source: https://github.com/open-shipyard/neorc, commit `68e3805`:
+  `python/neorc/src/neorc/auth/_oidc.py` (the discovery fetch, the code
+  exchange, client authentication by basic or post with the RFC 6749
+  section 2.3.1 encoding, timeouts, no redirects) and the `StandInProvider`
+  and `unsigned_jwt` of the root `conftest.py`.
+- Their licence: Apache-2.0, Copyright The neorc Authors.
+- Landed as: `backend/src/robinauts/adapters/identity_provider.py` and
+  `backend/tests/standin/`.
+- Modifications: no file was copied. The adapter only fetches and posts and
+  returns raw data, where neorc's client also validates; the stand-in is a
+  real loopback HTTP server, where neorc's is an ASGI application.
+  Substantially machine-generated, reviewed by the maintainers.
+- Attribution added to: this entry. Same authors and the same licence; no
+  notice is required.
+
 <!-- Entries go above this line. -->
 <!-- REUSE-IgnoreEnd -->

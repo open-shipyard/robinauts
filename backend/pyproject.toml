@@ -8,7 +8,7 @@ description = "Conversational agents that play fair: the Robinauts backend."
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [{ name = "The Robinauts Authors" }]
-dependencies = ["asyncpg>=0.30"]
+dependencies = ["asyncpg>=0.30", "httpx>=0.28"]
 
 [dependency-groups]
 dev = [
@@ -118,9 +118,14 @@ forbidden_modules = [
     "robinauts.cli",
 ]
 
+# Direct imports only. `api` calls the application, and the application
+# imports core and ports, so every one of those is something `api` reaches
+# indirectly the moment it has a route -- which is allowed and unavoidable.
+# The rule is that `api` itself never names them (docs/layout.md section 5).
 [[tool.importlinter.contracts]]
 name = "api imports only application and domain"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = ["robinauts.api"]
 forbidden_modules = [
     "robinauts.core",
@@ -159,9 +164,19 @@ forbidden_modules = [
 
 # The database driver is confined to datastore, like each agent framework to
 # its adapter: no SQL and no connection anywhere else (docs/layout.md).
+#
+# `allow_indirect_imports` on every library contract below. The rule each one
+# states is "this module must not import the library ITSELF"; reaching it
+# through the one package that may is the whole point of that package. Without
+# it, the composition root -- whose job is to import `adapters` and
+# `datastore` -- would break all four contracts the day it is written, and the
+# only way to keep them green would be to stop it importing them at all. What
+# stops a library leaking sideways is the layer contracts above: nothing but
+# infrastructure may import `adapters` or `datastore` in the first place.
 [[tool.importlinter.contracts]]
 name = "asyncpg only under datastore"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = [
     "robinauts.domain",
     "robinauts.core",
@@ -174,10 +189,30 @@ source_modules = [
 ]
 forbidden_modules = ["asyncpg"]
 
+# The HTTP client is confined to adapters, like the driver to datastore: the
+# platform's outbound traffic is the identity provider and the model providers,
+# and both are adapters (docs/layout.md, "Third-party libraries").
+[[tool.importlinter.contracts]]
+name = "httpx only under adapters"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "robinauts.domain",
+    "robinauts.core",
+    "robinauts.ports",
+    "robinauts.application",
+    "robinauts.api",
+    "robinauts.datastore",
+    "robinauts.app",
+    "robinauts.cli",
+]
+forbidden_modules = ["httpx"]
+
 # The agent frameworks are swappable: each is confined to its own adapter.
 [[tool.importlinter.contracts]]
 name = "LangGraph and LangChain only under adapters.agents.langgraph"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = [
     "robinauts.domain",
     "robinauts.core",
@@ -194,6 +229,7 @@ forbidden_modules = ["langgraph", "langchain", "langchain_core"]
 [[tool.importlinter.contracts]]
 name = "Pydantic AI only under adapters.agents.pydantic_ai"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = [
     "robinauts.domain",
     "robinauts.core",

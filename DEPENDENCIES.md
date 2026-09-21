@@ -106,7 +106,7 @@ it is the Python standard library.
 
 ## Restricted dependencies in use
 
-Three things in the row below are checked against reality on every run, so a
+Three things in each row below are checked against reality on every run, so a
 dependency that changes under us breaks the build rather than slipping
 through on its name:
 
@@ -121,6 +121,7 @@ through on its name:
 | package | licence | scope | why it is acceptable |
 |---|---|---|---|
 | `pathspec` | MPL-2.0 | development only; brought by `black` | unmodified, not shipped in any artifact |
+| `certifi` | MPL-2.0 | runtime; brought by `httpx` and `httpcore` | unmodified, and not bundled: it is installed by the package manager from PyPI, never vendored into this repository and never copied inside the wheel. It is the CA bundle the HTTPS client verifies identity providers with, which is why the sign-in adapter can insist on TLS verification with no way to turn it off |
 
 ## Excepted development-only dependencies
 

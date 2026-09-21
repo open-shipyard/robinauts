@@ -72,7 +72,20 @@ Depends on domain only.
 ### ports
 
 Abstract base classes describing what the application needs from the
-outside world. Version 1 ports, to be refined as the specs grow:
+outside world. To be refined as the specs grow.
+
+There so far:
+
+- `CredentialStore`: sessions, pending sign-ins, API tokens.
+- `IdentityProvider`: the OIDC exchange with a sign-in provider — one GET
+  and one POST, returning raw data and deciding nothing.
+- `Clock`: current time, as an aware datetime, and a monotonic count for
+  measuring intervals.
+- `SecretSource`: fresh unguessable text — the `state`, the `nonce`, the
+  PKCE verifier and the session cookie's value. The only randomness in the
+  platform.
+
+Still to come:
 
 - `Agent`: run one turn — given a history and a new user message, stream
   `TurnEvent`s and the new messages with their token usage, and end either
@@ -84,10 +97,16 @@ outside world. Version 1 ports, to be refined as the specs grow:
   from a given position, cancel it. Version 1: asyncio tasks in the
   backend process.
 - `UsageStore`: record and query token usage per model and conversation.
-- `CredentialStore`: sessions, pending sign-ins, API tokens.
-- `IdentityProvider`: the OIDC exchange with a sign-in provider.
-- `ConfigSource`: load configuration as domain objects.
-- `Clock`: current time.
+
+**Configuration has no port**, deliberately. An adapter function reads the
+file and returns the raw tables (`adapters.read_toml`); `core` turns them
+into domain objects (`core.parse_sign_in_config`); the composition root
+calls the two in turn and hands the result to whatever needs it. A port is
+a seam for something the application does at run time and a test must
+replace — and nothing above `adapters` reads configuration at run time: it
+is given the domain objects, already validated, at start-up. An earlier
+draft of this document listed a `ConfigSource` port; there is none, and
+there is no place for one.
 
 Depends on domain only.
 
@@ -213,7 +232,7 @@ their adapter sub-package. HTTP clients are confined to adapters.
 | allow-list matching, ID token claim checks | core, with `now` from the clock port |
 | OIDC discovery and code exchange | adapters (identity provider) |
 | cookies, CSRF checks, request parsing, streaming responses | api |
-| config reading, validation into domain | adapters read, core validates |
+| config reading, validation into domain | adapters read (raw data), core validates, infrastructure wires — no port |
 | wiring, injection, choice of agent engine | infrastructure |
 
 ## 5. Enforcement
@@ -232,6 +251,7 @@ cover:
 - adapters and datastore import only ports and domain
 - nothing except infrastructure imports adapters, datastore or api
 - `asyncpg` is imported only under `datastore`
+- `httpx` is imported only under `adapters`
 - LangGraph and LangChain are imported only under
   `adapters/agents/langgraph`
 - Pydantic AI is imported only under `adapters/agents/pydantic_ai`

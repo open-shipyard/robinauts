@@ -13,8 +13,8 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
 - `backend/` — the `robinauts` package with every layer as a sub-package,
   `pyproject.toml` with the import-linter contracts, and
   `tests/unit/test_architecture.py` which runs them. `domain`, `core`,
-  `ports`, `application` and `datastore` have something in them; `api` and
-  `adapters` are still empty.
+  `ports`, `application`, `datastore` and `adapters` have something in them;
+  `api` is still empty.
   Checks: `uv run pytest`, `uv run ruff check .`, `uv run black --check .`
   from `backend/`, or `scripts/check-all.sh` from the root.
 - Sign-in, domain and core (standard library only). `domain/errors.py`:
@@ -185,6 +185,88 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   An import-linter contract keeps `asyncpg` under `datastore`. CI runs the
   same tests against a PostgreSQL service container, pinned by digest,
   deliberately not on UTC, and required.
+- `adapters/` — the rest of the outside world, and the second runtime
+  dependency, `httpx` (BSD-3-Clause; it brings `certifi`, MPL-2.0, which has
+  a row in `DEPENDENCIES.md` as an unmodified, unbundled runtime
+  dependency). An import-linter contract keeps `httpx` under `adapters`, as
+  `asyncpg` is kept under `datastore`. `adapters/identity_provider.py`:
+  `HttpIdentityProvider`, the `IdentityProvider` port over an
+  `httpx.AsyncClient` it **makes for itself** in its constructor
+  (`open_client` is the one place one is made; `aclose` closes it, and the
+  composition root holds the adapter for the life of the process, as it
+  does the pool). The client is deliberately not a parameter: one made with
+  `verify=False` is a keyword away, and an adapter whose TLS depended on
+  what it was handed could promise nothing. What a deployment may choose is
+  the timeouts, the bound, `trust_env` and where the secret is read from.
+  It fetches and posts and decides nothing — the mappings come back as the
+  provider sent them — but it is strict about the HTTP: a connect timeout,
+  a read timeout and a ceiling on the whole exchange (`asyncio.timeout`);
+  **no redirects**, set on the client and again on every send, because
+  following one from a token endpoint would post the authorization code
+  wherever the answerer chose; **a bounded body, uncompressed** — every
+  request asks `Accept-Encoding: identity`, an answer that carries a content
+  encoding anyway is refused unread, a declared `Content-Length` over
+  `MAX_RESPONSE_BYTES` is refused before a byte of body, and what is read is
+  the **raw** stream, counted off the wire (counting after decompression is
+  counting the wrong thing: half a megabyte of gzip is sixty-seven of
+  memory); `Accept: application/json` and a fixed, version-less
+  `User-Agent`; and TLS through `ssl_context()`, built here so that it can
+  be looked at, with **no argument anywhere to weaken it** — `trust_env`
+  decides where the trust store and the proxy come from, never whether the
+  certificate is checked; loopback `http` is the only unencrypted endpoint,
+  and it is `core` that permits it. Failures are the port's two codes: a
+  transport failure, a timeout, a `5xx`, a redirect, a compressed or
+  oversized body, a body that is not a JSON object (or is nested past the
+  recursion limit — forty kilobytes of `[` is a `RecursionError`, not a
+  `ValueError`, and uncaught it would be a 500) are `provider_unavailable`,
+  and so are `408`, `425` and `429`, which mean "ask again" rather than
+  "no"; every other `4xx` from the token endpoint, and an OAuth `error` in a
+  `200`, are `provider_refused`, with the provider's `error` and
+  `error_description` bounded in the detail. The client secret is read at
+  the moment it is used, through the injected `SecretLookup`, and never held
+  on the object. **Nothing raised from an exchange can print it**: the
+  frames of a code exchange hold the secret, the code and the verifier, and
+  an `httpx` exception holds the `Request` that holds all three and stays
+  reachable through `__context__` even after `raise ... from None`. So
+  `_exchanged` *returns* the answer or a `_Refused`, unbinds every
+  credential on the way out, and `exchange_code` raises from a frame that
+  holds none of them while no exception is being handled — leaving
+  `__cause__` and `__context__` both empty. Discovery, which carries no
+  credential, keeps its cause for the operator. `client_secret_basic`
+  form-encodes each half before joining them (RFC 6749 2.3.1), so a secret
+  holding a colon works. `adapters/clock.py`: `SystemClock` (aware, UTC).
+  `adapters/secrets.py`: `OsSecretSource` on `secrets.token_urlsafe`,
+  passing the same `SecretSourceContract` as the fake.
+  `adapters/config_file.py`: `read_toml` — raw tables, and a `ConfigError`
+  naming the file (and the line, which tomllib puts in its own message) when
+  it cannot be read; `environment`, where an empty variable is no secret;
+  and `check_client_secrets`, which refuses to start a deployment naming
+  **every** provider whose variable is unset, at once. *For the composition
+  root, next:* that is every missing **variable** together, not every
+  start-up problem together, which is what `operations.md` asks for and which
+  only the root can assemble. A file that does not parse stops there — there
+  is no configuration to check secrets against — but once `core` has accepted
+  one, merge the secret check's problems into the same `ConfigError` as every
+  other start-up problem the root can gather, rather than failing twice.
+  Nothing here imports `core`: the reader hands raw tables to `core.parse_sign_in_config`, and
+  the composition root (step 6 onwards) calls the two in turn.
+  `backend/tests/standin/` is a **real** OpenID Connect provider on a
+  loopback port the operating system picks (`http.server`, no new
+  dependency): discovery, an authorization endpoint that redirects straight
+  back with a code, and a token endpoint that checks the client
+  authentication, the code, the `redirect_uri` and the PKCE verifier and
+  issues an unsigned ID token carrying the claims the test scripted.
+  `Misbehaviour` scripts the rest — held (behind a gate of its own, so that
+  one `release()` cannot make the next hold vacuous), `5xx`, HTML, a
+  redirect, an oversized body with or without a length, a length that lies,
+  a gzip bomb, JSON nested past any parser, an OAuth error — and `received`
+  records every request with its headers, so "the redirect was not followed"
+  is a statement about what the server saw. It authenticates the client
+  before it redeems a code, as a real authorization server does. It is meant to be reused by the routes and the browser
+  test. `tests/integration/test_sign_in_end_to_end.py` runs the whole flow
+  over it: `application.SignIn` + `HttpIdentityProvider` + `SystemClock` +
+  `OsSecretSource` + the in-memory store, begin, follow the redirect,
+  complete, resolve, sign out.
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -438,4 +520,53 @@ Important design decisions made / open questions:
 - Tests take `ROBINAUTS_TEST_DATABASE_URL`; without it they skip; with
   `ROBINAUTS_REQUIRE_POSTGRES=1` (CI) a skipped or deselected database
   suite fails the run. Each test works in a schema of its own.
+
+### Step 5 — oidc-adapter   (feature/poc-5-oidc-adapter)
+
+Summary: the HTTP side of sign-in. `adapters/`: `HttpIdentityProvider` on
+`httpx` (it builds and owns its client: no redirects, TLS that cannot be
+weakened, connect/read/total timeouts, an uncompressed raw-byte response
+bound, client authentication by basic or post, and an exchange from which
+no credential can be reached), `SystemClock`, `OsSecretSource`, the TOML
+reader `read_toml` (raw data; `core` validates) and `check_client_secrets`.
+`tests/standin/`: a real loopback identity provider that checks client
+authentication, the code, the redirect URI and PKCE, and can be scripted to
+misbehave. An end-to-end test drives `SignIn` through the real adapter. No
+routes, cookies, wiring or CLI yet.
+
+Review: 2 rounds.
+- High: 1
+  - A deeply nested JSON answer raised `RecursionError`, escaping the
+    port's contract with a traceback whose frames held the client secret,
+    the code and the verifier — fixed: caught on both endpoints, and the
+    exchange restructured so that nothing reachable from an exception it
+    raises (frames, `__cause__`, `__context__`) holds a credential,
+    cancellation included.
+- Medium: 5 (5/0)
+- Low: 6 (6/0)
+
+Checks: `scripts/check-all.sh` without a database (1007 passed, 64
+skipped) and with one required (1069 passed, 2 skipped); the step's io
+tests three times over, no flakes, no sleeps; hardening probed by a
+reviewer with raw sockets (slow drip, no headers, lying lengths, encodings,
+redirects, pool after 30 timeouts and 30 cancellations).
+Not done / to watch: no HTTPS stand-in, so "TLS verification is on" is
+proved by inspecting the SSL context and the absence of any parameter to
+weaken it. About 3,300 lines with tests and the stand-in, over the aim.
+Important design decisions made / open questions:
+- `httpx` brought `certifi` (MPL-2.0): the first runtime row of the
+  restricted table in `DEPENDENCIES.md` (unmodified, installed by the
+  package manager, never inside the wheel).
+- The library-confinement contracts (`httpx`, `asyncpg`, the agent
+  frameworks) and the `api` contract are about DIRECT imports
+  (`allow_indirect_imports`): infrastructure may import the package that
+  holds a library, never the library.
+- Token endpoint statuses: 408/425/429 and 5xx are `provider_unavailable`;
+  other 4xx, and an OAuth `error` in a 200, are `provider_refused`.
+- The client secret is looked up by variable name at the moment of the
+  exchange and never kept.
+- Configuration has no port: an adapter reads raw tables, `core` validates,
+  the composition root calls both and must merge every start-up problem it
+  can gather into one `ConfigError`.
+- Derived from neorc; recorded in `docs/legal/ip-clearance.md`.
 
