@@ -82,6 +82,23 @@ With providers configured and no allow entry, start-up fails.
 - The deployment is at the origin root; `public_url` is mandatory and
   drives the redirect URI, the cookie prefix and the origin check.
 
+## Local development mode
+
+- A mode for developing on one's own machine, which **requires no
+  sign-in**: no identity provider, no sign-in configuration.
+- Everything runs as one fixed local user, who owns the conversations
+  created in this mode. The rest of the platform behaves as usual, so
+  ownership checks and everything built on users is exercised.
+- It is never the default. It is asked for explicitly when starting the
+  server, and it cannot be combined with a sign-in configuration.
+- It serves the loopback interface only, and refuses to start on any other
+  address.
+- The server logs a warning at start-up, and the interface shows a
+  permanent banner saying that sign-in is off.
+- The checks on writes (JSON, same origin) stay on.
+- Tests still exercise the real sign-in flow, against a stand-in identity
+  provider; this mode is not a substitute for that.
+
 ## Not there yet
 
 - **API tokens** are planned. Until they exist every API is reached with a
@@ -150,8 +167,3 @@ Routes:
   `session_hours` is the available control.
 - No sign-out at the identity provider.
 - No rate limit on sign-in beyond the cap on pending sign-ins.
-
-## Open
-
-- A mode without sign-in for local development. There is none so far;
-  local development uses a stand-in provider.

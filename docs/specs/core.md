@@ -195,7 +195,7 @@ hard, the decision is taken with them in mind.
 | [runs.md](runs.md) | runs: background execution, persistence, re-attaching, tools of any duration |
 | [wire.md](wire.md) | the UI-to-backend protocol |
 | [channels.md](channels.md) | one API for many delivery channels: web, mobile, Slack |
-| [backend.md](backend.md) | web framework, database, migrations |
+| [backend.md](backend.md) | web framework, background work, database, schema |
 | [frontend.md](frontend.md) | the interface, build, supply chain, packaging |
 | [operations.md](operations.md) | deployment, configuration, limits, usage (planned) |
 | [open-source.md](open-source.md) | licence, contributions, dependency policy, checks |

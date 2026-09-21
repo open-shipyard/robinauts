@@ -36,24 +36,29 @@ in [layout.md](../layout.md). This document holds the component choices.
   tables in it
   ([ADR 0002](../adr/0002-conversation-persistence.md)).
 
-## Migrations
+## Schema
 
-- The schema is managed by migrations from the start: a deployment is
-  upgradable in place from the first release.
-- The server never migrates on its own. It refuses to start against a
-  schema that is behind or ahead of the code, and names the command that
-  fixes it.
-- A released migration is never edited.
+- **Until there is an active production deployment, the schema is one
+  definition, edited in place.** There are no incremental migrations; a
+  database created from an older definition is recreated.
+- Incremental migrations start when the project owner confirms that a
+  production deployment exists. From then on a deployment is upgradable in
+  place, and a released migration is never edited.
+- The server never creates or changes the schema on its own. A command
+  does. The server refuses to start against a database whose schema does
+  not match the code, and names the command that fixes it.
 
 ## Details likely to change
 
 - The driver is `asyncpg` (Apache-2.0), imported only in `datastore`.
   `psycopg` is LGPL-3.0-only and is excluded
   ([open-source.md](open-source.md)).
-- Migrations are numbered SQL files shipped in the package, applied in
-  order by `robinauts db migrate`, each in a transaction, recorded in a
-  `schema_migrations` table. No migration framework. Before the first
-  release the files may still be rewritten.
+- The schema definition is a SQL file shipped in the package, applied by
+  `robinauts db init`. It records a schema version, which is what the
+  server checks at start-up.
+- When migrations start: numbered SQL files shipped in the package,
+  applied in order by `robinauts db migrate`, each in a transaction,
+  recorded in a `schema_migrations` table. No migration framework.
 - Attachments are `bytea`; search is `tsvector`.
 - Licences as known today: FastAPI MIT, Starlette and uvicorn
   BSD-3-Clause, Pydantic MIT, `httpx` BSD-3-Clause, with `certifi`

@@ -9,9 +9,13 @@ What an internal platform team deploys and controls.
 - Installed from one Python wheel. A container image is planned.
 - PostgreSQL is always required. A documented one-command local Postgres
   covers development and demos.
+- A local development mode runs without sign-in, on the loopback interface
+  only ([sign-in.md](sign-in.md)). It is not a way to deploy.
 - Served at the root of an origin, over https. `public_url` is mandatory
   ([sign-in.md](sign-in.md)).
-- Upgrades: install the new wheel, run `robinauts db migrate`, restart
+- Upgrades: install the new wheel, bring the schema up to date, restart.
+  Until a production deployment exists the schema is edited in place and
+  the database is recreated; after that, migrations upgrade it in place
   ([backend.md](backend.md)).
 - A restart lets active runs drain for a bounded time; the rest are marked
   interrupted and can be retried by their authors ([runs.md](runs.md)).
@@ -71,4 +75,5 @@ is settled:
 
 - Whether the configuration is one file or several, and the key names.
   Sketches are in [sign-in.md](sign-in.md) and [agents.md](agents.md).
-- The `robinauts` command: `start`, `db migrate`, and what else it needs.
+- The `robinauts` command: `start`, `db init`, later `db migrate`, and
+  what else it needs.
