@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+#
+# A dependency change is a pull request of its own (DEPENDENCIES.md), and the
+# licence gate runs on it like on any other. The cooldown keeps us off a
+# release that is withdrawn or fixed in its first days -- a window in which
+# compromised packages are usually caught.
+
+version: 2
+updates:
+  # The Python backend. "uv" is the ecosystem that understands uv.lock; "pip"
+  # would read pyproject.toml alone and leave the lock behind. npm is added
+  # when there is a frontend to lock.
+  - package-ecosystem: "uv"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 10
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "backend"
+
+  # The actions this repository's workflows run, pinned to commit SHAs.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 10
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"

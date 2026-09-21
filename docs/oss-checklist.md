@@ -52,20 +52,23 @@ them from the start.
 
 ## CI, all blocking
 
-- [ ] Python: ruff, black, the test suite with the architecture contracts,
+- [x] Python: ruff, black, the test suite with the architecture contracts,
       a licence gate over the locked set, `pip-audit`. **(neorc gap: no
       Python licence gate)**
 - [ ] JavaScript: lint, type check, tests, build with the licence
       allowlist, `bundled-packages.txt` diff, size budget, `npm audit`,
       `npm audit signatures --omit=dev`; `.npmrc` with `ignore-scripts` and
       `save-exact`; `npm ci` only.
-- [ ] `reuse lint`; a DCO check as a required status **(neorc gap)**;
-      `gitleaks`; the ESLint import rule that confines assistant-ui
+- [x] `reuse lint`; a DCO check over the commits of the pull request
+      **(neorc gap)**. Making them required statuses is branch protection,
+      below.
+- [ ] `gitleaks`; the ESLint import rule that confines assistant-ui
       (ADR 0001).
-- [ ] Workflows: `permissions: contents: read`, `persist-credentials:
+- [x] Workflows: `permissions: contents: read`, `persist-credentials:
       false`, actions pinned to commit SHAs **(neorc gap: pinned by tag)**.
 - [ ] Dependabot for pip, npm and github-actions, 10-day cooldown
-      **(neorc gap: npm only)**.
+      **(neorc gap: npm only)**. Done for `uv` (the ecosystem that reads
+      `uv.lock`) and `github-actions`; npm follows the frontend.
 - [ ] Branch protection on `main`: pull requests only, linear history, no
       force-push, required checks, signed commits.
 

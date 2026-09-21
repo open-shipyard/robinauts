@@ -11,7 +11,9 @@ enforced mechanically from the first scaffold (see section 5).
 
 ```
 robinauts/
+  .github/                    # the CI workflow and Dependabot
   docs/
+  scripts/                    # one script per check; CI runs these
   frontend/                   # the UI (ADR 0001)
   backend/
     pyproject.toml

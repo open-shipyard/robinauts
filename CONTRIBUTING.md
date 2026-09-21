@@ -23,6 +23,7 @@ its own.
     backend/     the Python backend (the `robinauts` package)
     frontend/    the web UI (not there yet)
     docs/        specs, decisions, legal records, working notes
+    scripts/     the checks, one script per gate, which CI runs as they are
 
 The backend is split into layers with enforced dependency rules. Read
 [docs/layout.md](docs/layout.md) before adding a module: where code goes is
@@ -35,15 +36,48 @@ The backend uses [uv](https://docs.astral.sh/uv/). From `backend/`:
 
     uv sync
 
-Run the checks before opening a pull request:
+## Checks
 
-    uv run pytest
-    uv run ruff check .
-    uv run black --check .
+Every check is a script in [scripts/](scripts/), and CI runs those same
+scripts, one per job and nothing else, so a check can be run and debugged
+where it fails. CI is not your machine, though: it installs the pinned uv
+from [scripts/tool-versions.sh](scripts/tool-versions.sh) and runs on Python
+3.12, so a failure that depends on a version may show up in one place and not
+the other. Run them all before opening a pull request, from the root of the
+repository:
 
-and, from the root of the repository:
+    scripts/check-all.sh
 
-    uvx reuse lint
+or one at a time:
+
+    scripts/check-lint.sh       ruff and black, over backend/ and scripts/
+    scripts/check-tests.sh      pytest, with the architecture contracts
+    scripts/check-licences.sh   the dependency licence gate of DEPENDENCIES.md
+    scripts/check-audit.sh      pip-audit over the whole locked set
+    scripts/check-reuse.sh      reuse lint: every file states its licence
+    scripts/check-dco.sh        sign-off on every commit of the branch
+
+Every one of them runs on every pull request, and a failure is a failure:
+none of this is advisory. Making them *required* — so that GitHub refuses the
+merge button rather than showing a red cross — is branch protection, which
+the project owner still has to switch on
+([docs/oss-checklist.md](docs/oss-checklist.md)).
+
+`check-tests.sh`, `check-licences.sh` and `check-reuse.sh` pass their
+arguments on to the tool they wrap, so `scripts/check-tests.sh -k licence`
+does what you would expect. `check-dco.sh` takes a commit range and defaults
+to what this branch adds to `main`; CI runs it over the commits of the pull
+request, since the first commits of this repository predate the sign-off
+rule. `check-lint.sh`, `check-audit.sh` and `check-all.sh` take no arguments
+and say so rather than ignoring them — `check-audit.sh` reads pip-audit's
+JSON to make sure every pinned package was really looked at, and an argument
+that changed that output would quietly turn the check off.
+
+`reuse` and `pip-audit` are not dependencies of the project: they run as
+isolated tools, from a version pinned in
+[scripts/tool-versions.sh](scripts/tool-versions.sh) and bumped by hand. That
+file is the one place for such pins, and CI reads uv's version from it too.
+[DEPENDENCIES.md](DEPENDENCIES.md) says why they stay out of the lockfile.
 
 ## Licence header
 
@@ -75,6 +109,21 @@ Use your real name and a reachable email address. Sign-off is a statement about
 the provenance of your contribution, so pseudonymous sign-offs cannot be
 accepted. If you are contributing on behalf of an employer, make sure you have
 their authorization.
+
+`scripts/check-dco.sh` checks this, and CI runs it on every pull request. The
+sign-off may be the author's or the committer's: the DCO is certified by
+whoever puts the commit here, and that is not always the person who wrote it.
+
+A dependency update opened by Dependabot carries no sign-off, because a bot
+certifies nothing. A maintainer takes such a change over before it is merged,
+by one of:
+
+    git cherry-pick -s <commit>          keeps Dependabot as the author and
+                                         signs off as the committer
+    git commit --amend -s --reset-author makes it your commit outright
+
+Both pass the check. `git commit -s` on top of an unsigned commit does not:
+the commit without the trailer is still in the range.
 
 There is no contributor licence agreement. You keep the copyright in your
 contribution and license it to everyone under Apache-2.0.
@@ -118,4 +167,6 @@ AI coding assistants are allowed. By signing off, you certify that:
 Adding or upgrading a dependency follows [DEPENDENCIES.md](DEPENDENCIES.md).
 In short: its licence, and the licence of everything it brings, must be on
 the allowed list; the pull request says why the dependency is needed; and
-the lockfile is committed.
+the lockfile is committed. `scripts/check-licences.sh` enforces the licence
+rules over the whole locked set, and a licence it cannot resolve fails as
+surely as a forbidden one.
