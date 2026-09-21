@@ -17,7 +17,8 @@
 - The theme follows the operating system by default. A light / dark /
   system toggle is remembered per browser.
 - Until someone is signed in, the sign-in page stands in place of every
-  page ([sign-in.md](sign-in.md)).
+  page ([sign-in.md](sign-in.md)). In local development mode there is no
+  sign-in page, and a permanent banner says that sign-in is off.
 
 ## The chat window
 

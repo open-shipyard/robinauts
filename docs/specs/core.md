@@ -139,17 +139,25 @@ topic documents listed under [Documents](#documents).
 - **Interface.** neorc's layout: a collapsible left navigation panel that
   this project owns, and the chat in the middle; the application opens on
   an empty chat. [frontend.md](frontend.md).
-- **Conversations.** A tree of messages in the platform's own format, with
-  attachments, search and export. [conversations.md](conversations.md).
+- **Conversations.** A tree of messages in the platform's own format —
+  text, images, files, reasoning, and later tool calls — portable across
+  engines and vendors; with attachments, search and export. [conversations.md](conversations.md).
 - **Privacy.** Private by default; projects; share links; admins see
   metadata and never content; soft delete, retention, audit.
   [privacy.md](privacy.md).
 - **Agents.** Named agents defined by the operator — a prompt, a model, an
   engine. Users pick one per conversation. [agents.md](agents.md).
-- **A turn.** The UI posts a message; the controller loads the history from
-  the database, calls the agent port, streams the answer back as AG-UI
-  events, and appends the new messages. [agents.md](agents.md),
+- **A turn.** The UI posts a message, which starts a **run**: the
+  controller loads the history from the database, calls the agent port,
+  publishes the answer as AG-UI events, and appends each new message as it
+  is produced. The run executes in the background and is persisted: if the
+  request drops, the agent keeps working, and the UI re-attaches. One
+  active run per conversation. [runs.md](runs.md), [agents.md](agents.md),
   [wire.md](wire.md).
+- **Channels.** One API for every delivery channel. The web UI is the
+  first client; a mobile application and a Slack bridge are planned, and
+  consume the same agents and conversations through the same API.
+  [channels.md](channels.md).
 - **Open source.** Apache-2.0 throughout, DCO, provenance records,
   dependency gates. [open-source.md](open-source.md).
 
@@ -159,19 +167,20 @@ Named, not yet specified. Where a decision today would make one of them
 hard, the decision is taken with them in mind.
 
 - Tool usage, over MCP. The first version has none; the agent port, the
-  conversation format and the wire leave room for tool calls and results.
+  conversation format, the wire and runs are designed for tool calls of
+  any duration.
 - Memories. When they come they live in the one database and are
   framework-neutral, like conversations.
 - Usage reporting (goal 7).
 - API tokens.
+- More delivery channels: a mobile application, a Slack bridge; and a way
+  to consume a run without streaming, for the clients that need it.
 - Agents created by users.
 - A container image.
 
 ## Open
 
 - **The cut for the first version.**
-- **The platform's conversation format** — the next thing to specify; see
-  [conversations.md](conversations.md).
 - The smaller open points are listed at the end of each topic document.
 
 ## Documents
@@ -183,8 +192,10 @@ hard, the decision is taken with them in mind.
 | [conversations.md](conversations.md) | the message tree, features, deletion |
 | [privacy.md](privacy.md) | visibility, projects, sharing, admins, retention, leavers, audit |
 | [agents.md](agents.md) | agents, the agent port, the turn, engines, model providers |
+| [runs.md](runs.md) | runs: background execution, persistence, re-attaching, tools of any duration |
 | [wire.md](wire.md) | the UI-to-backend protocol |
-| [backend.md](backend.md) | web framework, database, migrations |
+| [channels.md](channels.md) | one API for many delivery channels: web, mobile, Slack |
+| [backend.md](backend.md) | web framework, background work, database, schema |
 | [frontend.md](frontend.md) | the interface, build, supply chain, packaging |
 | [operations.md](operations.md) | deployment, configuration, limits, usage (planned) |
 | [open-source.md](open-source.md) | licence, contributions, dependency policy, checks |

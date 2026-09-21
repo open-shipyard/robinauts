@@ -73,9 +73,14 @@ Abstract base classes describing what the application needs from the
 outside world. Version 1 ports, to be refined as the specs grow:
 
 - `Agent`: run one turn — given a history and a new user message, stream
-  `TurnEvent`s and return the new messages and their token usage.
-  Implementations: LangGraph and Pydantic AI.
+  `TurnEvent`s and the new messages with their token usage, and end either
+  finished or waiting on tool calls. Implementations: LangGraph and
+  Pydantic AI.
 - `ConversationStore`: read and append conversations and messages.
+- `RunStore`: run records, their state and their events.
+- `RunExecutor`: execute a run in the background, subscribe to its events
+  from a given position, cancel it. Version 1: asyncio tasks in the
+  backend process.
 - `UsageStore`: record and query token usage per model and conversation.
 - `CredentialStore`: sessions, pending sign-ins, API tokens.
 - `IdentityProvider`: the OIDC exchange with a sign-in provider.
@@ -86,9 +91,10 @@ Depends on domain only.
 
 ### application
 
-Control flow and business rules. Orchestrates a turn exactly as ADR 0002
-describes it: load the history, call the agent port, stream, append the new
-messages, record usage. Also the sign-in flow, conversation management
+Control flow and business rules. Orchestrates a turn as a run
+([specs/runs.md](specs/runs.md), ADR 0002): create the run, load the
+history, call the agent port, publish events, append each new message as it
+is produced, then finish, suspend or fail the run. Also the sign-in flow, conversation management
 (list, rename, delete) and usage export.
 
 This is the "controller" of the core spec: it knows the `Agent` port and
@@ -137,7 +143,7 @@ application or api.
 ### datastore
 
 A special case of adapter for owned state: where application state lives.
-It implements the store ports (`ConversationStore`, `UsageStore`,
+It implements the store ports (`ConversationStore`, `RunStore`, `UsageStore`,
 `CredentialStore`) over the one database of the deployment. Its schema is
 entirely the platform's; no framework creates or migrates tables in it
 (ADR 0002).
@@ -181,7 +187,9 @@ their adapter sub-package. HTTP clients are confined to adapters.
 |---|---|
 | the platform's conversation format | domain |
 | fitting a history into a context window | core, called by application |
-| the turn lifecycle (ADR 0002) | application |
+| the turn and run lifecycle (ADR 0002, specs/runs.md) | application |
+| executing runs in the background, delivering their events | adapters (run executor) |
+| run records and events at rest | datastore |
 | platform format <-> framework format | adapters (each agent adapter) |
 | talking to model providers, API keys in use | adapters (agent adapters) |
 | conversations, messages, usage, sessions at rest | datastore |
