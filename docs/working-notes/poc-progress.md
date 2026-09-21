@@ -432,6 +432,166 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   with query strings stripped for `/auth/callback`, because an ordinary ASGI
   access log would otherwise write `GET /auth/callback/…?code=…&state=…` — the
   authorization code and the state, in a file, for every sign-in.
+- The **conversation format**, domain and core (standard library only): the
+  platform's own record, owned by nothing else (ADR 0002). `domain/agents.py`:
+  `Engine` (`langgraph` | `pydantic-ai`) and `is_config_id` /
+  `checked_config_id`, the shape an agent's and a model's id are written in —
+  a provider id's rule, for the same reasons. `domain/conversation.py`:
+  `FORMAT_VERSION`, `Role` (with `TOOL` reserved and refused), `Channel`
+  (`web`), `PartKind` naming **every** kind of content the spec gives a
+  message and `SUPPORTED_PART_KINDS` saying which two are built — `TextPart`
+  and `ReasoningPart`; an image, a file, a tool call, a tool result and the
+  tool role are refused by name with `UnsupportedContentError`, whatever else
+  the content carries, so the discriminator they will be stored under is
+  reserved without being built. `MessagePart` is the closed union,
+  `checked_parts` the one rule about how many there may be, `Provenance` what
+  an answer records (agent, engine, model, run), `Message` a node of the tree
+  (id, conversation, parent, role, parts, `created_at`, channel, provenance —
+  required on an assistant message and refused on any other; no token counts),
+  and `Conversation` the owner, the agent, the title and the active leaf. A
+  part holds up to a million characters and a message 64 of them, so no answer
+  a model can produce has to be cut. `domain/values.py` holds the checks these
+  records share. `checked_uuid` and `checked_text` (bounded, and no NUL and
+  no unpaired surrogate, so what the format holds is storable and encodable);
+  `checked_fragment`, the same bound with none of that, for a piece of a
+  message still streaming; `checked_instant`, which is aware **and** inside
+  the years 1970..9998 once it is UTC, so no record holds a time that could
+  not be written back; `checked_line` for a title; `clean_text`, the lossy
+  repair applied to what a provider sent, which joins a character that
+  arrived in two halves before it replaces what is left; `publishable` and
+  `flush`, which are how the application turns an engine's fragments into
+  the deltas it publishes — NUL dropped first, a trailing half held back, what
+  is still half replaced, so that everything published joined is exactly
+  `clean_text` of everything the engine sent; and `describe`,
+  which is what a refusal says **instead of** repeating the value it refused.
+  `domain/run.py`: `RunState`, `ACTIVE_RUN_STATES`, `ENDED_RUN_STATES`,
+  `FAULTED_RUN_STATES` and `Run`, which holds what its state asks for — an end
+  when it ended, an error only when it ended badly — with `is_active` and
+  `provenance`; its times are checked for being times and not against each
+  other, because a wall clock that steps backwards must not make a run in
+  flight unrecordable. `domain/turn.py`: what a running turn streams, as the
+  platform's own events and not AG-UI's (`RunStarted`, `MessageStarted` —
+  carrying the role and the parent, so a watcher can place a message before
+  any of it exists — `TextDelta`, `ReasoningDelta`, `MessageCompleted`,
+  `RunEnded`, `TurnEvent` as their union) and `RunEvent`, the envelope that
+  gives each event its position in its run (`FIRST_POSITION`, from 1, no
+  gaps): engines yield bare events, the application numbers them, and a
+  watcher re-attaches by the last number it saw. New errors:
+  `UnsupportedContentError`, `UnsupportedFormatError`, `StoredDataError`,
+  `NotFoundError` and its three, `NotTheOwnerError`, `RunAlreadyActiveError`,
+  `IllegalTransitionError`, `InvalidMessageTreeError` — each with its status in
+  `api/errors.py`, which the exhaustive table there required. The whole
+  not-found family **and** `NotTheOwnerError` answer one body, byte for byte,
+  so an id cannot be probed for existence; `StoredDataError` is a 500 that says
+  nothing, since a row of ours that cannot be read is not the request's fault.
+  In `core`: `conversation_format.py` owns the **one** encoding, in both
+  directions (`message_to_data` / `message_from_data`, `part_to_data` /
+  `part_from_data`, `provenance_to_data`, `instant` — a time is always written in UTC, so one instant has one
+  spelling). It reads the kind **before** anything else, so unsupported
+  content is never reported as malformed; it refuses an unknown key, an id
+  spelt any way but the canonical one, a naive time and a message with no
+  parts; and it dispatches on the recorded version through one upgrade
+  table **per document shape** — a message, a run event — so a build reads every version up to its own, refuses one above it, and
+  an upgrade written for one shape can never be handed another (each hook is
+  exercised with a stand-in version 0). `domain/stored.py` holds
+  `reading_stored`, and it is **the read path**. It is in `domain` because a
+  store may import `domain` and must not import `core` (`docs/layout.md`),
+  and it is how a store turns its own columns into the flat records it owns
+  them for — `Conversation`, `Run`, `User`: each validates itself, an
+  `InvalidValueError` escaping a store would be answered as though the
+  request had been at fault, and the four ways a malformed row breaks the
+  code reading it (`KeyError`, `TypeError`, `AttributeError`, `ValueError`,
+  and `RecursionError`) are converted too. `tree_of_stored`,
+  `message_from_stored`,
+  `run_event_from_stored`, `active_run_stored` and
+  `check_may_start_run_stored` are that wrapping already done, in `core`, and
+  **their callers are the application**. A fault of the
+  data becomes `StoredDataError`, chained, which `api` answers with nothing
+  and logs **with its causes** (`api.chain`); the `*_from_data` readers are
+  for what the platform itself wrote, since a request carries no
+  `format_version` at all. An id a request named and that is not there stays
+  a `MessageNotFoundError` throughout, because nothing is wrong with the rows. `domain.text_parts` makes content out of text too long
+  for one part, so an answer is never lost to a bound; it sits in `domain`
+  beside `clean_text` and for the same reason, that its caller is an agent
+  adapter, which may not import `core`. `domain.kept_parts` is what the
+  application keeps of an answer: reasoning dropped, and one empty piece of
+  text if that leaves nothing, because a message always has content and a
+  turn answered with nothing should be recorded rather than left out. The format reserves one key,
+  `extras`, on every document it writes and on every part of one — a message
+  and each of its parts, a run event and the event inside it: an object of at
+  most 64 KiB of storable text that a build which does not use it accepts and
+  reads past, which is what lets a
+  field be **added** without moving the version, and where vendor-specific
+  extras will live. This build writes none and keeps none. `conversation_tree.py` owns the
+  tree. **`ConversationTree` is a conversation read once and checked once** —
+  every message by id, in order, and every parent's children in order — built
+  by `tree_of` (messages a request brought) or `tree_of_stored` (rows,
+  checked as stored data at that one door), and every question afterwards is
+  a method on it that can fail for one reason only: an id the request named
+  that is not there. `may_follow` is the whole rule of what may hang under what — a root is
+  a question, a question follows an answer, an answer follows a question, an
+  answer or a tool result, a tool message follows the answer that called it,
+  so a turn is a chain and tools need no rewrite — with `check_parent`,
+  `check_tree`, `path_to`, `children_of`, `siblings_of`,
+  `leaves`, `default_leaf` (the branch below the author's last position whose
+  own last message is newest), `turn_start`, `parent_for_edit`,
+  `parent_for_regenerate` (which goes back to the question of the whole turn),
+  `branches_along` and `branches_of` (a message with the branches beside it
+  and where it falls among them — what the interface draws as "2 of 3") and
+  `check_attachment` (a parent from somebody else's conversation is simply
+  not among these messages). They are methods, not free functions: the only
+  way to have a tree is `tree_of` or `tree_of_stored`, both of which say
+  which conversation they are reading and check it first, so there is one way
+  to ask and one set of rules. `check_tree` is the one wrapper kept, for a
+  caller that wants the rules applied and has no further question.
+  `titles.py` derives the title from the question's text as a whole
+  (`title_from_text`, `derive_title`, `first_question`), cutting at a word
+  boundary and never inside a character. `history.py` is the **placeholder**
+  context policy (`message_chars`, `history_chars`, `trim_history` —
+  characters, not tokens, dropping whole turns from the front and always
+  keeping the turn being answered). `runs.py` is the state machine
+  (`RUN_TRANSITIONS`, `may_transition`, `check_transition`, `transition` —
+  which clamps each stamp to the one before it, gives an ending run the start
+  it never recorded, and puts the error through `run_error`, so that ending a
+  run never fails over the text of what went wrong: `UNSAID_ERROR` for a
+  failure with nothing to say, `TRUNCATED` on the end of one that was too long
+  — `active_run`, `may_start_run`, `check_may_start_run`) **For the next step:** a store never parses or builds a message or a run
+  event — the format is `core`'s and a store may not import it. What crosses
+  the conversation and run ports for those two is the **document** (the plain
+  mapping `message_to_data` / `run_event_to_data` writes), which a store keeps
+  as jsonb and hands back untouched, with the record passed beside it when it
+  needs a field for one of its own indexed columns (id, conversation id,
+  parent id, created at, seq); the application encodes before it writes and
+  decodes with the `*_stored` readers after it reads. `Conversation` and `Run`
+  cross as records, since the store owns their columns.
+  `resume_point` says where a
+  watcher opening a conversation with a run in flight attaches: `after`, the
+  run's last completed message or the event that started it, and `follows`,
+  what the next announcement will hang under — so a caller has both of the
+  things a slice is checked with, and is replayed the message still being
+  produced and none it already has. And
+  the two order checks: `check_event_order` for what the application publishes — one
+  message at a time, each hanging under the one before it, completed as it was
+  announced, of this run and this conversation (both **required**), a run that
+  finished leaving nothing half-written, numbered without gaps, the deltas published for a message adding up to the
+  message that was stored, in one linear pass — over a whole run, a run **still going** (`ended=False`, which is what
+  a watcher of a live one receives) or **the slice a re-attaching watcher
+  receives**
+  (`after=<the position it last saw>` and `follows`, with `open_message` for
+  the message the cut fell inside); and `check_engine_events` for what an engine yields, which
+  is what the shared contract suite will hold both engines to: one answer at a
+  time, announced, streamed, completed; streaming is optional, and an answer
+  that streamed any text completes with exactly what it streamed
+  (`cut_short=True` for the failure cases, where a turn ends wherever it
+  ended). What the specs left open and this step settled is written into
+  `docs/specs/conversations.md` and `docs/specs/runs.md`, not only here.
+  `backend/tests/conversations.py` holds the builders every later step will
+  use; the tests are the `backend/tests/unit/test_conversation_*.py`,
+  `test_run_*.py` and `test_turn_events.py` modules, one per source module.
+  **For the run-executor step:** a `Run` records no owning process and no
+  heartbeat. The POC is one process, so nothing can tell an orphan from a
+  running run; `runs.md` describes both, and they arrive with the second
+  process, not before.
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -835,4 +995,83 @@ Important design decisions made / open questions:
   the local user, so nothing reaches that account in normal mode.
 - `CredentialStore.user_by_key` reads a user without writing; the local
   user is read per request and written once.
+
+### Step 8 — conversation-format   (feature/poc-8-conversation-format)
+
+Summary: the platform's own conversation format, pure, standard library
+only. `domain`: `Message` (parts, provenance, channel), `Conversation`,
+`Run`, `RunEvent`, the engine's events (no ids) and the platform's turn
+events, the value checks and the text helpers (`clean_text`, `text_parts`,
+`kept_parts`, `publishable` / `flush`), `reading_stored`. `core`: the two
+canonical, versioned, strict documents (a message, a run event) with their
+upgrade registries and the reserved `extras`; the stored readers;
+`ConversationTree`; titles; trimming by whole turns; the run state machine
+with `run_error`; the order checks `check_engine_events` and
+`check_event_order`; `resume_point`. No ports, stores, application,
+engines or wire yet — they are built on this.
+
+Review: 8 rounds.
+- High: 17, all fixed. The ones that shaped the contract:
+  - A conversation that exists but is not yours could be told apart from
+    one that does not exist — one identical body for the whole not-found
+    family.
+  - Exact-version matching would have made the first version bump a data
+    migration — a build reads every version up to its own through
+    upgraders; adding a kind, a role or data under `extras` never moves the
+    version.
+  - The role rule made tools impossible — a turn is a chain: a user message,
+    then assistant (and later tool) messages.
+  - `clean_text` destroyed a character split across two deltas, and later a
+    NUL between the halves still broke it — one function, `publishable`,
+    with a property test: what is published is what is stored.
+  - Stored-data faults answered 422 with internal ids, then were logged
+    without their cause — `StoredDataError`, a 500 that says nothing, with
+    the escaped cause chain and stack frames in the log.
+  - An engine could not yield "a message as it was stored" — two event
+    vocabularies: the engine's (no ids) and the platform's.
+  - Non-streaming answers were illegal; a reasoning-only answer left a
+    message with no parts; a turn with no answer could end `finished`.
+  - One upgrade registry served two document shapes; then the parts
+    document was dropped: exactly two versioned documents exist.
+  - The read path lived in `core` with the datastore as its caller, against
+    the layering contract — documents cross the store ports, flat records
+    are built in stores inside `domain.reading_stored`, the application
+    decodes.
+  - Run events had no canonical encoding.
+- Medium: 39 (39/0)
+- Low: 49 (48/1)
+
+Checks: `scripts/check-all.sh`, with the database required: 1932 passed, 2
+skipped; stable over repeated and randomised runs, no test over a second.
+Reviewers property-tested `publishable` (100,000 sequences), the two order
+checks end to end (4,000 answers at every re-attach prefix), and the
+encoding (30,000 encode/mutate/decode rounds).
+Not done / to watch: the one low left is `Run` recording no owning process
+or heartbeat — single process is the POC's scope (`docs/specs/runs.md`
+describes the multi-process rules). About 6,500 lines with tests: far over
+the aim, and eight review rounds — this step should have been two (records
+and encoding; tree, runs and events).
+Important design decisions made / open questions:
+- Messages and run events cross the store ports as DOCUMENTS
+  (`core.message_to_data`, `core.run_event_to_data`), with the record
+  beside them for a store's indexed columns; conversations and runs cross
+  as records. Stores never import core.
+- Completed messages are appended when complete; a message in flight lives
+  in its run's numbered events. Opening a conversation with an active run
+  returns the run id and `resume_point` (`after`, `follows`); attaching
+  there replays exactly the message in flight.
+- An engine yields `AnswerStarted`, `AnswerTextDelta`,
+  `AnswerReasoningDelta`, `AnswerCompleted(parts)`; it reports failure by
+  raising and is cancelled by cancelling its task. Text deltas are
+  optional; if any were streamed they join to the completed text.
+  Reasoning is streamed and not stored in this version.
+- The application publishes through `publishable` / `flush`, stores
+  `kept_parts(...)`, ends runs through `transition` and `run_error`, and
+  assigns event positions; whoever marks a run `interrupted` appends its
+  `RunEnded`.
+- Bounds: 1,000,000 characters a part, 64 parts, 120 a title, 64 KiB of
+  `extras`, positions up to 2^53 − 1, years 1970–9998.
+- A turn request names the conversation and either a new user message with
+  its parent, or the assistant message whose turn is produced again
+  (`docs/specs/wire.md`).
 

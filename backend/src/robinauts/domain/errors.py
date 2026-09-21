@@ -37,6 +37,99 @@ class ConfigError(RobinautsError):
         super().__init__("invalid configuration:\n" + "\n".join(self.problems))
 
 
+class UnsupportedContentError(InvalidValueError):
+    """Content the format names and this build does not carry.
+
+    An image, a file, a tool call, a tool result, a message of the ``tool``
+    role: every one of them has its place in the conversation format
+    (``docs/specs/conversations.md``) and none of them is built yet. Meeting
+    one is not a broken record -- it is a record from a version of the
+    platform that has more of the format than this one -- so it is refused by
+    name rather than read as something else.
+    """
+
+
+class UnsupportedFormatError(InvalidValueError):
+    """Data recorded in a version of the conversation format this build cannot read.
+
+    A build that guessed at the fields of a version it does not know would
+    write back a conversation it had misread. It stops instead.
+
+    **Only our own rows raise it.** A version is written and read by the
+    platform; a request carries the fields of a message and never a
+    ``format_version``, and the api that takes one must not accept one -- a
+    browser naming a version would be choosing how its message is read. So
+    this always means a row of ours, which is why it answers as a fault of
+    ours (500) and is read through ``StoredDataError`` on the paths that go to
+    the database.
+    """
+
+
+class StoredDataError(RobinautsError):
+    """A row of our own database that this build cannot read.
+
+    Whatever the reason -- a version above this build's, a kind of content it
+    does not carry, a tree that is no tree, a field of the wrong type -- it is
+    **not** something a request did, and the browser learns nothing from it:
+    it is answered like any other mistake of ours, and the whole of it goes to
+    the log. The cause is chained, so the log says what was really wrong.
+
+    ``robinauts.core`` raises it from the ``*_stored`` readers, which is what
+    the stores and the application read rows through.
+    """
+
+
+class NotFoundError(RobinautsError):
+    """Something was asked for by id and there is no such thing.
+
+    Also what someone is told when the thing exists and is not theirs: a
+    conversation nobody may see and a conversation that never existed answer
+    the same, because the difference is one only an attacker has a use for.
+    """
+
+
+class ConversationNotFoundError(NotFoundError):
+    """No conversation of that id, or none this person may see."""
+
+
+class MessageNotFoundError(NotFoundError):
+    """No message of that id in this conversation."""
+
+
+class RunNotFoundError(NotFoundError):
+    """No run of that id, or none in this person's conversation."""
+
+
+class NotTheOwnerError(RobinautsError):
+    """A conversation belongs to somebody else.
+
+    Raised where ownership is decided; what reaches the browser is a
+    ``NotFoundError``'s answer, so that an id cannot be probed for existence.
+    """
+
+
+class RunAlreadyActiveError(RobinautsError):
+    """The conversation already has a run going, and may have only one.
+
+    The person cancels it or waits (``docs/specs/runs.md``); a second run
+    would have two answers writing into one branch.
+    """
+
+
+class IllegalTransitionError(RobinautsError):
+    """A run cannot go from the state it is in to the one asked for."""
+
+
+class InvalidMessageTreeError(InvalidValueError):
+    """A collection of messages that is no conversation.
+
+    A parent that is not there, a cycle, two conversations mixed, an answer
+    to an answer: none of them can be shown, sent to a model or branched
+    from, so they are refused where they are read rather than where they are
+    drawn.
+    """
+
+
 class AuthenticationError(RobinautsError):
     """The request carries no credential this deployment accepts.
 

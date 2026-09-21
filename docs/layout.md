@@ -45,14 +45,23 @@ around `robinauts.cli.run()`.
 
 Shared vocabulary. Dataclasses, enums, constants and exceptions: the
 platform's own conversation format (`Conversation`, `Message`, message
-parts, `Role`), `TurnEvent` (what a running turn streams), `UsageRecord`,
+parts, `Role`), `TurnEvent` (what a running turn streams) and `EngineEvent`
+(what an agent engine yields, which carries none of the platform's ids),
+`UsageRecord`,
 `Principal`, `RobinautsError` and friends.
 
 The conversation format is the one ADR 0002 refers to: owned by the
 platform, not shaped by any agent framework or model vendor.
 
-Minimal logic is accepted with caution (validation in `__post_init__`,
-simple derived properties). Anything more belongs in core.
+Minimal logic is accepted with caution: the validation of its own values in
+`__post_init__`, simple derived properties, `reading_stored` (how a store
+turns its own columns into a flat record, which is here because a store may
+import domain and must not import core), and the functions that make a model
+provider's text into content this format can hold — `clean_text`, which
+repairs it, and `text_parts`, which splits what is longer than one part. The
+rule about what the format may hold and the operations that satisfy it are one
+subject, and their callers are the agent adapters, which may import domain and
+must not import core. Anything more belongs in core.
 
 Depends on nothing inside robinauts. Everything may depend on it.
 
@@ -66,6 +75,20 @@ summarising-selection of a history to fit a context window, aggregating
 usage records, matching an identity against the sign-in allow list,
 checking ID token claims (with `now` passed in), config validation from raw
 dicts into domain objects.
+
+What it owns for conversations and runs: the **one canonical encoding** of
+the format and its versions (`message_to_data` / `message_from_data`,
+`run_event_to_data` / `run_event_from_data`, and the upgrades — two document
+shapes and no more), the rules of the **tree** (`ConversationTree`, built by
+`tree_of` or `tree_of_stored` and asked everything afterwards: what may follow
+what, paths, branches, where a conversation opens, where an edit or a
+regeneration attaches), the **run state machine** and "one active run", the
+**two order checks** (what an engine yields, what the application publishes,
+and where a watcher re-attaches), the derived **title**, and **history
+trimming**. Reading our own rows goes through the `*_stored` readers, so a fault in
+stored data is never answered as a fault of the request. Their callers are
+the **application**: `datastore` may not import core, so a store is handed
+the document core wrote and hands it back unread.
 
 Depends on domain only.
 
@@ -88,8 +111,9 @@ There so far:
 Still to come:
 
 - `Agent`: run one turn — given a history and a new user message, stream
-  `TurnEvent`s and the new messages with their token usage, and end either
-  finished or waiting on tool calls. Implementations: LangGraph and
+  `EngineEvent`s with their token usage, and end either finished or waiting
+  on tool calls. The application turns those into messages and `TurnEvent`s:
+  an engine has no ids, no clock and no rows. Implementations: LangGraph and
   Pydantic AI.
 - `ConversationStore`: read and append conversations and messages.
 - `RunStore`: run records, their state and their events.
@@ -183,6 +207,16 @@ It implements the store ports (`ConversationStore`, `RunStore`, `UsageStore`,
 entirely the platform's; no framework creates or migrates tables in it
 (ADR 0002).
 
+It **never parses or builds a message or a run event**. Those are written in
+the platform's own format, the format is core's, and a store may not import
+core. What crosses the port for them is the **document** — the whole message, or
+one run event with its position, as the plain JSON-able mapping core writes —
+which a store keeps as jsonb and hands back untouched; it is given the record
+beside it when it needs a field for one of its own indexed columns (id,
+conversation id, parent id, created at, seq).
+The flat records whose columns it does own — `Conversation`, `Run`, `User` —
+it builds itself, inside `domain.reading_stored`.
+
 Same dependency rules as adapters: ports and domain only.
 
 ### infrastructure
@@ -220,7 +254,13 @@ their adapter sub-package. HTTP clients are confined to adapters.
 
 | concern | layer |
 |---|---|
-| the platform's conversation format | domain |
+| the platform's conversation format: the records, the two event vocabularies, the value rules (`clean_text`, `text_parts`) | domain |
+| the canonical encoding of the format and its versions | core |
+| the rules of the tree: paths, branches, where a message attaches | core |
+| the run state machine, and the order of a run's and an engine's events | core |
+| the derived title | core |
+| reading our own rows: flat records from columns (`domain.reading_stored`) | datastore |
+| reading our own rows: messages and events from their documents | core's `*_stored` readers, called by application |
 | fitting a history into a context window | core, called by application |
 | the turn and run lifecycle (ADR 0002, specs/runs.md) | application |
 | executing runs in the background, delivering their events | adapters (run executor) |

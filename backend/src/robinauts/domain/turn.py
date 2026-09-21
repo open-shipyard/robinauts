@@ -1,0 +1,307 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+
+"""What a running turn streams: two vocabularies, and the line between them.
+
+**What an engine yields** (``EngineEvent``): an answer is starting, more of
+its text, more of its thinking, the answer is complete and here are its parts.
+No ids, no times, no provenance, and nothing about a run -- an engine has none
+of those. It was given a history and a model; what it knows is what the model
+said (``docs/specs/agents.md``).
+
+**What the application publishes** (``TurnEvent``, in a ``RunEvent`` envelope
+with its position): the same turn with the platform's own facts attached --
+which run, which message id, which parent, and the message itself once it is
+stored. The application is what turns the first into the second, because it is
+what assigns ids, reads the clock and writes the rows.
+
+Keeping them apart is what keeps an engine from having to invent an id or
+claim something is persisted. ``api`` maps the platform's events to AG-UI on
+the wire (``docs/specs/wire.md``); they are the platform's, not AG-UI's, so a
+second wire -- or a client that cannot stream at all -- is a mapping and not a
+redesign.
+
+**A stream is a view of a run, not the run** (``docs/specs/runs.md``). What
+keeps a dropped request from losing anything is not the stream: it is that the
+run goes on and that its events are kept, each under a position. A message
+enters the conversation when it is **complete**; a message still being
+produced is in the events and nowhere else. So a watcher that attaches in the
+middle loads the messages that are finished and replays the events from the
+position it last saw, and rebuilds the half-written one without seeing
+anything twice.
+
+``RunEvent`` is that envelope: the event, and where in its run it falls. The
+engines yield bare ``TurnEvent``s and know nothing of positions; the
+application numbers them, from 1, one after another with no gaps.
+
+The order of a run's events is fixed, and
+``robinauts.core.runs.check_event_order`` is the one statement of it.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass
+
+from robinauts.domain.conversation import (
+    MAX_PART_CHARS,
+    Message,
+    MessagePart,
+    Role,
+    check_supported_role,
+    checked_parts,
+)
+from robinauts.domain.errors import InvalidValueError
+from robinauts.domain.run import (
+    ENDED_RUN_STATES,
+    FAULTED_RUN_STATES,
+    MAX_RUN_ERROR_CHARS,
+    RunState,
+)
+from robinauts.domain.values import checked_fragment, checked_text, checked_uuid, describe
+
+
+@dataclass(frozen=True, slots=True)
+class RunStarted:
+    """A run has begun. The first event of every stream."""
+
+    run_id: uuid.UUID
+    conversation_id: uuid.UUID
+
+    def __post_init__(self) -> None:
+        checked_uuid(self.run_id, "a run's id")
+        checked_uuid(self.conversation_id, "a conversation's id")
+
+
+@dataclass(frozen=True, slots=True)
+class MessageStarted:
+    """A message is being produced, under this id; its parts follow as deltas.
+
+    It says what the message will be before any of it exists -- its role and
+    where it hangs -- so that a watcher can put it in the tree it is already
+    showing rather than wait for the whole of it.
+    """
+
+    run_id: uuid.UUID
+    message_id: uuid.UUID
+    parent_id: uuid.UUID
+    """What it answers. A message a run produces is never a root."""
+    role: Role = Role.ASSISTANT
+
+    def __post_init__(self) -> None:
+        checked_uuid(self.run_id, "a run's id")
+        checked_uuid(self.message_id, "a message's id")
+        checked_uuid(self.parent_id, "a message's parent id")
+        if self.parent_id == self.message_id:
+            raise InvalidValueError("a message cannot be its own parent")
+        if not isinstance(self.role, Role):
+            raise InvalidValueError(f"a message's role is a Role, not {describe(self.role)}")
+        check_supported_role(self.role)
+        # A run answers a question; it never announces one.
+        if self.role is Role.USER:
+            raise InvalidValueError("a run produces answers, not questions")
+
+
+@dataclass(frozen=True, slots=True)
+class TextDelta:
+    """More of the text of the message being produced.
+
+    **Storable text**, unlike what an engine yields: this is written into the
+    run's events and sent over the wire, so it has to be encodable. A provider
+    splits its answer where it likes, and ``robinauts.domain.publishable`` is
+    what turns its fragments into these -- holding back a half of a character
+    until its other half arrives, rather than publishing a piece that nothing
+    can carry.
+    """
+
+    run_id: uuid.UUID
+    message_id: uuid.UUID
+    text: str
+
+    def __post_init__(self) -> None:
+        checked_uuid(self.run_id, "a run's id")
+        checked_uuid(self.message_id, "a message's id")
+        checked_text(self.text, "a delta's text", MAX_PART_CHARS)
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningDelta:
+    """More of the thinking of the message being produced.
+
+    Storable text, like ``TextDelta``, and for the same reason. Shown as it
+    arrives, collapsed under the answer, and **not stored as content**: this
+    version keeps no reasoning (``docs/working-notes/poc-scope.md``, "Out").
+    An engine that yields ``AnswerReasoningDelta`` has it published as this,
+    and a ``ReasoningPart`` among the parts of a completed answer is dropped
+    by the application rather than refused -- an engine is not asked to know
+    what this version keeps.
+    """
+
+    run_id: uuid.UUID
+    message_id: uuid.UUID
+    text: str
+
+    def __post_init__(self) -> None:
+        checked_uuid(self.run_id, "a run's id")
+        checked_uuid(self.message_id, "a message's id")
+        checked_text(self.text, "a delta's text", MAX_PART_CHARS)
+
+
+@dataclass(frozen=True, slots=True)
+class MessageCompleted:
+    """A message is complete and persisted; this is it, as it was stored."""
+
+    run_id: uuid.UUID
+    message: Message
+
+    def __post_init__(self) -> None:
+        checked_uuid(self.run_id, "a run's id")
+        if not isinstance(self.message, Message):
+            raise InvalidValueError(
+                f"a completed message is a Message, not {describe(self.message)}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class RunEnded:
+    """The run is over, in ``state``. The last event of every stream.
+
+    One event carrying the run's own state rather than four events that would
+    have to be kept in step with it: a watcher switches on the state it will
+    read from the run record anyway, and a state added to a run cannot be
+    forgotten here.
+    """
+
+    run_id: uuid.UUID
+    state: RunState
+    error: str | None = None
+    """What went wrong, when it went wrong. Required for a failure."""
+
+    def __post_init__(self) -> None:
+        checked_uuid(self.run_id, "a run's id")
+        if not isinstance(self.state, RunState):
+            raise InvalidValueError(f"a run's state is a RunState, not {describe(self.state)}")
+        if self.state not in ENDED_RUN_STATES:
+            raise InvalidValueError(f"a run in {self.state.value} has not ended")
+        if self.state is RunState.FAILED and not self.error:
+            raise InvalidValueError("a failed run says what went wrong")
+        if self.error is not None:
+            checked_text(self.error, "a run's error", MAX_RUN_ERROR_CHARS)
+            if self.state not in FAULTED_RUN_STATES:
+                raise InvalidValueError(f"a run that ended {self.state.value} has no error")
+
+
+TurnEvent = RunStarted | MessageStarted | TextDelta | ReasoningDelta | MessageCompleted | RunEnded
+"""Everything the application publishes for a running turn, as a closed set."""
+
+
+# --- what an engine yields --------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class AnswerStarted:
+    """The model has begun an answer. A turn may hold several, in sequence."""
+
+
+@dataclass(frozen=True, slots=True)
+class AnswerTextDelta:
+    """More of the text of the answer being produced.
+
+    Carries text and nothing else: an engine has no message id to put on it.
+    Any text at all, a half of a character included -- a provider splits where
+    it likes, and what is storable is decided once the pieces are joined
+    (``robinauts.domain.clean_text``).
+    """
+
+    text: str
+
+    def __post_init__(self) -> None:
+        checked_fragment(self.text, "a delta's text", MAX_PART_CHARS)
+
+
+@dataclass(frozen=True, slots=True)
+class AnswerReasoningDelta:
+    """More of the thinking behind the answer being produced.
+
+    An engine may yield these and is never required to. What the application
+    does with them is fixed: it publishes them as ``ReasoningDelta``, to be
+    shown as they arrive, and stores none of it.
+    """
+
+    text: str
+
+    def __post_init__(self) -> None:
+        checked_fragment(self.text, "a delta's text", MAX_PART_CHARS)
+
+
+@dataclass(frozen=True, slots=True)
+class AnswerCompleted:
+    """The answer is whole; these are its parts.
+
+    The engine's last word about one answer: the platform's own content,
+    translated out of whatever the framework returned, with no id and nothing
+    said about storing it. The application gives it an id, a parent and a
+    provenance, writes it down, and only then says it is a message.
+
+    A ``ReasoningPart`` here is allowed and **dropped** by the application,
+    which stores no reasoning in this version: an engine translates what the
+    model said and is not asked to know what the platform keeps.
+    """
+
+    parts: tuple[MessagePart, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "parts", checked_parts(self.parts))
+
+
+EngineEvent = AnswerStarted | AnswerTextDelta | AnswerReasoningDelta | AnswerCompleted
+"""Everything an agent engine yields, as a closed set.
+
+Deliberately not the same records as the platform's: every one of those
+carries an id of something only the application knows about, and an engine
+that had to fill one in would be inventing it.
+"""
+
+FIRST_POSITION = 1
+"""Where a run's events are numbered from."""
+
+MAX_POSITION = 2**53 - 1
+"""How far they count.
+
+Past this a whole number stops being one everywhere it has to travel: JSON
+has one number type and a browser reads it as a double. No run comes near it;
+a position that did would have got there by a bug, and a bound is how that is
+found rather than written out as something else.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class RunEvent:
+    """One event of a run, and where in the run it falls.
+
+    ``seq`` starts at ``FIRST_POSITION`` and counts up by one, with no gaps,
+    for the life of the run. It is what a watcher re-attaches by: "everything
+    after 17, then the rest, live". The application assigns it -- an engine
+    yields bare events and never sees a position -- so that one run has one
+    numbering whichever engine produced it.
+    """
+
+    run_id: uuid.UUID
+    seq: int
+    event: TurnEvent
+
+    def __post_init__(self) -> None:
+        checked_uuid(self.run_id, "a run's id")
+        if isinstance(self.seq, bool) or not isinstance(self.seq, int):
+            raise InvalidValueError(
+                f"an event's position is a whole number, not {describe(self.seq)}"
+            )
+        if not FIRST_POSITION <= self.seq <= MAX_POSITION:
+            raise InvalidValueError(
+                f"an event's position is between {FIRST_POSITION} and {MAX_POSITION},"
+                f" not {self.seq}"
+            )
+        if not isinstance(self.event, TurnEvent):
+            raise InvalidValueError(f"a run event carries a turn event, not {describe(self.event)}")
+        if self.event.run_id != self.run_id:
+            raise InvalidValueError("a run event and the event it carries name one run")

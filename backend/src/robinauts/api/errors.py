@@ -14,14 +14,26 @@ rather than left to be guessed from the status. Starlette's own refusals, a
 404 and a 405, are put in the same shape, so that a client has one kind of
 error body to understand and not two.
 
+**One answer for everything that is not there.** A conversation that does not
+exist, a message that does not, a run that does not, and one that exists and
+belongs to somebody else all answer the *same* body -- ``NotFoundError`` and
+one fixed sentence -- with the same status and the same headers. The
+difference between "no such id" and "not yours" is the whole of what an
+attacker wants from an id, and a body that named the class would hand it over
+while the status hid it. Which of them it really was goes to the log.
+
 **A body never repeats what the request carried.** Three rules, and each of
 them exists because something once did:
 
 - **nothing that answers 5xx says why.** A 500 is a mistake of ours, and its
   message is written for an operator: it may hold a query, a row, the name of
   a variable. The browser is told that the request could not be served, and
-  the whole of it goes to the log. The same for an exception that is not ours
-  at all, which is the ordinary way a bug becomes a response;
+  the whole of it goes to the log -- **with the chain of causes and the frames
+  of the innermost one**, because an error of ours often says only what kind
+  of thing went wrong, and because a reader that turns anything it meets into
+  one sentence turns a bug of ours into it too (``chain``, ``where``). The
+  same for an exception that is not ours at all, which is the ordinary way a
+  bug becomes a response;
 - **a sign-in failure says one fixed sentence per code.** A ``SignInError``'s
   own ``detail`` is written for the log: it repeats a provider's words and the
   values a request carried. The routes answer these with a redirect and never
@@ -38,6 +50,7 @@ rather than quietly answering 500.
 from __future__ import annotations
 
 import logging
+import traceback
 from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any
@@ -51,16 +64,27 @@ from robinauts.api.logs import shown
 from robinauts.domain import (
     AuthenticationError,
     ConfigError,
+    ConversationNotFoundError,
     CrossSiteRequestError,
+    IllegalTransitionError,
     InvalidIdTokenError,
+    InvalidMessageTreeError,
     InvalidValueError,
+    MessageNotFoundError,
     NotAllowedError,
+    NotFoundError,
+    NotTheOwnerError,
     ProviderUnavailableError,
     RobinautsError,
+    RunAlreadyActiveError,
+    RunNotFoundError,
     SchemaError,
     SignInError,
     SignInErrorCode,
+    StoredDataError,
     UnknownProviderError,
+    UnsupportedContentError,
+    UnsupportedFormatError,
     UnsupportedMediaTypeError,
 )
 
@@ -71,6 +95,12 @@ GENERIC_DETAIL = "the request could not be served"
 
 INTERNAL_ERROR = "InternalError"
 """The ``error`` of a body that names no class, because none would be true."""
+
+NOT_FOUND_ERROR = "NotFoundError"
+"""The one class name everything that is not there answers with."""
+
+NOT_FOUND_DETAIL = "there is nothing here of that id"
+"""The one sentence it answers with. It says nothing about whose it is."""
 
 UNREADABLE_DETAIL = "the request could not be read"
 """What a request nobody could parse is told, when there is nothing safe to add."""
@@ -88,6 +118,16 @@ Bounded all the same, because some of them are built out of a request.
 
 MAX_REPORTED_FIELDS = 5
 """How many fields a "could not be read" answer names before it stops."""
+
+MAX_CAUSES = 5
+"""How far down a chain of causes a log line follows before it stops."""
+
+MAX_FRAMES = 15
+"""How many frames of the innermost cause a log line carries.
+
+The last ones, which are the ones nearest what went wrong. Enough to find the
+line; not a page of stack for every refusal.
+"""
 
 SIGN_IN_DETAIL: Mapping[SignInErrorCode, str] = {
     SignInErrorCode.EXPIRED: "the sign-in took too long, or was already used",
@@ -123,9 +163,29 @@ STATUS_OF: dict[type[RobinautsError], int] = {
     InvalidIdTokenError: 403,
     UnknownProviderError: 404,
     ProviderUnavailableError: 502,
+    # Content of a kind the format names and this build does not carry: the
+    # request asked for something that is not there yet, not something wrong.
+    UnsupportedContentError: 422,
+    InvalidMessageTreeError: 422,
+    # A conversation nobody may see and one that never existed answer the
+    # same body, not merely the same status (see `error_body`), so that an id
+    # cannot be probed for existence.
+    NotFoundError: 404,
+    ConversationNotFoundError: 404,
+    MessageNotFoundError: 404,
+    RunNotFoundError: 404,
+    NotTheOwnerError: 404,
+    # The conversation is busy answering, or the run has moved on: the state
+    # of something else is what refuses, and trying again may well work.
+    RunAlreadyActiveError: 409,
+    IllegalTransitionError: 409,
     # Start-up, not a request: a deployment in this state does not serve.
     ConfigError: 500,
     SchemaError: 500,
+    # Our own rows, unreadable by this build. Nothing the request did, so the
+    # browser is told nothing and the whole of it goes to the log.
+    UnsupportedFormatError: 500,
+    StoredDataError: 500,
 }
 """The status each platform error answers with; every class of the hierarchy."""
 
@@ -142,9 +202,60 @@ def error_body(exc: BaseException, status: int) -> dict[str, Any]:
     """The JSON body an error crosses as, with nothing in it that came from outside."""
     if status >= 500:
         return {"error": INTERNAL_ERROR, "detail": GENERIC_DETAIL}
+    if isinstance(exc, NotFoundError | NotTheOwnerError):
+        # Identical in every byte, on purpose: see this module's docstring.
+        return {"error": NOT_FOUND_ERROR, "detail": NOT_FOUND_DETAIL}
     if isinstance(exc, SignInError):
         return {"error": type(exc).__name__, "detail": SIGN_IN_DETAIL[exc.code]}
     return {"error": type(exc).__name__, "detail": str(exc)}
+
+
+def chain(exc: BaseException, *, most: int = _LOGGED) -> str:
+    """``exc`` and what raised it, each escaped and bounded, in one line.
+
+    An error of ours often says only what kind of thing went wrong -- "a
+    stored message cannot be read by this build" is the whole of it, on
+    purpose, because the browser must learn nothing from it. Which message,
+    and what exactly was wrong with it, is in the error it was raised **from**,
+    and without that an operator is told that something is broken and nothing
+    about what. So the chain is followed and written out.
+
+    Escaped and bounded like anything else a log line carries
+    (``robinauts.api.logs``): the deepest cause is frequently the one built
+    out of a row, and a row is as much somebody's text as a request is.
+    """
+    said = []
+    seen: BaseException | None = exc
+    while seen is not None and len(said) < MAX_CAUSES:
+        said.append(f"{type(seen).__name__}: {shown(seen, most=most)}")
+        seen = seen.__cause__ or seen.__context__
+    return " <- ".join(said)
+
+
+def where(exc: BaseException, *, most: int = MAX_FRAMES) -> str:
+    """Where the innermost cause was raised: ``file:line in function``.
+
+    A 5xx of ours says nothing to the browser and often little to the log
+    either -- "a stored message cannot be read by this build" is a sentence
+    about a kind of thing, and ``reading_stored`` gives that same sentence to
+    a bug in our own reader. Without the frames there is nothing to look at.
+
+    **Only the frames**, and only their three fields: no source lines, no
+    locals, and not the exception's own message, which ``chain`` carries and
+    escapes. A file name and a function name are the interpreter's, not
+    anybody's input, and they go through ``shown`` all the same, so that
+    nothing here can end a log line or start one.
+    """
+    innermost: BaseException = exc
+    seen = 0
+    while (innermost.__cause__ or innermost.__context__) and seen < MAX_CAUSES:
+        innermost = innermost.__cause__ or innermost.__context__  # type: ignore[assignment]
+        seen += 1
+    frames = traceback.extract_tb(innermost.__traceback__)[-most:]
+    return shown(
+        " < ".join(f"{frame.filename}:{frame.lineno} in {frame.name}" for frame in frames),
+        most=_LOGGED,
+    )
 
 
 def refusal(exc: RobinautsError) -> JSONResponse:
@@ -163,9 +274,12 @@ def refusal(exc: RobinautsError) -> JSONResponse:
     status = status_of(exc)
     body = error_body(exc, status)
     if status >= 500:
-        _log.error("%s: %s", type(exc).__name__, shown(exc, most=_LOGGED))
+        # The whole chain: see `chain`. A 5xx of ours says nothing to the
+        # browser, so if what it was raised from does not reach the log,
+        # nothing anywhere says which row or which version was the trouble.
+        _log.error("%s | at %s", chain(exc), where(exc))
     elif body["detail"] != str(exc):
-        _log.warning("%s: %s", type(exc).__name__, shown(exc, most=_LOGGED))
+        _log.warning("%s", chain(exc))
     return JSONResponse(body, status_code=status)
 
 

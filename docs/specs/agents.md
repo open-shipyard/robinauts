@@ -14,9 +14,38 @@
 ## The agent port
 
 - The controller knows one port, `Agent`: given a history and a new user
-  message, stream the platform's turn events and the new messages with the
-  tokens they cost, and end either "finished" or "waiting on these tool
-  calls" ([runs.md](runs.md)).
+  message, **stream the engine's own events** — an answer has begun, more of
+  its text, more of its thinking, the answer is complete and here are its
+  parts — with the tokens they cost, and end either "finished" or "waiting on
+  these tool calls" ([runs.md](runs.md)).
+- Those events carry no ids, no times and no provenance, because an engine
+  has none: it was given a history and a model. The application turns them
+  into the platform's messages and its own turn events, which is where an id,
+  a parent, a run and a row come from. An engine that had to invent one would
+  be deciding something that is not its to decide.
+- Both engines are held to the order of their events by the shared contract
+  suite: an answer is announced, then streamed, then completed, one at a
+  time.
+- **Streaming is optional; what is streamed is what is kept.** An engine
+  that yields no text delta for an answer may complete it with any text —
+  not every provider streams. An engine that yields any must complete with
+  exactly what it streamed: what a person watched arrive is what is stored,
+  so an engine whose framework rewrites the final message builds its parts
+  from what it streamed, or does not stream at all.
+- An engine may stream reasoning, and may return it with a finished answer.
+  This version shows it and stores none of it
+  ([conversations.md](conversations.md)).
+- **A turn produces at least one answer.** A turn that ends without one is
+  a failed run ([runs.md](runs.md)), not a finished turn with nothing in
+  it.
+- **An engine reports a failure by raising.** Any exception ends the turn;
+  the application records the run `failed` with a description of it and
+  leaves the answer that was in flight uncompleted. An engine never yields
+  anything after an error.
+- **A cancellation is the application cancelling the engine's task.** An
+  engine must not swallow `CancelledError`: it lets it through and releases
+  what it holds — an HTTP response, a client, a file. What was produced
+  before the cancellation stays ([runs.md](runs.md)).
 - Two implementations:
   - **LangGraph** (or LangChain). Open source parts only: no LangSmith, no
     LangGraph Platform.

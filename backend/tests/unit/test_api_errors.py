@@ -24,6 +24,8 @@ from robinauts.api import (
     GENERIC_DETAIL,
     INTERNAL_ERROR,
     MAX_DETAIL_CHARS,
+    NOT_FOUND_DETAIL,
+    NOT_FOUND_ERROR,
     SIGN_IN_DETAIL,
     STATUS_OF,
     create_api,
@@ -33,11 +35,18 @@ from robinauts.api import (
 from robinauts.domain import (
     AuthenticationError,
     ConfigError,
+    ConversationNotFoundError,
     InvalidValueError,
+    MessageNotFoundError,
+    NotTheOwnerError,
     RobinautsError,
+    RunNotFoundError,
     SchemaError,
     SignInError,
     SignInErrorCode,
+    StoredDataError,
+    UnsupportedFormatError,
+    reading_stored,
 )
 from webapp import PUBLIC_URL, wired
 
@@ -70,8 +79,39 @@ def test_every_platform_error_has_a_status_of_its_own() -> None:
     assert listed <= {RobinautsError, *every_error()}
 
 
+@asyncio_test
+async def test_a_bug_inside_our_own_reader_can_still_be_found(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`reading_stored` gives a bug of ours the same sentence as a bad row.
+
+    So the frames are the only thing that says which it was, and where.
+    """
+    app = create_api(wired().sign_in)
+
+    @app.get("/reader-bug", dependencies=[public()])
+    async def reader_bug() -> dict[str, str]:
+        with reading_stored("a stored message cannot be read by this build"):
+            raise TypeError(f"a reader of ours: {SECRET_IN_A_BUG}\nand a second line")
+
+    with caplog.at_level(logging.ERROR):
+        async with quiet(app) as client:
+            answered = await client.get("/reader-bug")
+
+    assert answered.status_code == 500
+    assert SECRET_IN_A_BUG not in answered.text
+    assert "in reader_bug" in caplog.text
+    assert "TypeError" in caplog.text
+    assert len(caplog.text.splitlines()) == 1
+
+
 def test_the_statuses_are_what_they_should_be() -> None:
     assert status_of(AuthenticationError("no")) == 401
+    # A version is written and read by us: a request carries the fields of a
+    # message and never a `format_version`, so meeting one of these means a
+    # row of ours, which is a fault of ours and not of the request.
+    assert status_of(UnsupportedFormatError("a row of ours")) == 500
+    assert status_of(StoredDataError("a row of ours")) == 500
     assert status_of(InvalidValueError("no")) == 422
     assert status_of(ConfigError(["no"])) == 500
     assert status_of(SchemaError.missing(expected=1)) == 500
@@ -98,6 +138,28 @@ def leaking_app() -> FastAPI:
     @app.get("/refused", dependencies=[public()])
     async def refused() -> dict[str, str]:
         raise InvalidValueError("a value nobody can work with")
+
+    @app.get("/missing/{which}", dependencies=[public()])
+    async def missing(which: str) -> dict[str, str]:
+        """Everything that is not there, however it is not there."""
+        raise {
+            "conversation": ConversationNotFoundError,
+            "message": MessageNotFoundError,
+            "run": RunNotFoundError,
+            "owner": NotTheOwnerError,
+        }[which](f"conversation {SECRET_IN_A_BUG} is not this user's")
+
+    @app.get("/unreadable-row", dependencies=[public()])
+    async def unreadable_row() -> dict[str, str]:
+        """As `core` raises it: a fixed sentence, and the particulars beneath.
+
+        The message of a `StoredDataError` says nothing on purpose. Which row
+        was broken, and how, is only in what it was raised from.
+        """
+        try:
+            raise InvalidValueError(f"message {SECRET_IN_A_BUG} has no parts\nsecond line")
+        except InvalidValueError as cause:
+            raise StoredDataError("a stored message cannot be read by this build") from cause
 
     @app.get("/sign-in-failed", dependencies=[public()])
     async def sign_in_failed() -> dict[str, str]:
@@ -256,3 +318,61 @@ async def test_a_detail_built_from_a_request_is_bounded() -> None:
 
     assert answered.status_code == 422
     assert len(answered.json()["detail"]) <= MAX_DETAIL_CHARS
+
+
+# --- everything that is not there answers the same ---------------------------
+
+
+@asyncio_test
+async def test_nothing_tells_a_missing_id_apart_from_one_that_is_not_yours(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Byte for byte the same answer, headers included.
+
+    The difference between "no such conversation" and "not yours" is the whole
+    of what an attacker wants from an id: a body naming the class would hand it
+    over while the status hid it.
+    """
+    answers = []
+    with caplog.at_level(logging.WARNING):
+        async with quiet(leaking_app()) as client:
+            for which in ("conversation", "message", "run", "owner"):
+                answers.append(await client.get(f"/missing/{which}"))
+
+    bodies = {answer.content for answer in answers}
+    statuses = {answer.status_code for answer in answers}
+    headers = {tuple(sorted(answer.headers.items())) for answer in answers}
+    assert statuses == {404}
+    assert len(bodies) == 1
+    assert len(headers) == 1
+    assert answers[0].json() == {"error": NOT_FOUND_ERROR, "detail": NOT_FOUND_DETAIL}
+    assert all(SECRET_IN_A_BUG not in answer.text for answer in answers)
+    # What it really was is in the log, where only an operator reads it.
+    logged = caplog.text
+    assert "NotTheOwnerError" in logged
+    assert SECRET_IN_A_BUG in logged
+
+
+@asyncio_test
+async def test_a_row_this_build_cannot_read_says_nothing_to_the_browser(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """And the operator is told which row, which is only in the cause."""
+    with caplog.at_level(logging.ERROR):
+        async with quiet(leaking_app()) as client:
+            answered = await client.get("/unreadable-row")
+
+    assert answered.status_code == 500
+    assert answered.json() == {"error": INTERNAL_ERROR, "detail": GENERIC_DETAIL}
+    assert SECRET_IN_A_BUG not in answered.text
+    assert "StoredDataError" in caplog.text
+    assert "InvalidValueError" in caplog.text
+    assert SECRET_IN_A_BUG in caplog.text, "the cause is what says which row"
+    # And where it was raised, which is the only way to find a bug in a
+    # reader of ours, since it is relabelled with the same fixed sentence.
+    assert "test_api_errors.py:" in caplog.text
+    assert "in unreadable_row" in caplog.text
+    # Escaped like anything else from outside: a row can hold a newline, and
+    # so can a function name that came from somewhere odd.
+    assert "\\n" in caplog.text
+    assert len(caplog.text.splitlines()) == 1
