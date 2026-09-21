@@ -31,5 +31,24 @@ Entries are never edited after the fact; a correction is a new entry.
 - Attribution added to: this entry. No code has been copied, so no notice
   is required yet.
 
+### 2026-09-21 — sign-in rules (domain and core), derived from neorc
+
+- Source: https://github.com/open-shipyard/neorc, commit `68e3805`:
+  `python/neorc-core/src/neorc_core/_access.py` (allow-list matching, the
+  verified-email rule, secret hashing), `python/neorc/src/neorc/auth/_oidc.py`
+  (ID token claim checks, identity extraction, token payload decoding, the
+  PKCE challenge), `python/neorc/src/neorc/auth/_config.py` (URL and issuer
+  normalisation, the shape of the configuration validator).
+- Their licence: Apache-2.0, Copyright The neorc Authors.
+- Landed as: `backend/src/robinauts/core/allow.py`, `claims.py`, `urls.py`,
+  `sign_in_config.py`, `hashing.py`, and the records they use in
+  `backend/src/robinauts/domain/`.
+- Modifications: no file was copied. The logic was written again for this
+  project's layers — pure functions in `core`, records in `domain`, this
+  project's error types and names — with neorc's code open as the
+  reference. Substantially machine-generated, reviewed by the maintainers.
+- Attribution added to: this entry. Same authors and the same licence; no
+  notice is required.
+
 <!-- Entries go above this line. -->
 <!-- REUSE-IgnoreEnd -->

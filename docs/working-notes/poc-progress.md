@@ -10,11 +10,39 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
 - `docs/specs/` — the specs; start at `core.md`. `docs/adr/` — two
   decisions that needed a discussion. `docs/layout.md` — the backend layers
   and their enforced dependency rules.
-- `backend/` — an empty skeleton of the `robinauts` package with every
-  layer as an empty sub-package, `pyproject.toml` with the import-linter
-  contracts, and `tests/unit/test_architecture.py` which runs them.
+- `backend/` — the `robinauts` package with every layer as a sub-package,
+  `pyproject.toml` with the import-linter contracts, and
+  `tests/unit/test_architecture.py` which runs them. Only `domain` and
+  `core` have anything in them so far; the other layers are still empty.
   Checks: `uv run pytest`, `uv run ruff check .`, `uv run black --check .`
   from `backend/`, or `scripts/check-all.sh` from the root.
+- Sign-in, domain and core (standard library only). `domain/errors.py`:
+  `RobinautsError` and, under it, `InvalidValueError`, `ConfigError` (which
+  carries every problem at once) and `SignInError` with the spec's fixed
+  `SignInErrorCode` — plus `NotAllowedError`, `UnknownProviderError` and
+  `InvalidIdTokenError`. `domain/identity.py`: `Identity` (what a provider
+  asserts), `User` (keyed by `(provider, subject)`), `Session`,
+  `PendingLogin`. `domain/sign_in.py`: `Matcher`, `AllowEntry`,
+  `ProviderConfig` (which holds `client_secret_env`, the *name* of the
+  variable, never a secret), `is_google_issuer` — the one answer, by host, to
+  "is this Google", which decides whether Google's rules about `hd` and
+  `email_verified` hold — and `SignInConfig` with `redirect_uri()`,
+  `provider()`, `secure` and `session_life`. Roles and admin entries are
+  deferred and are not there. `core/allow.py`: `is_allowed`, `matches`,
+  `verified_email`, `ascii_lower` (case is ignored inside ASCII only:
+  `.lower()` folds U+212A onto `k`). `core/claims.py`: `decode_id_token` (no signature
+  check, and the docstring says why and when that stops holding),
+  `check_id_token_claims` with `now` passed in, `identity_from_claims`,
+  `identity_from_id_token`, `accepted_issuers` (the configured issuer alone,
+  plus Google's bare host) and `check_published_issuer`, which is how a
+  discovery document's issuer is checked against the configured one.
+  `core/urls.py`: `normalise_origin`, `normalise_issuer`, `is_loopback`.
+  `core/sign_in_config.py`: `parse_sign_in_config`, from the raw tables a
+  TOML reader will hand it into a `SignInConfig`, unknown keys refused and
+  every problem reported at once. `core/hashing.py`: `secret_hash` and
+  `pkce_challenge` — making a secret needs randomness and is not here.
+  The tests are the six `backend/tests/unit/test_signin_*.py` modules, one
+  per source module.
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -130,3 +158,46 @@ by hand. `colorama` (development only) declares only "BSD License" and is
 excepted by name, licence and version after a hand check. A dependency
 whose metadata names only a licence family will need the same hand check. A
 branch with an open pull request runs CI twice (push and pull_request).
+
+### Step 2 — signin-core   (feature/poc-2-signin-core)
+
+Summary: the rules of sign-in, pure and standard library only. `domain`:
+the records (identity, user, session, pending sign-in, provider, allow
+entry, the sign-in configuration) and the error hierarchy with the spec's
+eight fixed codes. `core`: allow-list matching, ID token decoding and claim
+checks, identity extraction, URL and issuer normalisation, validation of a
+raw configuration into domain objects with every problem reported at once,
+secret hashing and the PKCE challenge. No ports, no IO, no random
+generation, no roles: those come later or are outside the POC.
+
+Review: 2 rounds.
+- High: 2
+  - `exp` / `iat` accepted NaN and Infinity, which skipped the expiry check
+    — fixed, in the claim check and in the token decoder.
+  - A trailing dot in the configured Google issuer switched every
+    Google-specific rule off (`email_domain` accepted, the `hd`/gmail rule
+    on verified email skipped) — fixed: hosts are normalised, and one
+    function, `domain.is_google_issuer`, decides by host.
+- Medium: 5 (5/0)
+- Low: 11 (11/0)
+
+Checks: `scripts/check-all.sh` — 563 tests with the architecture contracts,
+lint, licences, audit, reuse, DCO — all pass.
+Not done / to watch: `now` is a timezone-aware `datetime` everywhere; the
+Clock port must hand out aware datetimes. About 2,900 lines with tests,
+over the aim.
+Important design decisions made / open questions:
+- The issuer that discovery publishes must equal the configured one
+  (`core.check_published_issuer`); it is never added to the accepted `iss`
+  values.
+- An empty `providers` table is a configuration error (nobody could sign
+  in); running without sign-in is the local development mode, which has no
+  sign-in configuration at all.
+- Email and domain matchers compare ASCII only; an IDN domain is written in
+  its A-label form.
+- `docs/layout.md` forbids adapters from importing `core`. The OIDC adapter
+  will therefore only fetch and post; the application checks the discovery
+  document, the endpoints and the claims above the port.
+- Derived from neorc's code, written again for this layout; recorded in
+  `docs/legal/ip-clearance.md`.
+
