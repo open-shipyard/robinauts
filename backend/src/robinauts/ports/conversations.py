@@ -90,8 +90,9 @@ in the tests, not here.
   ``MessageNotFoundError``, as a parent is.
 - an argument outside what the method takes: a ``limit`` outside 1 to
   ``MAX_PAGE`` or to ``MAX_SWEPT``, a position to read past that is negative,
-  a cursor that does not parse: ``InvalidValueError``. These are on the
-  methods that take them as well, and they are here so that this table is
+  a cursor that does not parse, a **title** that is not the one bounded,
+  printable line a ``Conversation`` holds: ``InvalidValueError``. These are on
+  the methods that take them as well, and they are here so that this table is
   what its heading says.
 
 Reading something that is not there is not a refusal: ``conversation_by_id``
@@ -234,6 +235,12 @@ class ConversationStore(ABC):
         self, conversation_id: uuid.UUID, title: str, *, now: datetime
     ) -> Conversation | None:
         """Give it that title and date it ``now``; the conversation as it now is.
+
+        The title is held to what a ``Conversation`` holds -- one bounded,
+        printable line (``domain.checked_line``, ``domain.MAX_TITLE_CHARS``) --
+        and anything else is ``InvalidValueError`` before anything is written.
+        A store that took more would keep a row the record cannot be built
+        from, which nobody could read back.
 
         ``None`` if there was none to rename. It hands back the **written**
         record rather than a ``bool`` so that a caller need not rebuild one out

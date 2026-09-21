@@ -84,8 +84,8 @@ async def test_creating_it_again_changes_nothing() -> None:
 async def test_a_schema_of_another_version_is_refused_rather_than_relabelled() -> None:
     # The finding this test exists for. A version-0 `users` without `email`,
     # the file applied over it: `CREATE TABLE IF NOT EXISTS` would leave the
-    # old table alone and the version row would call it version 1, after
-    # which every check passes and the first sign-in fails on a missing
+    # old table alone and the version row would call it this build's version,
+    # after which every check passes and the first sign-in fails on a missing
     # column. So the command refuses, and says the database is made again.
     async with temporary_schema(applied=False) as schema:
         await schema.pool.execute("""

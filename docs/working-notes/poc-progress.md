@@ -112,8 +112,9 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   `users`, `sessions`, `pending_logins`, `timestamptz` throughout, the
   expiry columns indexed, sessions cascading from their user, and the two
   hash columns refusing anything that is not 64 lower-case hex digits. It
-  is **one definition edited in place**, and the conversation and run
-  tables are added to the bottom of it later. The version row is the
+  is **one definition edited in place**; the conversation, message, run and
+  event tables were added to the bottom of it by the conversation store's
+  step, and the usage tables follow the same way. The version row is the
   file's **last** statement and is `DO NOTHING`, so a half-applied file
   records no version and applying the file can never relabel an older
   schema as this one. `datastore/schema.py`: `SCHEMA_VERSION`,
@@ -788,6 +789,70 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   (13/14) hands `start` / `regenerate` a `User` and gets the `Run` back at
   once, streams from `resume_point` and the events after it, and calls
   `cancel`; `execute` is never awaited by a request.
+- The **conversation store on PostgreSQL**, over the same pool and the same
+  `schema.sql` -- now at **version 2**, the first bump there has been, so a
+  developer's version-1 database is made again rather than upgraded (there
+  are still no migrations). Four tables added to the bottom of the file,
+  every constraint named: `conversations` (owner cascading from `users` -- deleting an account
+  takes its conversations, and the messages, runs and events under them, by
+  the chain of foreign keys; `active_leaf_id` deliberately carries none, since
+  it would point at `messages`, which points back), one index which is both
+  the listing's keyset `(owner_id, updated_at DESC, id DESC)` and what the
+  cascade needs; `messages` (id a primary key, so unique across the
+  deployment; the document as `jsonb`; a **composite** foreign key
+  `(conversation_id, parent_id)` → `(conversation_id, id)`, so a parent from
+  another tree cannot be stored); `runs` (a composite key to the message it
+  answers, a **partial unique index** on `(conversation_id) WHERE state IN
+  ('running','waiting')` -- "at most one active run", held by the database --
+  and partial indexes for the sweep and for a conversation's runs);
+  `run_events` (primary key `(run_id, seq)`, which is "a position is stored
+  once", a `kind` column the store writes from the record's class name and a
+  partial unique index over it so a stream ends once -- written for that
+  index and read back nowhere, so the check before **every** write is one
+  backward walk of the primary key and a run does not cost the square of its
+  own length; "has this stream ended" is the run's own state, which the write
+  already holds a lock on). `timestamptz`
+  throughout, CHECKs on `role`, `state` and `engine`, and on `seq >= 1`.
+  `datastore/conversations.py`: `PostgresConversationStore` over a pool it is
+  **given**, one transaction per method, passing the whole contract suite the
+  fake passes. **Locks are taken in one order -- the conversation's row, then
+  the run's** -- so two methods meeting on one conversation cannot close a
+  cycle; the two constraints above are the **backstops** under the look each
+  method makes while it holds the row, translated by constraint **name** into
+  `RunAlreadyActiveError` and `PositionTakenError` (`CONVERSATION_REFUSALS` is
+  the whole table; anything else propagates). A deadlock or serialization
+  failure is retried `MAX_ATTEMPTS` times and **logged** at WARNING every
+  time, because a silent retry is how a wrong lock order hides; a test
+  provokes a real deadlock with an outsider connection taking the two rows
+  the other way round, and pins one warning, one success and a whole stream.
+  `conversation_snapshot` is one read-only `REPEATABLE READ` transaction, so
+  its four reads are one moment. Documents cross as `jsonb`, encoded and
+  decoded with `json` **in the store** rather than by a codec on a pool
+  somebody else built, and come back equal -- unicode, a megabyte of text and
+  a nested `extras` the build writes none of included. The listing is a keyset
+  over `(updated_at, id)` with the fake's own cursor spelling, refused when it
+  does not parse. Records are built inside `domain.reading_stored`; a naive
+  `now` is refused before a connection is taken; every check the records alone
+  can settle runs before the transaction opens. A `title` is held to
+  `domain.checked_line` and a document to what JSON can really be written
+  from -- a key that is not text would be quietly renamed and could merge two
+  keys into one -- so both are `InvalidValueError` before a statement runs.
+  `app.Deployment` builds it on the same pool and exposes it as
+  `deployment.conversations` (nothing is wired on top yet), and it is **both
+  stores or neither**: a deployment that is open has a credential store *and*
+  a conversation store, so handing in one of them and naming no database is a
+  start-up `ConfigError` (the tests hand in both fakes). `check_schema`
+  covers the four new tables because `SCHEMA_TABLES` does. `tests/integration/test_postgres_conversation_store.py`
+  runs the full `ConversationRunsContract` against a fresh schema per test with
+  a warm pool of eight, and adds what only a database can be asked: the
+  documents' round trip, an odd session zone, that every translated constraint
+  name is really in the schema, that a user deleted takes their conversations,
+  a probe running five methods at once on one conversation forty times over
+  (twice: with a run in flight, and with one that has ended, where the delete
+  really cascades) asserting no driver error escapes and nothing was retried,
+  that appending five thousand events to one run stays flat per event, and
+  one whole streamed turn of `application.Turns` against this store with the
+  stored tree and the stored stream read back.
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -1390,4 +1455,50 @@ Important design decisions made / open questions:
   failed run.
 - The application logs failures as one escaped, bounded record
   (`domain.chain` / `domain.where`), never `exc_info`.
+
+### Step 11 — conversation-stores   (feature/poc-11-conversation-stores)
+
+Summary: the PostgreSQL `ConversationStore`. Four tables appended to
+`schema.sql` (schema version 2): `conversations`, `messages`, `runs`,
+`run_events`, every constraint named; a partial unique index for one active
+run per conversation, `(run_id, seq)` as the events' key, a partial unique
+index for one `RunEnded` per run. `datastore/conversations.py`: one
+transaction per method, row locks in the order conversation then run,
+constraint violations translated by name, deadlock and serialization
+failures retried and logged, a read-only `REPEATABLE READ` snapshot,
+documents stored as jsonb exactly as given. `app.Deployment` builds it on
+the shared pool. It passes the whole contract suite of step 9 against a
+warm pool.
+
+Review: 1 round.
+- High: 1
+  - `schema.sql` was edited without bumping `SCHEMA_VERSION` (the driver's
+    own instruction, and wrong): an existing version-1 database got a
+    self-contradictory refusal — fixed: version 2; every edit of the file
+    bumps the version, even before anything is deployed.
+- Medium: 1 (1/0)
+- Low: 4 (4/0)
+
+Checks: `scripts/check-all.sh` without a database (2106 passed, 186
+skipped) and with one required (2286 passed, 6 skipped); the integration
+module repeatedly and in two parallel sessions, no flakes, no schema left
+behind. A reviewer made about 7,000 concurrent calls against the real
+database: no invariant violated, no torn snapshot, no raw driver error on a
+reachable refusal, no deadlock, documents and step 10's settle-from-the-
+store comparison surviving jsonb exactly.
+Not done / to watch: about 2,700 lines with tests, over the aim. The
+deadlock probe guards the lock order rather than proving it (no two
+methods can currently hold the rows crosswise); the retry loop is tested
+with a real, forced deadlock.
+Important design decisions made / open questions:
+- Every edit of `schema.sql` bumps `SCHEMA_VERSION` and re-pins the hash;
+  a database of another version is made again (no migrations yet).
+- Deleting a user cascades to their conversations, messages, runs and
+  events.
+- `active_leaf_id` has no foreign key (it would make a cycle); the store
+  checks it inside its transaction.
+- Appending an event costs the same however long the run is: the position
+  is one backward index read, and "has it ended" is the run row already
+  held.
+- An open deployment always has both stores, or fails to open.
 

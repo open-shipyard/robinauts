@@ -15,10 +15,13 @@ There is no ORM. The SQL is hand-written and the schema is ours
 the whole of it, one definition edited in place, applied by a command and
 never by the server.
 
-So far: ``PostgresCredentialStore``. The conversation, run and usage stores
-join it, over the same pool and the same file.
+So far: ``PostgresCredentialStore`` and ``PostgresConversationStore`` --
+the second owning conversations, messages, runs and run events, because
+those are one database and several operations over them are one transaction.
+The usage store joins them, over the same pool and the same file.
 """
 
+from robinauts.datastore.conversations import PostgresConversationStore
 from robinauts.datastore.credentials import PostgresCredentialStore
 from robinauts.datastore.pool import MAX_POOL_SIZE, MIN_POOL_SIZE, open_pool
 from robinauts.datastore.schema import (
@@ -37,6 +40,7 @@ __all__ = [
     "SCHEMA_SHA256",
     "SCHEMA_TABLES",
     "SCHEMA_VERSION",
+    "PostgresConversationStore",
     "PostgresCredentialStore",
     "check_schema",
     "create_schema",

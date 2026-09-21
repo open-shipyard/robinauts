@@ -64,7 +64,7 @@ import asyncpg
 
 from robinauts.domain import SchemaError
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 """The schema this build was written against; ``schema.sql`` says the same.
 
 Bumped in the same change as any edit to ``schema.sql``. Until there is a
@@ -72,7 +72,7 @@ production deployment there are no migrations, so a bump means "recreate the
 database", not "upgrade it" (``docs/specs/backend.md``).
 """
 
-SCHEMA_SHA256 = "ace3881e9a411e66b14966cd808511f4e86988e7e11ac280588c6fc29ef1586f"
+SCHEMA_SHA256 = "c018ed32e47e4d72e8dfabb49378d41ab2f1b201c26086e5b3f1c3f633c4bc7f"
 """``schema.sql`` as it stood when ``SCHEMA_VERSION`` was last right for it.
 
 A schema edited in place has no migration to forget to write, which leaves
@@ -83,7 +83,16 @@ in as many words. Line endings are normalised to ``\\n`` before hashing, and
 ``.gitattributes`` keeps the file checked out that way on every platform.
 """
 
-SCHEMA_TABLES = ("pending_logins", "schema_version", "sessions", "users")
+SCHEMA_TABLES = (
+    "conversations",
+    "messages",
+    "pending_logins",
+    "run_events",
+    "runs",
+    "schema_version",
+    "sessions",
+    "users",
+)
 """Every table ``schema.sql`` creates; a test keeps this list in step with it.
 
 What ``check_schema`` looks for. A version row with a table missing under it

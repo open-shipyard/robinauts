@@ -20,8 +20,13 @@ import re
 import pytest
 
 from robinauts.datastore import SCHEMA_SHA256, SCHEMA_TABLES, SCHEMA_VERSION, schema_sql
+from robinauts.datastore.conversations import (
+    ACTIVE_STATES,
+    CONVERSATION_REFUSALS,
+    RUN_ENDED_KIND,
+)
 from robinauts.datastore.credentials import SESSION_REFUSALS
-from robinauts.domain import DB_INIT_COMMAND, SchemaError
+from robinauts.domain import DB_INIT_COMMAND, Engine, Role, RunState, SchemaError
 
 SQL = schema_sql()
 
@@ -31,6 +36,46 @@ TABLES = {
         r"CREATE TABLE IF NOT EXISTS (\w+) \((.*?)\n\);", SQL, flags=re.DOTALL
     )
 }
+
+CONVERSATION_TABLES = ("conversations", "messages", "runs", "run_events")
+"""The tables the conversation store owns.
+
+Named here because the rule below -- every constraint of theirs is named --
+is the one their store's refusals are built on, and because the three tables
+of sign-in predate it and leave their primary keys to PostgreSQL.
+"""
+
+
+def clauses(body: str) -> list[str]:
+    """A table's definition, split into the clauses commas separate.
+
+    Comments dropped and the commas inside parentheses left alone, so that a
+    CHECK listing six states is one clause and not six.
+    """
+    code = " ".join(
+        line.split("--")[0].strip() for line in body.splitlines() if line.strip()[:2] != "--"
+    )
+    found: list[str] = []
+    depth = 0
+    start = 0
+    for at, letter in enumerate(code):
+        depth += (letter == "(") - (letter == ")")
+        if letter == "," and depth == 0:
+            found.append(code[start:at])
+            start = at + 1
+    found.append(code[start:])
+    return [clause.strip() for clause in found if clause.strip()]
+
+
+def constraints_in(clause: str) -> int:
+    """How many constraints that clause declares.
+
+    A `FOREIGN KEY ... REFERENCES` is one constraint written in two words, so
+    `REFERENCES` is only counted where there is no `FOREIGN KEY` in front of
+    it.
+    """
+    references = 1 if "FOREIGN KEY" in clause or "REFERENCES" in clause else 0
+    return clause.count("PRIMARY KEY") + clause.count("UNIQUE") + clause.count("CHECK") + references
 
 
 def test_the_schema_file_is_readable_from_the_installed_package() -> None:
@@ -61,6 +106,60 @@ def test_every_constraint_the_store_answers_for_is_named_in_the_file(constraint:
     # PostgreSQL to name, would silently stop being translated -- and the
     # caller would get a driver error where the contract promises a refusal.
     assert f"CONSTRAINT {constraint} " in SQL
+
+
+@pytest.mark.parametrize("constraint", sorted(CONVERSATION_REFUSALS))
+def test_every_constraint_the_conversation_store_answers_for_is_named(constraint: str) -> None:
+    # The same rule for the second store, and one spelling more: "at most one
+    # active run" and "a position is stored once" are a partial unique index
+    # and a primary key, and an index is named where it is created rather
+    # than inside the table. Either way the name is what the store reads, and
+    # a name only in Python is a refusal that can never happen.
+    assert (
+        f"CONSTRAINT {constraint} " in SQL or f"INDEX IF NOT EXISTS {constraint}\n" in SQL
+    ), constraint
+
+
+@pytest.mark.parametrize("table", CONVERSATION_TABLES)
+def test_every_constraint_of_the_conversation_tables_is_named(table: str) -> None:
+    # Not decoration: the store translates a violation into an answer for its
+    # caller and tells one from another by name. A constraint left for
+    # PostgreSQL to name is told apart until the day a second one of the same
+    # kind is added, and then every violation is reported as the first.
+    for clause in clauses(TABLES[table]):
+        assert clause.count("CONSTRAINT ") >= constraints_in(clause), clause
+
+
+@pytest.mark.parametrize("table", CONVERSATION_TABLES)
+def test_every_constraint_of_the_conversation_tables_names_its_table(table: str) -> None:
+    # So that a name says where to look, and two tables cannot pick one name.
+    for name in re.findall(r"CONSTRAINT (\w+) ", TABLES[table]):
+        assert name.startswith(f"{table}_"), name
+
+
+def test_the_enumerated_columns_spell_every_value_of_their_enum() -> None:
+    # A CHECK that had fallen behind its enum would refuse a row the records
+    # above it consider perfectly ordinary -- and it would do it in the
+    # middle of a turn, as a driver error nobody translated.
+    for enum in (Role, RunState, Engine):
+        for value in enum:
+            assert f"'{value.value}'" in SQL, value
+
+
+def test_the_active_states_the_partial_indexes_are_built_over_are_the_domains() -> None:
+    # "At most one active run" and the sweep's index are both partial, over
+    # the states a run is still going in. A state added to the domain and not
+    # to them would let a conversation hold two answers at once.
+    spelt = ", ".join(f"'{state}'" for state in ACTIVE_STATES)
+
+    assert SQL.count(f"WHERE state IN ({spelt})") == 2
+
+
+def test_the_kind_that_ends_a_stream_is_the_name_of_the_record() -> None:
+    # `run_events_one_end_per_run` is written over a literal, and the store
+    # writes that column from the name of the event's class. A class renamed
+    # in the domain would leave the index watching for a kind nothing writes.
+    assert f"WHERE kind = '{RUN_ENDED_KIND}'" in SQL
 
 
 def test_the_version_in_the_file_is_the_version_in_the_code() -> None:

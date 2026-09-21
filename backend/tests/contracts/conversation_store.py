@@ -69,6 +69,7 @@ from conversations import (
 )
 from robinauts.core import message_to_data
 from robinauts.domain import (
+    MAX_TITLE_CHARS,
     Conversation,
     ConversationNotFoundError,
     InvalidValueError,
@@ -262,6 +263,34 @@ class ConversationStoreContract:
             # What it hands back is what it wrote, not what a caller must
             # rebuild out of the record it read a moment before.
             assert await store.conversation_by_id(CONVERSATION) == written
+
+    @asyncio_test
+    async def test_a_title_no_conversation_could_hold_is_refused(self) -> None:
+        # A title is one bounded, printable line -- `Conversation` says so,
+        # and a store that took anything else would hold a row the record
+        # cannot be built from, or hand the caller a driver error where the
+        # port promises a refusal. The check runs before the write, so the
+        # conversation keeps the title it had.
+        async with self.opened() as store:
+            await store.add_conversation(conversation())
+
+            for nonsense in (
+                None,
+                7,
+                "a title\nover two lines",
+                "a title with a \x00 in it",
+                "x" * (MAX_TITLE_CHARS + 1),
+            ):
+                with pytest.raises(InvalidValueError):
+                    await store.rename_conversation(
+                        CONVERSATION,
+                        nonsense,  # type: ignore[arg-type]
+                        now=at(5),
+                    )
+
+            found = await store.conversation_by_id(CONVERSATION)
+            assert found is not None
+            assert (found.title, found.updated_at) == ("What is a robinaut?", at(0))
 
     @asyncio_test
     async def test_renaming_what_is_not_there_says_so_and_stores_nothing(self) -> None:

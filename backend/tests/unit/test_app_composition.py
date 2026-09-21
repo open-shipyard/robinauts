@@ -23,7 +23,12 @@ import httpx
 import pytest
 
 from aio import asyncio_test
-from fakes import FakeClock, MemoryCredentialStore, ScriptedIdentityProvider
+from fakes import (
+    FakeClock,
+    MemoryConversationStore,
+    MemoryCredentialStore,
+    ScriptedIdentityProvider,
+)
 from robinauts.adapters import HttpIdentityProvider, SecretLookup
 from robinauts.app import (
     AUTH_CONFIG_VARIABLE,
@@ -75,6 +80,7 @@ def deployed(tmp_path: Path, **changes: object) -> Deployment:
         database_url=DATABASE_URL,
         secret_for=reading({"ROBINAUTS_GOOGLE_SECRET": "a-secret"}),
         credentials=MemoryCredentialStore(),
+        conversations=MemoryConversationStore(),
         clock=FakeClock(),
         **changes,  # type: ignore[arg-type]
     )
@@ -91,6 +97,7 @@ def test_a_file_that_does_not_parse_is_the_whole_story(tmp_path: Path) -> None:
             database_url=DATABASE_URL,
             secret_for=reading({}),
             credentials=MemoryCredentialStore(),
+            conversations=MemoryConversationStore(),
         )
 
     assert len(raised.value.problems) == 1
@@ -151,6 +158,7 @@ def test_the_missing_client_secret_is_named_and_never_its_value(
             database_url=DATABASE_URL,
             secret_for=reading({}),
             credentials=MemoryCredentialStore(),
+            conversations=MemoryConversationStore(),
         )
 
     assert raised.value.problems == (
@@ -187,15 +195,37 @@ def test_a_deployment_that_was_told_nothing_says_what_to_set() -> None:
     assert DATABASE_URL_VARIABLE in problems
 
 
-def test_a_store_that_was_handed_in_needs_no_database_url(tmp_path: Path) -> None:
+def test_the_stores_that_were_handed_in_need_no_database_url(tmp_path: Path) -> None:
     """What the process does not open, it does not need to be told about."""
     deployment = Deployment.configured(
         config_path=written(tmp_path),
         secret_for=reading({"ROBINAUTS_GOOGLE_SECRET": "a-secret"}),
         credentials=MemoryCredentialStore(),
+        conversations=MemoryConversationStore(),
     )
 
     assert deployment.database_url is None
+
+
+@pytest.mark.parametrize("handed_in", ["credentials", "conversations"])
+def test_one_store_handed_in_and_no_database_is_refused(tmp_path: Path, handed_in: str) -> None:
+    # Both stores are the same database, and a deployment that is open has
+    # both. Handing in one of them and naming no database would otherwise
+    # open a process with the other one missing: it would start, serve, and
+    # fail on the first request that needed it.
+    stores = {
+        "credentials": MemoryCredentialStore(),
+        "conversations": MemoryConversationStore(),
+    }
+
+    with pytest.raises(ConfigError) as raised:
+        Deployment.configured(
+            config_path=written(tmp_path),
+            secret_for=reading({"ROBINAUTS_GOOGLE_SECRET": "a-secret"}),
+            **{handed_in: stores[handed_in]},
+        )
+
+    assert DATABASE_URL_VARIABLE in "\n".join(raised.value.problems)
 
 
 # Opening and closing.
@@ -295,6 +325,7 @@ async def test_the_lifespan_opens_before_the_first_request_and_closes_after(
         config_path=written(tmp_path),
         secret_for=reading({"ROBINAUTS_GOOGLE_SECRET": "a-secret"}),
         credentials=MemoryCredentialStore(),
+        conversations=MemoryConversationStore(),
         provider=ScriptedIdentityProvider(),
         clock=FakeClock(),
     )
@@ -326,4 +357,5 @@ async def test_create_app_refuses_a_configuration_it_cannot_use(tmp_path: Path) 
             config_path=written(tmp_path),
             secret_for=reading({}),
             credentials=MemoryCredentialStore(),
+            conversations=MemoryConversationStore(),
         )

@@ -25,9 +25,12 @@ Two moments, deliberately apart:
   message ``domain.SchemaError`` writes, and the server does not start.
 
 **It is testable without either.** Every collaborator may be handed in --
-``Deployment`` takes a credential store, an identity provider, a clock and a
-source of secrets -- so the route tests wire the in-memory fakes and the
-stand-in provider and never touch a database, a file or the environment. What
+``Deployment`` takes a credential store, a conversation store, an identity
+provider, a clock and a source of secrets -- so the route tests wire the in-memory fakes and the
+stand-in provider and never touch a database, a file or the environment.
+**Both stores or neither**: a deployment that is open has a credential store
+*and* a conversation store, so handing in one of them and no database url is
+refused rather than quietly leaving the other unbuilt. What
 is *not* handed in is built here, and only what is built here is closed here
 ... with one exception, said plainly: an identity provider that holds an HTTP
 client is closed whichever way it arrived, because the process holds it for
@@ -61,7 +64,12 @@ from robinauts.adapters import (
 from robinauts.api import create_api
 from robinauts.application import LocalAccess, SignIn
 from robinauts.core import parse_sign_in_config
-from robinauts.datastore import PostgresCredentialStore, check_schema, open_pool
+from robinauts.datastore import (
+    PostgresConversationStore,
+    PostgresCredentialStore,
+    check_schema,
+    open_pool,
+)
 from robinauts.domain import (
     LOCAL_PROVIDER,
     LOCAL_SUBJECT,
@@ -71,7 +79,13 @@ from robinauts.domain import (
     SignInConfig,
     is_loopback_bind_host,
 )
-from robinauts.ports import Clock, CredentialStore, IdentityProvider, SecretSource
+from robinauts.ports import (
+    Clock,
+    ConversationStore,
+    CredentialStore,
+    IdentityProvider,
+    SecretSource,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -93,6 +107,14 @@ NO_MODE = (
     f" TOML file describing sign-in, or ask for the local development mode"
 )
 """Neither was given. ``configured`` says it with whatever else is missing."""
+
+NO_DATABASE = f"no database: set {DATABASE_URL_VARIABLE} to the PostgreSQL this deployment uses"
+"""Said wherever a store this deployment needs would have to come from one.
+
+Both stores are the same database, and a deployment that is open has both
+(``Deployment.open``), so the url is wanted unless **every** store was handed
+in -- which only a test does.
+"""
 
 OFF_LOOPBACK = (
     "the local development mode serves the loopback interface only: %s is not an address of"
@@ -131,6 +153,7 @@ class Deployment:
         local_development_host: str | None = None,
         database_url: str | None = None,
         credentials: CredentialStore | None = None,
+        conversations: ConversationStore | None = None,
         provider: IdentityProvider | None = None,
         clock: Clock | None = None,
         secrets: SecretSource | None = None,
@@ -155,6 +178,16 @@ class Deployment:
         """The application's sign-in, between ``open`` and ``aclose``."""
         self.local_access: LocalAccess | None = None
         """The local development mode's one user, between ``open`` and ``aclose``."""
+        self.conversations: ConversationStore | None = None
+        """Conversations, messages, runs and their events, between ``open`` and ``aclose``.
+
+        Built here on the same pool as the credential store, because it is the
+        same database. Nothing is wired on top of it yet: the services that
+        use it -- the conversations service, the run lifecycle, the executor
+        -- and the routes that reach them arrive with their own steps. It is
+        exposed so that a deployment, and a test, can see what the process
+        holds.
+        """
         self.pool: Any = None
         """The connection pool this opened, if it opened one; ``None`` after.
 
@@ -165,6 +198,7 @@ class Deployment:
         command and a test can see what the process is holding.
         """
         self._credentials = credentials
+        self._conversations = conversations
         self._provider = provider
         self._clock = clock or SystemClock()
         self._secrets = secrets or OsSecretSource()
@@ -181,6 +215,7 @@ class Deployment:
         database_url: str | None = None,
         secret_for: SecretLookup = environment,
         credentials: CredentialStore | None = None,
+        conversations: ConversationStore | None = None,
         provider: IdentityProvider | None = None,
         clock: Clock | None = None,
         secrets: SecretSource | None = None,
@@ -207,11 +242,8 @@ class Deployment:
         problems: list[str] = []
         path = config_path if config_path is not None else secret_for(AUTH_CONFIG_VARIABLE)
         url = database_url if database_url is not None else secret_for(DATABASE_URL_VARIABLE)
-        if credentials is None and not url:
-            problems.append(
-                f"no database: set {DATABASE_URL_VARIABLE} to the PostgreSQL this"
-                f" deployment uses"
-            )
+        if (credentials is None or conversations is None) and not url:
+            problems.append(NO_DATABASE)
         config: SignInConfig | None = None
         if local_development_host is not None:
             if path:
@@ -240,6 +272,7 @@ class Deployment:
             local_development_host=local_development_host,
             database_url=url,
             credentials=credentials,
+            conversations=conversations,
             provider=provider,
             clock=clock,
             secrets=secrets,
@@ -275,13 +308,26 @@ class Deployment:
         self._opened = True
         try:
             credentials = self._credentials
-            if credentials is None:
+            self.conversations = self._conversations
+            # **A deployment that is open has both stores.** Either is
+            # injectable and neither is optional: one of them missing would be
+            # a process that starts, serves, and fails on the first request
+            # that needs it. So a pool is opened whenever either is still
+            # missing, and whatever is still missing is built on it.
+            if credentials is None or self.conversations is None:
                 if not self.database_url:  # pragma: no cover -- `configured` refuses first
-                    raise ConfigError([f"no database: set {DATABASE_URL_VARIABLE}"])
+                    raise ConfigError([NO_DATABASE])
                 self.pool = await open_pool(self.database_url)
                 self._closing.append(self._closed_pool)
+                # One check for the whole schema: `check_schema` looks for
+                # every table of `schema.sql`, the conversation and run tables
+                # among them, so a database made before they existed is a
+                # deployment that does not start.
                 await check_schema(self.pool)
-                credentials = PostgresCredentialStore(self.pool)
+                if credentials is None:
+                    credentials = PostgresCredentialStore(self.pool)
+                if self.conversations is None:
+                    self.conversations = PostgresConversationStore(self.pool)
             if self.local_mode is not None:
                 # No identity provider is built: there is nobody to talk to,
                 # and an HTTP client nothing uses is a client to close.
@@ -329,6 +375,9 @@ class Deployment:
         """
         self.sign_in = None
         self.local_access = None
+        # The stores hold nothing of their own -- the pool is what is closed,
+        # below -- so letting go of them is forgetting them.
+        self.conversations = None
         while self._closing:
             close = self._closing.pop()
             try:
@@ -344,6 +393,7 @@ def create_app(
     database_url: str | None = None,
     secret_for: SecretLookup = environment,
     credentials: CredentialStore | None = None,
+    conversations: ConversationStore | None = None,
     provider: IdentityProvider | None = None,
     clock: Clock | None = None,
     secrets: SecretSource | None = None,
@@ -356,8 +406,10 @@ def create_app(
     the lifespan, which an ASGI server runs before the first request and
     unwinds after the last.
 
-    The collaborators are the arguments: pass a credential store and no
-    database is opened, pass an identity provider and none is built. That is
+    The collaborators are the arguments: pass **both** stores and no database
+    is opened, pass an identity provider and none is built. Both stores,
+    because a deployment that is open has both: one of them handed in and no
+    database url is a start-up ``ConfigError``. That is
     how the tests wire fakes and a stand-in provider into the real application
     (``docs/layout.md``, "Testing strategy").
 
@@ -372,6 +424,7 @@ def create_app(
         database_url=database_url,
         secret_for=secret_for,
         credentials=credentials,
+        conversations=conversations,
         provider=provider,
         clock=clock,
         secrets=secrets,

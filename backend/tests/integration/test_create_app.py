@@ -25,6 +25,7 @@ Marked ``io`` and ``database``; skipped, with the reason, without
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -36,7 +37,11 @@ import pytest
 from aio import asyncio_test
 from postgres import DATABASE_URL, TemporarySchema, requires_postgres
 from robinauts.app import create_app
-from robinauts.datastore import SCHEMA_VERSION, create_schema
+from robinauts.datastore import (
+    SCHEMA_VERSION,
+    PostgresConversationStore,
+    create_schema,
+)
 from robinauts.domain import (
     DB_INIT_COMMAND,
     LOCAL_PROVIDER,
@@ -205,6 +210,30 @@ async def test_the_local_development_mode_runs_as_one_real_row() -> None:
     # transaction that wrote this row version, so a request that upserted --
     # which is what ``user_at_sign_in`` does -- would have left another one.
     assert rows[0]["version"] == written_by
+
+
+@asyncio_test
+async def test_the_conversation_store_is_opened_on_the_same_pool() -> None:
+    # Conversations, messages, runs and events are the same database as users
+    # and sessions, so they are the same pool. Nothing is wired on top of the
+    # store yet -- the services and the routes come with their own steps --
+    # but the deployment holds it, it reaches the schema the connection string
+    # names, and the lifespan gives it back with everything else.
+    async with schema() as temporary:
+        app = create_app(
+            local_development_host="127.0.0.1",
+            database_url=in_schema(temporary.name),
+            secret_for={}.get,
+        )
+
+        async with running(app):
+            store = app.state.deployment.conversations
+            assert isinstance(store, PostgresConversationStore)
+            assert await store.conversation_by_id(uuid.uuid4()) is None
+            assert app.state.deployment.pool is not None
+
+        assert app.state.deployment.conversations is None
+        assert app.state.deployment.pool is None
 
 
 def local_browser(app: object) -> httpx.AsyncClient:

@@ -39,7 +39,7 @@ import pytest
 from fastapi import FastAPI
 
 from aio import asyncio_test
-from fakes import FakeClock, MemoryCredentialStore
+from fakes import FakeClock, MemoryConversationStore, MemoryCredentialStore
 from robinauts.api import (
     BOTH_WAYS,
     CROSS_SITE_DETAIL,
@@ -562,6 +562,7 @@ async def test_the_mode_is_not_the_default(tmp_path: Path) -> None:
         config_path=written(tmp_path),
         secret_for=reading({"ROBINAUTS_GOOGLE_SECRET": "a-secret"}),
         credentials=MemoryCredentialStore(),
+        conversations=MemoryConversationStore(),
         clock=FakeClock(),
     )
 
@@ -593,7 +594,11 @@ def test_no_environment_variable_can_switch_it_on(tmp_path: Path) -> None:
         asked.append(name)
         return tempting.get(name)
 
-    deployment = Deployment.configured(secret_for=secret_for, credentials=MemoryCredentialStore())
+    deployment = Deployment.configured(
+        secret_for=secret_for,
+        credentials=MemoryCredentialStore(),
+        conversations=MemoryConversationStore(),
+    )
 
     assert deployment.local_mode is None
     assert set(asked) == {AUTH_CONFIG_VARIABLE, DATABASE_URL_VARIABLE, "ROBINAUTS_GOOGLE_SECRET"}
@@ -607,6 +612,7 @@ def test_it_cannot_be_combined_with_a_sign_in_configuration(tmp_path: Path) -> N
             database_url=DATABASE_URL,
             secret_for=reading({}),
             credentials=MemoryCredentialStore(),
+            conversations=MemoryConversationStore(),
         )
 
     assert any("cannot be combined" in problem for problem in raised.value.problems)
@@ -621,6 +627,7 @@ def test_a_configuration_in_the_environment_counts_as_asking_for_both(tmp_path: 
             database_url=DATABASE_URL,
             secret_for=reading({AUTH_CONFIG_VARIABLE: str(written(tmp_path))}),
             credentials=MemoryCredentialStore(),
+            conversations=MemoryConversationStore(),
         )
 
     assert any("cannot be combined" in problem for problem in raised.value.problems)
@@ -633,6 +640,7 @@ def test_a_name_only_a_resolver_calls_loopback_is_refused_at_start_up() -> None:
             database_url=DATABASE_URL,
             secret_for=reading({}),
             credentials=MemoryCredentialStore(),
+            conversations=MemoryConversationStore(),
         )
 
     assert any("loopback interface only" in problem for problem in raised.value.problems)
@@ -674,6 +682,7 @@ async def test_start_up_warns_once_that_sign_in_is_off(caplog: Any) -> None:
         local_development_host="127.0.0.1",
         secret_for=reading({}),
         credentials=MemoryCredentialStore(),
+        conversations=MemoryConversationStore(),
         clock=FakeClock(),
     )
 
@@ -697,6 +706,7 @@ async def test_the_mode_builds_no_identity_provider(tmp_path: Path) -> None:
         local_development_host="127.0.0.1",
         secret_for=reading({}),
         credentials=MemoryCredentialStore(),
+        conversations=MemoryConversationStore(),
         clock=FakeClock(),
     )
 

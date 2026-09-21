@@ -32,6 +32,7 @@ import pytest
 from aio import asyncio_test
 from postgres import DATABASE_URL, requires_postgres, temporary_schema
 from robinauts.datastore import (
+    SCHEMA_TABLES,
     SCHEMA_VERSION,
     PostgresCredentialStore,
     check_schema,
@@ -99,7 +100,7 @@ async def test_another_application_further_along_the_path_is_none_of_ours() -> N
         # And ours were made in our schema, not theirs.
         assert await schema.pool.fetchval(
             "SELECT count(*) FROM pg_tables WHERE schemaname = $1", schema.name
-        ) == len(("pending_logins", "schema_version", "sessions", "users"))
+        ) == len(SCHEMA_TABLES)
         # Theirs were left exactly as they were.
         assert await schema.pool.fetchval(
             "SELECT count(*) FROM information_schema.columns"

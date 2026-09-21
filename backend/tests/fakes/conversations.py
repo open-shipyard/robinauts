@@ -50,6 +50,7 @@ from datetime import datetime
 from robinauts.domain import (
     ENDED_RUN_STATES,
     FIRST_POSITION,
+    MAX_TITLE_CHARS,
     Conversation,
     ConversationNotFoundError,
     IllegalTransitionError,
@@ -65,6 +66,7 @@ from robinauts.domain import (
     RunEvent,
     RunNotFoundError,
     RunState,
+    checked_line,
 )
 from robinauts.ports import (
     MAX_PAGE,
@@ -162,6 +164,10 @@ class MemoryConversationStore(ConversationStore):
     async def rename_conversation(
         self, conversation_id: uuid.UUID, title: str, *, now: datetime
     ) -> Conversation | None:
+        # The rule the record keeps, kept before the write: a store never
+        # holds a title `Conversation` would refuse, so neither store may
+        # take one.
+        checked_line(title, "a conversation's title", MAX_TITLE_CHARS)
         _instant(now)
         async with self._locked():
             found = self._conversations.get(conversation_id)
