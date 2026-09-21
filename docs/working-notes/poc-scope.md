@@ -153,23 +153,78 @@ Also out, all specified and all addable later without rework:
 ## Order of work
 
 Each step is one branch, reviewed until clean, landed as one signed-off
-commit.
+commit. A step aims at under a thousand lines of diff and one concern, so
+that a review is quick and its findings are about one thing.
 
-1. Repository groundwork: the open source files, CI with the gates over
-   the existing skeleton.
-2. Domain and core: the conversation format, users, sessions, the claim
-   and allow-list rules; ports; in-memory fakes; their tests.
-3. Datastore: asyncpg, the schema definition, the store contract suites.
-4. Sign-in: the OIDC adapter, the application flow, the `api` routes, the
-   stand-in provider for tests.
-5. Application: conversations and the run lifecycle, against a fake agent.
-6. The run executor and the AG-UI stream in `api`.
-7. The first agent engine, with the contract suite.
-8. The second agent engine, and the swap test.
-9. Frontend: the skeleton, the shell, sign-in page, history.
-10. Frontend: the chat behind its seam, on AG-UI.
-11. Packaging: the frontend in the wheel, `robinauts start`, the
-    deployment guide, the real deployment.
+**Groundwork**
+
+1. Repository documents: `NOTICE`, `AUTHORS`, `CONTRIBUTING.md`,
+   `DEPENDENCIES.md`, `docs/legal/*`, `REUSE.toml`.
+2. CI for Python: tests with the architecture contracts, ruff, black, the
+   licence gate, `pip-audit`, `reuse lint`, the DCO check.
+
+**Sign-in, from the core outward**
+
+3. Domain and core for sign-in: identity, the allow-list matchers, the
+   claim checks, configuration validation.
+4. Ports and fakes for sign-in, and the application flow: begin, callback,
+   session, sign-out, user creation.
+5. The schema definition and the credential store on asyncpg, with its
+   contract suite.
+6. The OIDC adapter, the configuration reader, the stand-in provider.
+7. `api`: the auth routes, cookies, origin checks, the permission
+   declaration and its test, `create_app`, the health endpoint.
+8. The local development mode.
+
+**Conversations and runs**
+
+9. Domain and core for the conversation format: the tree, the kinds of
+   content, what an answer records.
+10. Conversation and run ports, fakes, and the application for
+    conversations: list, open, rename, delete, ownership.
+11. The run lifecycle in the application, against a fake agent: start,
+    persist as produced, one active run, cancel, interrupted.
+12. The conversation and run stores on asyncpg, with their contract
+    suites.
+13. The run executor adapter: tasks, the registry, the lifespan, timeouts.
+14. `api`: the conversation routes, the OpenAPI snapshot.
+15. `api`: the AG-UI stream, re-attaching.
+
+**Engines**
+
+16. The agent contract suite and the first engine; provider
+    configuration, keys from the environment.
+17. The second engine, and the swap test.
+
+**Frontend**
+
+18. Skeleton and CI for JavaScript: Vite, TypeScript, ESLint with the rule
+    that confines assistant-ui, the bundle licence gate,
+    `bundled-packages.txt`, `npm audit`.
+19. The shell: tokens, the Tailwind theme, the panel and its rail, the
+    profile block, session handling, the sign-in page, the banner of the
+    local development mode.
+20. History in the panel, routing, conversation management against the
+    API.
+21. The vendored assistant-ui components: only the copy, its README, the
+    MIT text and the `ip-clearance` entry. A large diff, and a mechanical
+    one: the review is about provenance.
+22. The chat behind `src/chat/`: the AG-UI client, streaming, re-attaching,
+    cancel, the agent picker; edit and regenerate if they come cheaply.
+
+**Delivery**
+
+23. The frontend in the wheel, `robinauts start` and `robinauts db init`,
+    the wheel as a CI artifact.
+24. The deployment guide and the real deployment, with what broke written
+    down.
+
+**What this order gives**
+
+- After step 8, signing in works end to end, before any chat code exists.
+- After step 15, the backend is complete and testable with a fake agent.
+- Steps 18 to 20 depend only on steps 7 and 14, so the frontend can
+  proceed in parallel with steps 9 to 17.
 
 ## To settle before starting
 
