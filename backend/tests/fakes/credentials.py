@@ -13,17 +13,33 @@ the two, under the lock. Nothing needs it; it is there so that the concurrency
 tests of the contract really do interleave against this store, rather than
 passing because dictionaries are quick. A store whose lock did not cover the
 whole operation would fail them here, as it would against a database.
+
+What a real store refuses, this one refuses too, and with the same error: a
+key that is not the hash of a secret, a hash a session already holds, a
+session for somebody who is not a user, a time that names no instant. In
+PostgreSQL those are constraints and a naive datetime read as UTC; here they
+are the four checks below. The point is not that a dictionary needs them --
+it is that a test passing against this store means something about the other.
 """
 
 from __future__ import annotations
 
 import asyncio
 import dataclasses
+import re
 import uuid
 from datetime import datetime
 
-from robinauts.domain import PendingLogin, Session, User
+from robinauts.domain import InvalidValueError, PendingLogin, Session, User
 from robinauts.ports import CredentialStore
+
+HASH = re.compile(r"^[0-9a-f]{64}\Z")
+"""What ``robinauts.core.secret_hash`` writes, and the only key stored.
+
+The same shape the PostgreSQL schema puts a CHECK on. ``\\Z`` rather than
+``$``: ``$`` would let a trailing newline through, and a key with a newline
+in it is exactly the sort of thing worth refusing.
+"""
 
 
 class MemoryCredentialStore(CredentialStore):
@@ -87,6 +103,7 @@ class MemoryCredentialStore(CredentialStore):
         email: str | None,
         now: datetime,
     ) -> User:
+        _instant(now, "now")
         async with self._lock:
             key = (provider, subject)
             found = self._users.get(key)
@@ -123,7 +140,12 @@ class MemoryCredentialStore(CredentialStore):
         created_at: datetime,
         expires_at: datetime,
     ) -> Session:
+        _hashed(secret_hash, "a session")
         async with self._lock:
+            if secret_hash in self._sessions:
+                raise InvalidValueError("a session is already stored under that hash")
+            if not any(user.id == user_id for user in self._users.values()):
+                raise InvalidValueError(f"there is no user {user_id} to give a session to")
             session = Session(
                 id=uuid.uuid4(),
                 user_id=user_id,
@@ -134,6 +156,7 @@ class MemoryCredentialStore(CredentialStore):
             return session
 
     async def session_by_hash(self, secret_hash: str, *, now: datetime) -> Session | None:
+        _instant(now, "now")
         async with self._lock:
             found = self._sessions.get(secret_hash)
             if found is None or found.has_expired(now):
@@ -147,6 +170,7 @@ class MemoryCredentialStore(CredentialStore):
             return self._sessions.pop(secret_hash, None) is not None and found
 
     async def delete_expired_sessions(self, *, now: datetime) -> int:
+        _instant(now, "now")
         if self.sweep_error is not None:
             raise self.sweep_error
         async with self._lock:
@@ -160,6 +184,8 @@ class MemoryCredentialStore(CredentialStore):
     async def add_pending_login(
         self, state_hash: str, login: PendingLogin, *, limit: int, now: datetime
     ) -> bool:
+        _hashed(state_hash, "a sign-in in progress")
+        _instant(now, "now")
         async with self._lock:
             if state_hash in self._logins:
                 return False
@@ -177,10 +203,12 @@ class MemoryCredentialStore(CredentialStore):
             return self._logins.pop(state_hash, None) if found is not None else None
 
     async def count_pending_logins(self, *, now: datetime) -> int:
+        _instant(now, "now")
         async with self._lock:
             return sum(1 for kept in self._logins.values() if not kept.has_expired(now))
 
     async def delete_expired_pending_logins(self, *, now: datetime) -> int:
+        _instant(now, "now")
         if self.sweep_error is not None:
             raise self.sweep_error
         async with self._lock:
@@ -188,6 +216,20 @@ class MemoryCredentialStore(CredentialStore):
             for key in gone:
                 del self._logins[key]
             return len(gone)
+
+
+def _hashed(key: str, what: str) -> str:
+    """``key`` if it is the hash of a secret; ``InvalidValueError`` if not."""
+    if not isinstance(key, str) or not HASH.match(key):
+        raise InvalidValueError(f"{what} is found by the SHA-256 of a secret, not by {key!r}")
+    return key
+
+
+def _instant(when: datetime, what: str) -> datetime:
+    """``when`` if it names an instant; ``InvalidValueError`` if it does not."""
+    if not isinstance(when, datetime) or when.tzinfo is None:
+        raise InvalidValueError(f"{what} must be an aware datetime, not {when!r}")
+    return when
 
 
 async def _a_turn() -> None:

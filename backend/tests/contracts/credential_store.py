@@ -54,9 +54,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from aio import asyncio_test
 from robinauts.core import secret_hash
-from robinauts.domain import PendingLogin
+from robinauts.domain import InvalidValueError, PendingLogin
 from robinauts.ports import CredentialStore
 
 NOW = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
@@ -89,8 +91,15 @@ class CredentialStoreContract:
         """An empty store, built inside the event loop the test runs on."""
         raise NotImplementedError("a CredentialStoreContract subclass overrides `new_store`")
 
-    async def close_store(self, store: CredentialStore) -> None:
-        """Let go of whatever ``new_store`` took. Nothing, unless it took something."""
+    async def close_store(self, store: CredentialStore | None) -> None:
+        """Let go of whatever ``new_store`` took. Nothing, unless it took something.
+
+        ``None`` when ``new_store`` did not finish. An implementation that
+        takes something -- a pool, a schema, a file -- may already have taken
+        half of it by then, so this is called for that case too and has to
+        cope with it. Leaking after a failure is how one broken test turns
+        into a run that fails in a different place every time.
+        """
 
     @asynccontextmanager
     async def opened(self) -> AsyncIterator[CredentialStore]:
@@ -100,9 +109,13 @@ class CredentialStoreContract:
         pool opens it in ``new_store`` and closes it here, on the loop that
         made it -- each test has a loop of its own, and a pool outliving its
         loop is a warning at best and a hang at worst.
+
+        ``new_store`` is inside the ``try``, so a store that fails half way
+        through being built is still handed to ``close_store``.
         """
-        store = await self.new_store()
+        store: CredentialStore | None = None
         try:
+            store = await self.new_store()
             yield store
         finally:
             await self.close_store(store)
@@ -391,6 +404,111 @@ class CredentialStoreContract:
             )
             assert (taken.created_at, taken.expires_at) == (NOW, LATER)
             assert taken.return_to == "/#/chat/7"
+
+    # What a store refuses.
+    #
+    # Four things the port leaves unsaid, which two stores answered
+    # differently -- and two answers is the same as no decision. They are
+    # decided here, all four the same way: a store refuses, with a domain
+    # error, rather than doing something it cannot take back. The refusal is
+    # about *storing*; looking something impossible up stays "not found",
+    # because a lookup is what an attacker controls and it must not tell
+    # them apart from a miss.
+
+    @asyncio_test
+    async def test_a_secret_hash_a_session_already_holds_is_refused(self) -> None:
+        # It cannot happen -- a session secret carries 256 random bits --
+        # and what a store does about it is settled all the same. The same
+        # answer as a pending sign-in's: overwriting would end the session
+        # somebody is using, to make room for a collision that did not
+        # happen.
+        async with self.opened() as store:
+            user = await store.user_at_sign_in("google", "1", name=None, email=None, now=NOW)
+            first = await store.add_session(
+                secret_hash("s"), user.id, created_at=NOW, expires_at=MUCH_LATER
+            )
+
+            with pytest.raises(InvalidValueError):
+                await store.add_session(
+                    secret_hash("s"), user.id, created_at=LATER, expires_at=MUCH_LATER
+                )
+
+            assert await store.session_by_hash(secret_hash("s"), now=NOW) == first
+
+    @asyncio_test
+    async def test_a_session_for_somebody_who_is_not_a_user_is_refused(self) -> None:
+        # A session names its user, and the routes that follow it will look
+        # that user up to decide what may be seen. One pointing at nobody is
+        # a row no code has an answer for, so it is never written.
+        async with self.opened() as store:
+            with pytest.raises(InvalidValueError):
+                await store.add_session(
+                    secret_hash("s"), uuid.uuid4(), created_at=NOW, expires_at=MUCH_LATER
+                )
+
+    @asyncio_test
+    async def test_a_key_that_is_not_the_hash_of_a_secret_is_refused(self) -> None:
+        # The port is handed the SHA-256 of a secret and never the secret
+        # itself. A store that wrote down whatever it was given would, the
+        # day a caller passed the wrong one, keep the secret in the clear --
+        # which is the one thing the whole arrangement exists to prevent. So
+        # a key that is not 64 hexadecimal digits is refused on the way in.
+        async with self.opened() as store:
+            user = await store.user_at_sign_in("google", "1", name=None, email=None, now=NOW)
+
+            with pytest.raises(InvalidValueError):
+                await store.add_session("s3cret", user.id, created_at=NOW, expires_at=MUCH_LATER)
+            with pytest.raises(InvalidValueError):
+                await store.add_pending_login("the-state", pending(), limit=10, now=NOW)
+
+            # Asking about one is not refused; it is simply not found.
+            assert await store.session_by_hash("s3cret", now=NOW) is None
+            assert await store.take_pending_login("the-state") is None
+
+    @asyncio_test
+    async def test_a_key_that_is_not_a_hash_is_refused_at_the_cap_too(self) -> None:
+        # The reason the check cannot be left to the storage. At the cap
+        # nothing is stored, so a store that found out only by trying would
+        # answer ``False`` -- "busy, try again" -- about a key that was never
+        # a key, and the caller would go on believing it had handed over a
+        # hash. What is wrong with the call does not depend on how full the
+        # table is.
+        async with self.opened() as store:
+            assert await store.add_pending_login(secret_hash("a"), pending(), limit=1, now=NOW)
+
+            with pytest.raises(InvalidValueError):
+                await store.add_pending_login("the-state", pending(), limit=1, now=NOW)
+
+            assert await store.count_pending_logins(now=NOW) == 1
+
+    @asyncio_test
+    async def test_a_time_that_names_no_instant_is_refused_by_every_method(self) -> None:
+        # The store is told what "now" is, by the one clock. A naive datetime
+        # names no instant: read as UTC by one deployment and as local time by
+        # the next, it would quietly lengthen or shorten every session by the
+        # offset. Every method that takes a time refuses one -- including the
+        # second sign-in of a user who is already there, which is the path
+        # that builds no record and so has nothing else to catch it.
+        naive = NOW.replace(tzinfo=None)
+        async with self.opened() as store:
+            user = await store.user_at_sign_in("google", "1", name=None, email=None, now=NOW)
+
+            with pytest.raises(InvalidValueError):
+                await store.user_at_sign_in("google", "1", name=None, email=None, now=naive)
+            with pytest.raises(InvalidValueError):
+                await store.add_session(
+                    secret_hash("s"), user.id, created_at=naive, expires_at=MUCH_LATER
+                )
+            with pytest.raises(InvalidValueError):
+                await store.session_by_hash(secret_hash("s"), now=naive)
+            with pytest.raises(InvalidValueError):
+                await store.delete_expired_sessions(now=naive)
+            with pytest.raises(InvalidValueError):
+                await store.add_pending_login(secret_hash("a"), pending(), limit=10, now=naive)
+            with pytest.raises(InvalidValueError):
+                await store.count_pending_logins(now=naive)
+            with pytest.raises(InvalidValueError):
+                await store.delete_expired_pending_logins(now=naive)
 
     # Two things at once.
 

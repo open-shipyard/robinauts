@@ -1,0 +1,13 @@
+# Line endings, decided here rather than by whoever checks the tree out.
+#
+# `datastore/schema.sql` is hashed, and the hash is pinned beside the schema
+# version: it is what stops the schema being edited without the version being
+# bumped, there being no migrations yet. A checkout that turned its newlines
+# into CRLF would change that hash and fail the check for a reason that has
+# nothing to do with the schema -- so the file is LF everywhere, as are the
+# shell scripts, which a CRLF checkout would stop being able to run at all.
+
+* text=auto
+
+*.sql text eol=lf
+*.sh text eol=lf

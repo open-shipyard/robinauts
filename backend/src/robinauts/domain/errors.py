@@ -37,6 +37,143 @@ class ConfigError(RobinautsError):
         super().__init__("invalid configuration:\n" + "\n".join(self.problems))
 
 
+DB_INIT_COMMAND = "robinauts db init"
+"""The command that creates the schema. The server never creates it itself.
+
+Named here because ``SchemaError`` is what an operator reads when the
+database is not the one this build was written against, and an error that
+says what is wrong without saying what to type is half an error.
+"""
+
+
+class SchemaError(RobinautsError):
+    """The database is not the one this build was written against.
+
+    Every way that can be true ends in the same two refusals -- the schema is
+    not created, and the server does not start -- because a server that ran
+    against a schema it does not know would write rows nothing can read back
+    (``docs/specs/backend.md``). What differs is only what the operator is
+    told they are looking at, so the shapes are the constructors below and
+    the advice is one sentence, written once.
+
+    Until there is a production deployment there are no migrations: a
+    database of any other version is **made again**, not upgraded, and the
+    command that creates the schema works on an empty database only. Saying
+    that in every message is deliberate -- the alternative is an operator
+    running the command on the database that already has their data in it.
+    """
+
+    ADVICE = (
+        f"`{DB_INIT_COMMAND}` creates the schema, and until there are migrations it works"
+        " on an empty database only: a database of any other version is made again"
+    )
+
+    def __init__(
+        self,
+        problem: str,
+        *,
+        expected: int,
+        found: int | None = None,
+        advice: str | None = None,
+    ) -> None:
+        self.problem = problem
+        """What is wrong, without the advice: one clause, for a log line."""
+        self.expected = expected
+        self.found = found
+        """The version in the database, or ``None`` if it has no usable one."""
+        self.advice = advice or self.ADVICE
+        """What to do. Recreating the database, unless something else fixes it."""
+        super().__init__(f"{problem}; this build needs schema version {expected}. {self.advice}")
+
+    @classmethod
+    def missing(cls, expected: int) -> SchemaError:
+        """There is nothing of ours in this database at all."""
+        return cls("the database has no Robinauts schema", expected=expected)
+
+    @classmethod
+    def no_schema(cls, expected: int, path: str) -> SchemaError:
+        """The connection's search path names nothing that exists.
+
+        Then there is no schema to look in and none to create in either: an
+        unqualified ``CREATE TABLE`` has nowhere to go. The command cannot
+        help, so it is not the thing to suggest.
+        """
+        return cls(
+            f"the connection's search path ({path}) names no schema that exists",
+            expected=expected,
+            advice=(
+                "create the schema in the database, or point the search path at one that"
+                " is there"
+            ),
+        )
+
+    @classmethod
+    def mismatch(cls, expected: int, found: int) -> SchemaError:
+        """There is a schema, of a version this build was not written for."""
+        return cls(f"the database is at schema version {found}", expected=expected, found=found)
+
+    @classmethod
+    def unversioned(cls, expected: int, tables: Iterable[str]) -> SchemaError:
+        """Our tables are there and no version is recorded.
+
+        A database somebody made by hand, or one whose creation stopped half
+        way. Either way there is no telling what shape those tables are in,
+        so it is not a database to add the rest of a schema to.
+        """
+        return cls(
+            "the database holds Robinauts tables"
+            f" ({', '.join(sorted(tables))}) but records no schema version",
+            expected=expected,
+        )
+
+    @classmethod
+    def unreadable(cls, expected: int) -> SchemaError:
+        """There is a ``schema_version`` table, and it is not ours.
+
+        Another shape, another meaning, or another project's: a version that
+        cannot be read is a version that cannot be trusted, and guessing it
+        is how a server ends up writing into somebody else's tables.
+        """
+        return cls(
+            "the database has a schema_version table this build cannot read,"
+            " so the schema in it is of an unknown version",
+            expected=expected,
+        )
+
+    @classmethod
+    def shadowed(cls, expected: int, tables: Iterable[str]) -> SchemaError:
+        """The schema is right, and it is not the one the queries would reach.
+
+        PostgreSQL resolves an unqualified table name through ``search_path``,
+        and the schema checked is the one the definition was created in. If
+        something earlier on the path answers to the same name, the two part
+        company: the check passes, and every statement afterwards goes
+        somewhere else. It is a configuration to correct, not a database.
+        """
+        return cls(
+            "the search path reaches other tables by these names before the schema's own"
+            f" ({', '.join(sorted(tables))}), so the queries would not go where the"
+            " schema is",
+            expected=expected,
+            found=expected,
+            # Not a database to make again: nothing is wrong with it.
+            advice=(
+                "set the connection's search path so that the schema holding the Robinauts"
+                " tables is the first one on it"
+            ),
+        )
+
+    @classmethod
+    def incomplete(cls, expected: int, missing: Iterable[str]) -> SchemaError:
+        """The version is right and the schema is not all there."""
+        return cls(
+            f"the database records schema version {expected} but does not have"
+            f" every table this build expects (missing: {', '.join(sorted(missing))})",
+            expected=expected,
+            found=expected,
+        )
+
+
 class SignInErrorCode(StrEnum):
     """What the sign-in page is told when a sign-in does not complete.
 

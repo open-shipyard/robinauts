@@ -79,6 +79,73 @@ isolated tools, from a version pinned in
 file is the one place for such pins, and CI reads uv's version from it too.
 [DEPENDENCIES.md](DEPENDENCIES.md) says why they stay out of the lockfile.
 
+### PostgreSQL for the tests
+
+Most of the suite needs nothing but Python. The tests under
+`backend/tests/integration/` need a PostgreSQL, and they are **given** one
+rather than starting one: set `ROBINAUTS_TEST_DATABASE_URL` to its URL and
+run the tests as usual.
+
+    ROBINAUTS_TEST_DATABASE_URL=postgresql://user@localhost/robinauts_test \
+        scripts/check-tests.sh
+
+Any PostgreSQL 14 or later will do, on your machine or anywhere you can
+reach it, as long as the account may create and drop schemas in that
+database: each test makes a schema of its own, named after a fresh UUID, sets
+the connection's `search_path` to it, and drops it when it ends. That is also
+how a deployment is expected to be set up — the schema the tables live in is
+the first entry on the path — and `check_schema` refuses to start when it is
+not.
+
+Nothing is left behind, two runs at once do not interfere, and no test needs
+a database to itself. CI runs them against a service container, which is the
+same arrangement — and in a time zone that is deliberately not UTC, so that a
+store reading a time as a wall clock fails there rather than in somebody's
+deployment.
+
+Without the variable those tests **skip**, with the reason printed, and
+everything else runs — so a contributor with no PostgreSQL to hand still
+gets a green `scripts/check-all.sh`. They are marked `io`, so
+`scripts/check-tests.sh -m "not io"` skips them even when the variable is
+set.
+
+Set `ROBINAUTS_REQUIRE_POSTGRES=1` and a missing database becomes a
+**failure** instead of a skip. CI sets it, because a skip that nobody sees is
+how a typo in the URL, or a service container that never started, quietly
+stops the database tests from running while the build stays green. It is
+checked at the end of the run, on what actually happened: a run with the
+variable set in which no database test ran is failed, and so is one narrowed
+with `-m`, `-k` or a path argument, since such a run cannot show anything
+about the tests it did not select. Narrow your runs freely — just without
+the variable. A run split across processes with `-n` is refused for the same
+reason rather than guessed at: the count is kept in one process, and
+`pytest-xdist` is not a dependency of this project. Unset, empty, `0`, `false`, `no` and `off` all mean "a skip is
+fine".
+
+No package that starts a PostgreSQL is a dependency of this project;
+[DEPENDENCIES.md](DEPENDENCIES.md) says why.
+
+### Changing the database schema
+
+`backend/src/robinauts/datastore/schema.sql` is the whole schema, and until
+there is a production deployment it is **one definition edited in place**:
+there are no migrations, and a database made from an older definition is
+recreated rather than upgraded ([docs/specs/backend.md](docs/specs/backend.md)).
+So `robinauts db init` refuses any database that already holds a schema, and
+every edit to that file comes with a bump of `SCHEMA_VERSION` in
+`datastore/schema.py` **and** of the `SCHEMA_SHA256` pinned beside it. A test
+fails until both are done, and says so; that pin is the only thing standing
+where a migration would otherwise be. (The version stays at 1 while nothing
+is deployed, so in practice it is the hash that is updated.) The file is
+hashed with `\n` line endings, which [.gitattributes](.gitattributes) keeps
+it checked out with everywhere.
+
+Constraint names in that file are part of its interface: the store turns a
+violation of `sessions_secret_hash_key` or `sessions_user_id_fkey` into an
+answer for its caller and lets every other one through as the bug it is, and
+it tells them apart by name. Renaming one without changing the store fails a
+test.
+
 ## Licence header
 
 Every source file starts with:

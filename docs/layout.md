@@ -231,6 +231,7 @@ cover:
 - api imports only application and domain
 - adapters and datastore import only ports and domain
 - nothing except infrastructure imports adapters, datastore or api
+- `asyncpg` is imported only under `datastore`
 - LangGraph and LangChain are imported only under
   `adapters/agents/langgraph`
 - Pydantic AI is imported only under `adapters/agents/pydantic_ai`

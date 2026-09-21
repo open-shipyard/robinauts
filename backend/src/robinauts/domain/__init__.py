@@ -9,12 +9,14 @@ joins it later.
 """
 
 from robinauts.domain.errors import (
+    DB_INIT_COMMAND,
     ConfigError,
     InvalidIdTokenError,
     InvalidValueError,
     NotAllowedError,
     ProviderUnavailableError,
     RobinautsError,
+    SchemaError,
     SignInError,
     SignInErrorCode,
     UnknownProviderError,
@@ -43,6 +45,7 @@ from robinauts.domain.sign_in import (
 )
 
 __all__ = [
+    "DB_INIT_COMMAND",
     "DEFAULT_SCOPES",
     "DEFAULT_SESSION_HOURS",
     "GOOGLE_BARE_ISSUER",
@@ -63,6 +66,7 @@ __all__ = [
     "ProviderConfig",
     "ProviderUnavailableError",
     "RobinautsError",
+    "SchemaError",
     "Session",
     "SignInConfig",
     "SignInError",

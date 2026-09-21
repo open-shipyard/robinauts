@@ -13,6 +13,7 @@ path = [
     "NOTICE",
     "AUTHORS",
     ".gitignore",
+    ".gitattributes",
     "docs/**",
     "backend/uv.lock",
 ]

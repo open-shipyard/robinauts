@@ -13,8 +13,8 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
 - `backend/` — the `robinauts` package with every layer as a sub-package,
   `pyproject.toml` with the import-linter contracts, and
   `tests/unit/test_architecture.py` which runs them. `domain`, `core`,
-  `ports` and `application` have something in them; `api`, `adapters` and
-  `datastore` are still empty.
+  `ports`, `application` and `datastore` have something in them; `api` and
+  `adapters` are still empty.
   Checks: `uv run pytest`, `uv run ruff check .`, `uv run black --check .`
   from `backend/`, or `scripts/check-all.sh` from the root.
 - Sign-in, domain and core (standard library only). `domain/errors.py`:
@@ -107,6 +107,84 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   `test_signin_urls.py`, `test_signin_hashing.py` and `test_signin_oidc.py`.
   There is no `pytest-asyncio`: `backend/tests/aio.py` has `@asyncio_test`,
   which runs an `async` test on an event loop of its own.
+- The schema and the credential store, on PostgreSQL through `asyncpg` —
+  the one runtime dependency there is. `datastore/schema.sql` is the whole
+  schema of a deployment, shipped in the wheel: `schema_version` (one row),
+  `users`, `sessions`, `pending_logins`, `timestamptz` throughout, the
+  expiry columns indexed, sessions cascading from their user, and the two
+  hash columns refusing anything that is not 64 lower-case hex digits. It
+  is **one definition edited in place**, and the conversation and run
+  tables are added to the bottom of it later. The version row is the
+  file's **last** statement and is `DO NOTHING`, so a half-applied file
+  records no version and applying the file can never relabel an older
+  schema as this one. `datastore/schema.py`: `SCHEMA_VERSION`,
+  `SCHEMA_SHA256` (the file's hash, pinned: editing the schema without
+  bumping the version fails a test that says so — the guard that stands
+  where a migration would), `SCHEMA_TABLES`, `schema_sql`,
+  `create_schema`, which **looks before it writes**, under an advisory
+  lock so that two at once make one schema — it applies the file to an
+  empty database, does nothing to one already at this version, and refuses
+  everything else — `schema_version` and `check_schema`. All of them judge
+  **one schema**, `current_schema()`, which is where the file's
+  unqualified `CREATE TABLE`s land: a table of ours further along the
+  search path is not this deployment's, and a stranger's `users` there is
+  none of our business. `check_schema` also requires every table to be
+  there, to be a table rather than a view of the same name, and to be the
+  one an unqualified statement in a store would actually reach — so the
+  arrangement the rest of the code assumes, a search path whose first
+  entry is the deployment's schema, is refused rather than assumed — on
+  the create path too, before a statement of the file runs. A relation
+  *further along* the path is harmless and explicitly allowed, which is
+  how a deployment lives beside another application's `users`. Every
+  refusal is the new `domain.SchemaError` (`missing`, `mismatch`,
+  `unversioned`, `unreadable`, `incomplete`, `shadowed`, `no_schema`),
+  naming `domain.DB_INIT_COMMAND` — `robinauts db init`, the command of a
+  later step — and saying it works on an empty database only, because
+  there are no migrations yet; `shadowed` and `no_schema` instead say to
+  fix the connection, since nothing is wrong with the database. Each of
+  the three functions asks everything on **one** connection.
+  `datastore/pool.py`: `open_pool`, the one place a pool is made,
+  which deliberately sets no session time zone. `datastore/credentials.py`:
+  `PostgresCredentialStore` over a pool it is **given**, passing the same
+  contract suite as the fake. Every method is one statement — the take is
+  `DELETE … RETURNING`, get-or-create is `INSERT … ON CONFLICT … DO UPDATE
+  … RETURNING`, the sweeps count in a CTE — except the cap, which holds a
+  transaction-scoped advisory lock keyed on the table's own OID around the
+  count and the insert, because no isolation level makes `count(*)` see a
+  row another transaction has not committed. Nothing calls `now()`: times
+  come in from the application's clock, and a naive datetime is refused
+  rather than read as UTC by every method that takes one. Driver errors
+  propagate, bar two constraints that exist to say no to a caller — a
+  session hash already held and a session for a user who is not there,
+  both `InvalidValueError`, told apart by the constraint's **name**, which
+  `schema.sql` spells out, so that a constraint added later is not
+  mistaken for one of them. A key that is not the hash of a secret is
+  refused in Python before either statement, because the column's CHECK
+  never runs on the path where the cap is reached and nothing is inserted.
+  The contract now requires the same refusals of the in-memory fake, so
+  the two stores no longer differ where the port was silent.
+  `backend/tests/postgres.py` gives every test a schema of its own on the
+  database named by `ROBINAUTS_TEST_DATABASE_URL`, cleaning up after
+  itself if opening one fails, with a warm pool of eight connections so
+  the contract's concurrency tests really race;
+  `backend/tests/integration/` holds the modules that use it, plus one
+  that builds a wheel and checks `schema.sql` is in it. Without the
+  variable the database tests skip and the suite is green — unless
+  `ROBINAUTS_REQUIRE_POSTGRES` is set, which turns a skip into a failure
+  and is what stops CI going green on tests that quietly stopped running.
+  It is checked on what happened, not on what was meant: a session hook in
+  `backend/tests/conftest.py` counts the tests marked `database` that
+  really ran and fails a required run that counted none, or that was
+  narrowed with `-m`, `-k` or a path and so can prove nothing — or split
+  across processes, where it could not count at all. It keeps quiet about
+  a session that was interrupted or only collected, which has its own
+  story. CI also waits for the database to answer a real query before the
+  tests, with `scripts/wait_for_postgres.py`: a container health check
+  cannot tell the server apart from the private one `initdb` runs while it
+  sets the data directory up.
+  An import-linter contract keeps `asyncpg` under `datastore`. CI runs the
+  same tests against a PostgreSQL service container, pinned by digest,
+  deliberately not on UTC, and required.
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -309,4 +387,55 @@ Important design decisions made / open questions:
 - The application may hold in-process state only for caches of public
   data, scheduling hints and diagnostic counters (`docs/layout.md`).
 - Derived from neorc; recorded in `docs/legal/ip-clearance.md`.
+
+### Step 4 — credential-store   (feature/poc-4-credential-store)
+
+Summary: the first real adapter. `datastore/schema.sql` — one idempotent
+definition with a version row written last, named constraints, `timestamptz`
+everywhere, CHECKs that a key is a SHA-256 — shipped in the wheel.
+`datastore/schema.py`: `create_schema` (apply on an empty schema, no-op on
+this version whole, refuse anything else and leave it untouched),
+`check_schema`, `schema_version`, all pinned to `current_schema()`.
+`PostgresCredentialStore` over a pool it is given, passing the whole
+contract suite including the concurrency tests. `asyncpg` is the one new
+dependency (Apache-2.0, brings nothing). CI runs the tests against a
+PostgreSQL service pinned by digest. No CLI, no conversations or runs
+tables, no wiring yet.
+
+Review: 3 rounds.
+- High: 2
+  - `create_schema` stamped the current version onto an old schema, so the
+    start-up check passed on a database it must refuse — fixed: the SQL
+    never overwrites a version, `create_schema` looks before it writes, and
+    a pinned SHA-256 of `schema.sql` fails a test when the file changes
+    without the version and the hash being updated.
+  - The schema checks judged the whole search path while the file writes
+    only to its first schema: a foreign schema further along passed the
+    check, and another application's tables were named as ours — fixed:
+    every lookup is pinned to `current_schema()`, real tables only, and a
+    relation the path reaches first is refused as shadowing.
+- Medium: 6 (6/0)
+- Low: 15 (15/0)
+
+Checks: `scripts/check-all.sh` without a database (873 passed, 64 skipped)
+and with one, `ROBINAUTS_REQUIRE_POSTGRES=1` (935 passed, 2 skipped); no
+flakes over repeated and parallel runs; shown by mutation that removing
+either advisory lock, the atomic take or the upsert fails the contract.
+Not done / to watch: the CI service container and the wait script have not
+run on GitHub before this push. About 3,000 lines with tests, over the aim.
+Important design decisions made / open questions:
+- The schema is edited in place (no migrations): any edit of `schema.sql`
+  must update `SCHEMA_SHA256`, and bump `SCHEMA_VERSION` once anything is
+  deployed; `robinauts db init` (a later step) works on an empty schema
+  only.
+- The connection's search path must start with the schema the tables live
+  in; `check_schema` verifies that the names resolve there.
+- The cap on pending sign-ins is held by a transaction-scoped advisory
+  lock; `create_schema` takes another, keyed on the schema.
+- Exactly four refusals are translated from constraint violations to
+  `InvalidValueError`, by constraint NAME; the names in `schema.sql` are
+  interface. Every other driver error propagates.
+- Tests take `ROBINAUTS_TEST_DATABASE_URL`; without it they skip; with
+  `ROBINAUTS_REQUIRE_POSTGRES=1` (CI) a skipped or deselected database
+  suite fails the run. Each test works in a schema of its own.
 

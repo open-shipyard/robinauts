@@ -8,7 +8,7 @@ description = "Conversational agents that play fair: the Robinauts backend."
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [{ name = "The Robinauts Authors" }]
-dependencies = []
+dependencies = ["asyncpg>=0.30"]
 
 [dependency-groups]
 dev = [
@@ -51,6 +51,9 @@ testpaths = ["tests"]
 pythonpath = ["src", "tests", "../scripts"]
 markers = [
     "io: tests that touch the network, the file system, a database or a local server (slow)",
+    # Counted at the end of a run: a build that sets ROBINAUTS_REQUIRE_POSTGRES
+    # is failed if none of these ran. See tests/conftest.py.
+    "database: tests that need the PostgreSQL named by ROBINAUTS_TEST_DATABASE_URL",
 ]
 
 # ---------------------------------------------------------------------------
@@ -153,6 +156,23 @@ forbidden_modules = [
     "robinauts.app",
     "robinauts.cli",
 ]
+
+# The database driver is confined to datastore, like each agent framework to
+# its adapter: no SQL and no connection anywhere else (docs/layout.md).
+[[tool.importlinter.contracts]]
+name = "asyncpg only under datastore"
+type = "forbidden"
+source_modules = [
+    "robinauts.domain",
+    "robinauts.core",
+    "robinauts.ports",
+    "robinauts.application",
+    "robinauts.api",
+    "robinauts.adapters",
+    "robinauts.app",
+    "robinauts.cli",
+]
+forbidden_modules = ["asyncpg"]
 
 # The agent frameworks are swappable: each is confined to its own adapter.
 [[tool.importlinter.contracts]]
