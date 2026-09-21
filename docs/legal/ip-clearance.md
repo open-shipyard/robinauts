@@ -91,5 +91,25 @@ Entries are never edited after the fact; a correction is a new entry.
 - Attribution added to: this entry. Same authors and the same licence; no
   notice is required.
 
+### 2026-09-21 — the auth API (routes, cookies, request protection), derived from neorc
+
+- Source: https://github.com/open-shipyard/neorc, commit `68e3805`, under
+  `python/neorc/src/neorc/`: `manager/_auth_routes.py` (the four routes,
+  the redirect to the sign-in page with a fixed code), `manager/_sign_in.py`
+  (the two cookies, the `__Host-` split, the origin check),
+  `manager/_access.py` (the guard, the per-route permission declaration),
+  `manager/_app.py` (the shape of `create_app`), `_errors.py` (the status
+  table and the error body), and `tests/test_http_access.py` (the test that
+  every route declares a permission).
+- Their licence: Apache-2.0, Copyright The neorc Authors.
+- Landed as: `backend/src/robinauts/api/`, `backend/src/robinauts/app.py`.
+- Modifications: no file was copied. Request protection is ASGI middleware
+  here; a 5xx never says why; start-up problems are merged into one error;
+  the collaborators are injectable; the OpenAPI snapshot and the return-to
+  landing are this project's. Substantially machine-generated, reviewed by
+  the maintainers.
+- Attribution added to: this entry. Same authors and the same licence; no
+  notice is required.
+
 <!-- Entries go above this line. -->
 <!-- REUSE-IgnoreEnd -->

@@ -8,9 +8,12 @@ Depends on nothing else inside ``robinauts``; everything may depend on it
 joins it later.
 """
 
+from robinauts.domain.access import Permission
 from robinauts.domain.errors import (
     DB_INIT_COMMAND,
+    AuthenticationError,
     ConfigError,
+    CrossSiteRequestError,
     InvalidIdTokenError,
     InvalidValueError,
     NotAllowedError,
@@ -20,6 +23,7 @@ from robinauts.domain.errors import (
     SignInError,
     SignInErrorCode,
     UnknownProviderError,
+    UnsupportedMediaTypeError,
 )
 from robinauts.domain.identity import (
     MAX_PENDING_LOGINS,
@@ -35,6 +39,7 @@ from robinauts.domain.sign_in import (
     GOOGLE_BARE_ISSUER,
     GOOGLE_HOST,
     GOOGLE_ISSUER,
+    MAX_PROVIDER_ID_CHARS,
     MAX_SESSION_HOURS,
     TOKEN_ENDPOINT_AUTH_METHODS,
     AllowEntry,
@@ -42,6 +47,7 @@ from robinauts.domain.sign_in import (
     ProviderConfig,
     SignInConfig,
     is_google_issuer,
+    is_provider_id,
 )
 
 __all__ = [
@@ -52,17 +58,21 @@ __all__ = [
     "GOOGLE_HOST",
     "GOOGLE_ISSUER",
     "MAX_PENDING_LOGINS",
+    "MAX_PROVIDER_ID_CHARS",
     "MAX_SESSION_HOURS",
     "PENDING_LOGIN_MINUTES",
     "TOKEN_ENDPOINT_AUTH_METHODS",
     "AllowEntry",
+    "AuthenticationError",
     "ConfigError",
+    "CrossSiteRequestError",
     "Identity",
     "InvalidIdTokenError",
     "InvalidValueError",
     "Matcher",
     "NotAllowedError",
     "PendingLogin",
+    "Permission",
     "ProviderConfig",
     "ProviderUnavailableError",
     "RobinautsError",
@@ -72,6 +82,8 @@ __all__ = [
     "SignInError",
     "SignInErrorCode",
     "UnknownProviderError",
+    "UnsupportedMediaTypeError",
     "User",
     "is_google_issuer",
+    "is_provider_id",
 ]

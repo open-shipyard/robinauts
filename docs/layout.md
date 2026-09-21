@@ -252,6 +252,8 @@ cover:
 - nothing except infrastructure imports adapters, datastore or api
 - `asyncpg` is imported only under `datastore`
 - `httpx` is imported only under `adapters`
+- FastAPI, Starlette and uvicorn are imported only under `api` and in the
+  composition root (`app.py`, `cli.py`)
 - LangGraph and LangChain are imported only under
   `adapters/agents/langgraph`
 - Pydantic AI is imported only under `adapters/agents/pydantic_ai`

@@ -1,0 +1,230 @@
+{
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "description": "Every refusal, in one shape (``robinauts.api.errors``).",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "error": {
+            "title": "Error",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "What ``GET /health`` answers. It holds no data and says nothing else.",
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "ProviderSummary": {
+        "description": "One provider to offer a sign-in button for. No secret, no endpoint.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ],
+        "title": "ProviderSummary",
+        "type": "object"
+      },
+      "SessionResponse": {
+        "description": "What ``GET /auth/session`` answers, signed in or not.\n\n``sign_in`` is whether this deployment has a sign-in configuration at all;\nwithout one there are no providers and nobody to be.",
+        "properties": {
+          "providers": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/ProviderSummary"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "public_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Url"
+          },
+          "sign_in": {
+            "title": "Sign In",
+            "type": "boolean"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "sign_in"
+        ],
+        "title": "SessionResponse",
+        "type": "object"
+      },
+      "UserSummary": {
+        "description": "Who is signed in, as the interface shows them in the profile block.",
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider"
+        ],
+        "title": "UserSummary",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "summary": "Conversational agents that play fair.",
+    "title": "Robinauts",
+    "version": "0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/auth/logout": {
+      "post": {
+        "description": "End the session, if there is one, and clear its cookie.\n\nIdempotent: signing out twice, or without ever having signed in, is 204\nboth times. The cookie is cleared either way, so a browser holding one\nthat no longer names a session stops sending it.",
+        "operationId": "sign_out_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          }
+        },
+        "summary": "Sign Out",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/auth/session": {
+      "get": {
+        "description": "Whether sign-in is configured, the providers, and who is signed in.\n\nThe interface asks this first and on every reload. It answers 200 to\neverybody: an expired cookie and no cookie at all are both ``user: null``.",
+        "operationId": "read_session_auth_session_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read Session",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Liveness, for a load balancer or a deployment script.\n\nPublic, and deliberately empty of everything else: it says that this\nprocess is answering, and nothing about the database, the providers or\nanybody signed in. A health endpoint that read the database would be a\nway to ask about the database without signing in.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  }
+}

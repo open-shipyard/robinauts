@@ -37,6 +37,35 @@ class ConfigError(RobinautsError):
         super().__init__("invalid configuration:\n" + "\n".join(self.problems))
 
 
+class AuthenticationError(RobinautsError):
+    """The request carries no credential this deployment accepts.
+
+    Nobody is signed in, or the session cookie names a session that has ended.
+    The browser is told that and nothing more: which of the two it was is a
+    difference only an attacker has a use for.
+    """
+
+
+class CrossSiteRequestError(RobinautsError):
+    """A write that a page on another site sent, or may have sent.
+
+    A cookie goes with every request the browser makes, whoever asked for it,
+    so a write that arrives with one has to prove where it came from --
+    ``Origin``, or ``Sec-Fetch-Site`` (``docs/specs/sign-in.md``, "Request
+    protection"). There is no CSRF token; this is what stands in its place.
+    """
+
+
+class UnsupportedMediaTypeError(RobinautsError):
+    """A write sent as something other than JSON.
+
+    A form, and the handful of types a page may ``fetch`` without a preflight,
+    cannot be ``application/json``: insisting on it is what keeps another
+    site's page from writing here at all, since asking for that type makes the
+    browser ask us first, and nothing here answers a preflight.
+    """
+
+
 DB_INIT_COMMAND = "robinauts db init"
 """The command that creates the schema. The server never creates it itself.
 

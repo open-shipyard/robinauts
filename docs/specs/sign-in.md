@@ -172,3 +172,8 @@ Routes:
   to everyone for as long as it goes on. The protection is a rate limit in
   front of the platform — the operator's reverse proxy today, the
   per-client limits of [operations.md](operations.md) later.
+- Beginning a sign-in is a plain navigation (a `GET`), so any page can make
+  a visitor's browser begin one: it adds a pending sign-in and replaces the
+  login cookie of a sign-in that visitor had in flight, which then fails
+  and has to be started again. It cannot sign the visitor in to anything:
+  the cookie is `SameSite=Lax` and `__Host-`, and the callback checks it.

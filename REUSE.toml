@@ -16,6 +16,7 @@ path = [
     ".gitattributes",
     "docs/**",
     "backend/uv.lock",
+    "backend/openapi.json",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "The Robinauts Authors"

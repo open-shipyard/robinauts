@@ -8,7 +8,17 @@ description = "Conversational agents that play fair: the Robinauts backend."
 requires-python = ">=3.12"
 license = "Apache-2.0"
 authors = [{ name = "The Robinauts Authors" }]
-dependencies = ["asyncpg>=0.30", "httpx>=0.28"]
+# FastAPI is pinned to the one minor version whose `APIRouter` somebody has
+# read. `robinauts.api.access` reads two of its private route lists to check
+# that nothing is served without a permission (ROUTE_LISTS), and
+# `test_the_walk_knows_every_route_list_fastapi_keeps` pins the same range as
+# READ_FASTAPI, so the metadata and the test say one thing rather than two.
+# **Bumping this means opening `fastapi.routing.APIRouter`**, seeing which
+# attributes hold routes, and updating ROUTE_LISTS and READ_FASTAPI to match.
+# There is a backstop that needs no such knowledge -- a list of routes under a
+# name nothing reads stops the deployment -- so a bump cannot quietly open a
+# door either way; the range is what makes somebody look.
+dependencies = ["asyncpg>=0.30", "fastapi>=0.141,<0.142", "httpx>=0.28"]
 
 [dependency-groups]
 dev = [
@@ -207,6 +217,30 @@ source_modules = [
     "robinauts.cli",
 ]
 forbidden_modules = ["httpx"]
+
+# The web framework is confined to the inbound side and the composition root
+# (docs/specs/backend.md, "Web"): the application never sees a request object,
+# and nothing below `api` knows that HTTP is how anybody reached it. Direct
+# imports, like the contracts above: `app.py` imports `api`, which imports
+# FastAPI, and that is the point of `api`.
+#
+# `uvicorn` is named here before it is a dependency at all. It arrives with
+# `robinauts start` (the CLI step), it belongs to infrastructure alone, and a
+# contract written the day the import is written is a contract written after
+# the fact.
+[[tool.importlinter.contracts]]
+name = "FastAPI, Starlette and uvicorn only under api and infrastructure"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "robinauts.domain",
+    "robinauts.core",
+    "robinauts.ports",
+    "robinauts.application",
+    "robinauts.adapters",
+    "robinauts.datastore",
+]
+forbidden_modules = ["fastapi", "starlette", "uvicorn"]
 
 # The agent frameworks are swappable: each is confined to its own adapter.
 [[tool.importlinter.contracts]]

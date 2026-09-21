@@ -41,6 +41,7 @@ from robinauts.core.urls import normalise_issuer, normalise_origin
 from robinauts.domain import (
     DEFAULT_SCOPES,
     DEFAULT_SESSION_HOURS,
+    MAX_PROVIDER_ID_CHARS,
     MAX_SESSION_HOURS,
     TOKEN_ENDPOINT_AUTH_METHODS,
     AllowEntry,
@@ -50,6 +51,7 @@ from robinauts.domain import (
     ProviderConfig,
     SignInConfig,
     is_google_issuer,
+    is_provider_id,
 )
 
 TOP_LEVEL_KEYS = frozenset({"public_url", "session_hours", "providers", "allow"})
@@ -65,7 +67,6 @@ PROVIDER_KEYS = frozenset(
     }
 )
 
-_PROVIDER_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,39}")
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _MATCHERS = {matcher.value: matcher for matcher in Matcher}
 
@@ -156,8 +157,11 @@ def _session_hours(data: Mapping[str, Any], problems: list[str]) -> float:
 
 def _provider(provider_id: object, table: object, problems: list[str]) -> ProviderConfig | None:
     where = f"providers.{provider_id}"
-    if not isinstance(provider_id, str) or not _PROVIDER_ID.fullmatch(provider_id):
-        problems.append(f"{where}: an id is up to 40 lower-case letters, digits, _ and -")
+    if not is_provider_id(provider_id):
+        problems.append(
+            f"{where}: an id is up to {MAX_PROVIDER_ID_CHARS} lower-case letters,"
+            f" digits, _ and -"
+        )
         return None
     if not isinstance(table, Mapping):
         problems.append(f"{where}: a table")

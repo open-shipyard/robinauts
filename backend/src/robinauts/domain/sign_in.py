@@ -15,6 +15,7 @@ may sign in is an ordinary user, and there is no admin list.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -41,6 +42,25 @@ TOKEN_ENDPOINT_AUTH_METHODS: tuple[str, ...] = (
     "client_secret_post",
 )
 """How the client authenticates at the token endpoint; OIDC's two usual ways."""
+
+MAX_PROVIDER_ID_CHARS = 40
+
+_PROVIDER_ID = re.compile(rf"[a-z0-9][a-z0-9_-]{{0,{MAX_PROVIDER_ID_CHARS - 1}}}")
+"""What a provider's id may be spelt with.
+
+Here rather than in ``core`` because two layers need it and neither may import
+the other: ``core`` refuses a configuration that names an id of another shape,
+and ``api`` refuses a **request** naming one before it goes near the sign-in
+flow. A path parameter is whatever a link said, and an id that reached a log
+line or a message unchecked would be as long, and hold whatever, its author
+liked.
+"""
+
+
+def is_provider_id(value: object) -> bool:
+    """Whether ``value`` is spelt the way a provider's id is spelt."""
+    return isinstance(value, str) and _PROVIDER_ID.fullmatch(value) is not None
+
 
 DEFAULT_SESSION_HOURS = 12.0
 MAX_SESSION_HOURS = 24.0 * 365.0

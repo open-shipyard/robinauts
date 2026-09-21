@@ -12,9 +12,8 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   and their enforced dependency rules.
 - `backend/` — the `robinauts` package with every layer as a sub-package,
   `pyproject.toml` with the import-linter contracts, and
-  `tests/unit/test_architecture.py` which runs them. `domain`, `core`,
-  `ports`, `application`, `datastore` and `adapters` have something in them;
-  `api` is still empty.
+  `tests/unit/test_architecture.py` which runs them. Every layer has
+  something in it, `api` included, and `app.py` wires them together.
   Checks: `uv run pytest`, `uv run ruff check .`, `uv run black --check .`
   from `backend/`, or `scripts/check-all.sh` from the root.
 - Sign-in, domain and core (standard library only). `domain/errors.py`:
@@ -267,6 +266,130 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   over it: `application.SignIn` + `HttpIdentityProvider` + `SystemClock` +
   `OsSecretSource` + the in-memory store, begin, follow the redirect,
   complete, resolve, sign out.
+- `api/` — the inbound side, on FastAPI, the third runtime dependency
+  (`fastapi`, MIT, bringing `starlette` BSD-3-Clause, `pydantic`,
+  `pydantic-core`, `annotated-types`, `annotated-doc` and `typing-inspection`,
+  all MIT) — all on the allowed list, so no row of `DEPENDENCIES.md` was
+  needed. **`uvicorn` is deliberately not a dependency yet**: nothing imports
+  it until `robinauts start` exists, and it arrives with the CLI step. The
+  import-linter contract already names it beside FastAPI and Starlette, so
+  the day the import is written the rule is already there. `api/web.py`: `create_api`, which is handed the
+  application's `SignIn` (or `None`, where a deployment has no sign-in
+  configuration) and constructs nothing; `/docs` and `/redoc` are **not**
+  served, because they load scripts from a CDN, while `/openapi.json` is.
+  `api/auth_routes.py`: the four routes of `docs/specs/sign-in.md` —
+  `GET /auth/session` (never a 401: "nobody" is an answer),
+  `GET /auth/login/{provider}`, `GET /auth/callback/{provider}` and
+  `POST /auth/logout`, the two middle ones out of the OpenAPI document,
+  being browser navigations. Every failure of a sign-in, whatever it was,
+  ends as a 303 to `{public_url}/ui/#/sign-in?error=<code>` with the login
+  cookie cleared and the detail in the log alone. `api/cookies.py`: the two
+  cookies, `__Host-` prefixed and `Secure` on https and plain on a loopback
+  `http` deployment, `HttpOnly`, `SameSite=Lax` (not `Strict`, which would
+  drop the state cookie on the provider's own redirect back), `Path=/`.
+  `api/access.py`: the guard — the session cookie resolved to a `User`, the
+  **one place** that answers "who is this" and therefore the seam the local
+  development mode goes through — and the declaration, `public()` and
+  `signed_in()`, which every route carries. `undeclared()` walks what an
+  application serves and **fails closed**: it reads every list a router keeps
+  routes in (`ROUTE_LISTS`: `routes`, and `_low_priority_routes`, where
+  FastAPI's `frontend()` puts a whole served directory), recurses into
+  included routers and into a mounted application's own router, and names
+  anything that is not an `APIRoute` carrying a declaration — a mounted
+  sub-application, a mounted directory, a plain Starlette route, a websocket
+  handler, a frontend, and a permission passed to `include_router` rather than
+  written on the route. The one escape hatch is `FRAMEWORK_PATHS`, keyed on
+  the name the walk reports (`/openapi.json` today), which is how the step
+  that serves the built interface will allow it: one line, `"/ui"`, whether it
+  is served by `frontend()` or by a `StaticFiles` mount. It never lets an
+  `APIRoute` off — a route with dependencies can declare a permission and
+  so must. Underneath is `unknown_route_lists()`, the backstop that needs no
+  knowledge of the framework at all: any attribute of a router holding routes
+  under a name nothing reads stops the deployment, so a FastAPI that grows a
+  third list cannot be served out of quietly. It is not only a test:
+  `check_declarations` runs both when `create_api` builds the application and
+  again when it starts — the two moments anything is looked at, so
+  **routes are added between them and never after**.
+  `tests/unit/test_api_access.py` shows it bite on every shape, and pins the
+  FastAPI releases whose `APIRouter` somebody has read; the dependency is
+  pinned to the same range (`fastapi>=0.141,<0.142`), so the metadata and the
+  test say one thing rather than two.
+  `domain.Permission` has the two levels there are while roles are deferred,
+  and `domain.is_provider_id` — the shape `core` validates a configured id
+  against — is what `api` checks a `{provider}` path parameter with before
+  anything looks at it; the two sign-in routes are navigations, so a
+  mis-shaped id lands on the sign-in page with `unknown_provider` and the
+  login cookie cleared, like every other failed sign-in, rather than showing
+  a browser a JSON body. `api/protection.py`: the request protection, as **middleware**
+  rather than a dependency — FastAPI reads a declared body before it solves
+  that route's dependencies, and a route written later could omit one — so
+  a write is refused before a byte of it is read: each of the three deciding
+  headers sent at most once (two values of `Sec-Fetch-Site` are read
+  differently by us and by the next parser along), `application/json`, and,
+  when it carries a session cookie, `Origin` equal to `public_url` or
+  `Sec-Fetch-Site: same-origin`. `Sec-Fetch-Site` is read as an **allow
+  list** — `same-origin`, `none`, or no header at all — rather than as the
+  two words that mean another site: a proxy that folds two headers into one
+  sends `same-origin, cross-site`, which is neither of them. The header names
+  are folded **here**, in one pass over the scope's own list, and the cookies
+  are read out of that same pass: ASGI only says a server *should* lower-case
+  them, and a framework that compares what it was given finds
+  `Sec-Fetch-Site: cross-site` beside `sec-fetch-site: same-origin` to be one
+  header. A refusal answers a **fixed sentence** and repeats nothing that was
+  sent; the particulars go to the log.
+  It also decides what is **not** served: a `lifespan` scope passes through,
+  a `websocket` is closed with a policy-violation code before it is accepted
+  (the platform streams over SSE and has no websocket route, and a websocket
+  carries cookies and answers no preflight), and a scope of any other kind is
+  not served at all. Beside it, the headers every answer carries (`nosniff`,
+  `Referrer-Policy: same-origin`); `Cache-Control: no-store` is set by the
+  auth routes. `api/errors.py`: one exhaustive table from the error
+  hierarchy to a status, the body `{"error": "<ClassName>", "detail": …}` —
+  Starlette's own 404 and 405 put in that same shape, `Allow` header and all —
+  and **a body that never repeats what the request carried**: a 5xx says only
+  that the request could not be served; a `SignInError` says one fixed
+  sentence per code (`SIGN_IN_DETAIL`), never a provider's words; and a
+  request that could not be read names the field and the rule and never the
+  value pydantic refused. All of it goes to the log.
+  `api/logs.py`: `shown()`, the one way text from a request reaches a log —
+  quoted and escaped with `ascii()`, so a `%0A` in a path (which a server
+  hands over decoded) cannot forge a line, and bounded, so a log cannot be
+  filled a megabyte at a time. Every log call in `api` that carries a path, an
+  origin, a header, a provider id or a provider's words goes through it.
+  `api/schemas.py` holds what the JSON API sends; the committed
+  snapshot of it is `backend/openapi.json`, rewritten by
+  `scripts/update-openapi.sh` and kept honest by
+  `tests/unit/test_openapi_snapshot.py`.
+- `app.py` — the composition root. `Deployment.configured(...)` reads the
+  TOML file (path from `ROBINAUTS_AUTH_CONFIG`), has `core` validate it,
+  looks for the client secrets and for `ROBINAUTS_DATABASE_URL`, and reports
+  **every problem it can see in one `ConfigError`** — which is the promise
+  `check_client_secrets` could not make on its own. A file that does not
+  parse stops there, since there is no configuration to check secrets
+  against. `Deployment.open()` then does what needs a running loop, in the
+  ASGI **lifespan**: the pool, `check_schema` (a database of another version
+  is a server that does not start), `PostgresCredentialStore`,
+  `HttpIdentityProvider`, `SystemClock`, `OsSecretSource`, `SignIn`; and
+  `aclose()` gives every one of them back, logging a close that fails rather
+  than stopping the rest. A `Deployment` is opened **once** — a second open
+  would leave the first pool and client unreachable and held for the life of
+  the process — and `aclose` is idempotent and safe on one never opened. Every collaborator may be handed in instead, which
+  is how the tests wire fakes and the stand-in provider with no database,
+  no file and no environment variable; the environment itself is read
+  through the one injected `SecretLookup`. An identity provider that holds
+  an HTTP client is closed whichever way it arrived.
+  `backend/tests/webapp.py` is the test wiring (the fakes, a client over
+  `httpx.ASGITransport`, and `running`, which drives an ASGI lifespan as a
+  server does); `tests/integration/test_api_sign_in.py` signs in
+  browser-shaped through the routes against the stand-in provider, and
+  `tests/integration/test_create_app.py` does it again through `create_app`
+  against the real PostgreSQL, naming its schema in the connection string,
+  and checks the refusal to start on a database with no schema.
+  There is no CLI yet, no UI served and no local development mode.
+  **For the CLI step:** the server must be started with the access log off, or
+  with query strings stripped for `/auth/callback`, because an ordinary ASGI
+  access log would otherwise write `GET /auth/callback/…?code=…&state=…` — the
+  authorization code and the state, in a file, for every sign-in.
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -568,5 +691,63 @@ Important design decisions made / open questions:
 - Configuration has no port: an adapter reads raw tables, `core` validates,
   the composition root calls both and must merge every start-up problem it
   can gather into one `ConfigError`.
+- Derived from neorc; recorded in `docs/legal/ip-clearance.md`.
+
+### Step 6 — auth-api   (feature/poc-6-auth-api)
+
+Summary: the web layer of sign-in. `robinauts.api` on FastAPI: the four
+auth routes and `/health`; cookies (`__Host-` on https, plain on loopback
+http); request protection as ASGI middleware that reads the raw headers
+itself; the guard and the per-route declaration `public()` /
+`signed_in()`, checked by a test and again when the application is built
+and when it starts; fixed error bodies; one helper that escapes everything
+request-derived before it is logged. `robinauts.app`: `Deployment` and
+`create_app`, merging every start-up problem into one `ConfigError`,
+opening and closing the pool and the adapters in the ASGI lifespan, every
+collaborator injectable. `backend/openapi.json` is committed and a test
+keeps it in step. No CLI, no UI serving, no development mode yet.
+
+Review: 3 rounds.
+- High: 2
+  - The "every route declares a permission" check saw only `APIRoute`s: a
+    mounted application, a plain Starlette route and a websocket were
+    served while it stayed green — fixed: the walk fails closed on anything
+    it does not recognise, recurses into mounts, and runs at build and at
+    start-up so such an application does not start.
+  - The same check did not see FastAPI's `frontend()` routes, kept in a
+    private list — fixed: every route list is read, a backstop refuses any
+    route-bearing attribute it does not know, and the FastAPI range is
+    pinned to the version whose internals were read.
+- Medium: 8 (8/0)
+- Low: 13 (13/0)
+
+Checks: `scripts/check-all.sh` without a database (1171 passed, 67
+skipped) and with one required (1236 passed, 2 skipped); the step's tests
+three times over under `-W error`, no flakes. Reviewers drove the real ASGI
+application with raw scopes.
+Not done / to watch: `uvicorn` is not a dependency yet; it arrives with
+`robinauts start`. That step must start the server with the access log off
+(or query strings stripped for `/auth/callback`): an access log would
+write `code` and `state`. About 4,500 lines with tests, over the aim.
+Important design decisions made / open questions:
+- To serve the UI, a later step adds one line, `"/ui"`, to
+  `api.FRAMEWORK_PATHS`; the walk refuses it otherwise. A permission is
+  declared on the route itself, not on `include_router`. Routes are never
+  added after start-up.
+- `fastapi>=0.141,<0.142`: the route walk reads FastAPI internals; bumping
+  the range means re-reading `fastapi.routing.APIRouter`
+  (`ROUTE_LISTS`, `READ_FASTAPI`).
+- A state-changing request is accepted only with `Content-Type:
+  application/json`, `Sec-Fetch-Site` absent or exactly `same-origin` /
+  `none`, no duplicated deciding header in any casing, and — with a session
+  cookie — `Origin` equal to `public_url` (or, with no `Origin`,
+  `Sec-Fetch-Site: same-origin`). Websocket and unknown scopes are refused.
+- Error bodies never repeat the request; sign-in errors answer one fixed
+  sentence per code; no 5xx says why. Navigation routes answer every
+  failure with a redirect to the sign-in page.
+- `GET /auth/login` changes state by design; the consequence is in the
+  known limits of `docs/specs/sign-in.md`.
+- The guard (`api.access.current_user`) is the seam for the development
+  mode.
 - Derived from neorc; recorded in `docs/legal/ip-clearance.md`.
 

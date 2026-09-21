@@ -73,6 +73,12 @@ and say so rather than ignoring them — `check-audit.sh` reads pip-audit's
 JSON to make sure every pinned package was really looked at, and an argument
 that changed that output would quietly turn the check off.
 
+One script under `scripts/` is not a gate: `scripts/update-openapi.sh`
+rewrites `backend/openapi.json` from the routes as they are. The document is
+committed, and `check-tests.sh` fails when the file and the code disagree, so
+a change to the wire is something a reviewer reads in the diff. Run it after
+changing a route, and read what it wrote.
+
 `reuse` and `pip-audit` are not dependencies of the project: they run as
 isolated tools, from a version pinned in
 [scripts/tool-versions.sh](scripts/tool-versions.sh) and bumped by hand. That
