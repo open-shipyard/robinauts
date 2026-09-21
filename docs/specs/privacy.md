@@ -8,16 +8,18 @@ on the company's servers; this document says who, inside them, sees what.
 - A conversation is **private to its author** by default.
 - **Share by link.** The author can create a link to a conversation. It is
   read-only, works only for people who can sign in to the deployment, and
-  can be revoked. It shows the **whole message tree, live** — every
-  branch, abandoned edits and regenerations included, and whatever is
-  added afterwards. The interface says so when the link is created.
+  can be revoked. It shows the **author's current branch, live**: it
+  follows the author when they continue the conversation or switch
+  branch, and the interface says so when the link is created. The other
+  branches stay private to the author.
 - **Projects.** Any user can create a project at any time and add people.
   - The creator is the owner. Owners add and remove members and can make
     another member an owner.
-  - Every member sees every conversation in the project and can start new
-    ones there.
+  - Every member sees every conversation in the project — the author's
+    current branch of each — and can start new ones there.
   - Only a conversation's author continues it. Another member who wants to
-    carry it on forks it into a conversation of their own.
+    carry it on forks it into a conversation of their own
+    ([conversations.md](conversations.md)).
 
 ## Administrators
 

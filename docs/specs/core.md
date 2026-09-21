@@ -139,8 +139,9 @@ topic documents listed under [Documents](#documents).
 - **Interface.** neorc's layout: a collapsible left navigation panel that
   this project owns, and the chat in the middle; the application opens on
   an empty chat. [frontend.md](frontend.md).
-- **Conversations.** A tree of messages in the platform's own format, with
-  attachments, search and export. [conversations.md](conversations.md).
+- **Conversations.** A tree of messages in the platform's own format —
+  text, images, files, reasoning, and later tool calls — portable across
+  engines and vendors; with attachments, search and export. [conversations.md](conversations.md).
 - **Privacy.** Private by default; projects; share links; admins see
   metadata and never content; soft delete, retention, audit.
   [privacy.md](privacy.md).
@@ -180,8 +181,6 @@ hard, the decision is taken with them in mind.
 ## Open
 
 - **The cut for the first version.**
-- **The platform's conversation format** — the next thing to specify; see
-  [conversations.md](conversations.md).
 - The smaller open points are listed at the end of each topic document.
 
 ## Documents
