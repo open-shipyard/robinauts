@@ -1,0 +1,21 @@
+version = 1
+
+# Every file in the tree has a stated licence. Source files say so in a
+# header; the files below cannot carry one, or are better left without.
+# LICENSE and LICENSES/ are the Apache Software Foundation's text, not
+# ours, and are not listed: reuse treats licence files on their own terms.
+
+[[annotations]]
+path = [
+    "README.md",
+    "CONTRIBUTING.md",
+    "DEPENDENCIES.md",
+    "NOTICE",
+    "AUTHORS",
+    ".gitignore",
+    "docs/**",
+    "backend/uv.lock",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "The Robinauts Authors"
+SPDX-License-Identifier = "Apache-2.0"

@@ -95,7 +95,7 @@ request, and a deployment that is one wheel plus one PostgreSQL.
 
 - Headers, `NOTICE`, `AUTHORS`, `CONTRIBUTING.md` with the DCO and the AI
   section, `DEPENDENCIES.md`, `docs/legal/ip-clearance.md` and
-  `third-party.md` with their first entries (fetchy layout, neorc sign-in
+  `third-party.md` with their first entries (neorc sign-in
   design, vendored assistant-ui components).
 - CI, blocking: tests with the architecture contracts, ruff, black; the
   Python licence gate and `pip-audit`; the frontend lint, type check, tests

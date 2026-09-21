@@ -17,9 +17,11 @@ The list of things to do is [oss-checklist.md](../oss-checklist.md).
 
 - Apache-2.0, unmodified, for everything in the repository, documentation
   included. No dual licence, no added restriction.
+  <!-- REUSE-IgnoreStart -->
 - Every source file carries `SPDX-License-Identifier: Apache-2.0` and
   `Copyright The Robinauts Authors`. `REUSE.toml` covers files that cannot
   carry a header. Every byte in the tree has a stated licence.
+  <!-- REUSE-IgnoreEnd -->
 - `NOTICE` holds required attributions only.
 
 ## Contributions
@@ -34,7 +36,7 @@ The list of things to do is [oss-checklist.md](../oss-checklist.md).
 - Code that enters the tree other than through an ordinary signed-off pull
   request is recorded in `docs/legal/ip-clearance.md`: where it came from,
   at which commit, under what licence, where it landed, what was changed.
-  Known cases: the layout convention from fetchy, the sign-in design from
+  Known cases: the sign-in design from
   neorc, the vendored assistant-ui components.
 - Third-party assets and vendored code are listed in
   `docs/legal/third-party.md`. An upstream header is never stripped.

@@ -111,8 +111,7 @@ The inbound side: HTTP routes and the streaming endpoint the UI talks to.
 It translates requests into application calls and application results into
 responses. It decides nothing.
 
-fetchy, where this convention comes from, is a command-line tool and has no
-such layer; a server needs one. It is kept apart from `adapters` because it
+A server needs an inbound side. It is kept apart from `adapters` because it
 points the other way: it calls the application, where an adapter is called
 by it.
 
@@ -244,6 +243,8 @@ server carry the `io` marker.
   length 100.
 - Ports are ABCs; fakes for tests live under `tests/` and implement the
   same ABCs.
+  <!-- REUSE-IgnoreStart -->
 - Every source file starts with the licence header:
   `# SPDX-License-Identifier: Apache-2.0` and
   `# Copyright The Robinauts Authors`.
+  <!-- REUSE-IgnoreEnd -->

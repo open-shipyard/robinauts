@@ -20,24 +20,24 @@ them from the start.
 - [ ] Every commit signed off (`git commit -s`), from the first. Signed
       commits and tags; a `KEYS` file. **(neorc gap: unsigned commits, four
       early commits without sign-off)**
-- [ ] `NOTICE`: exactly `Robinauts` and
+- [x] `NOTICE`: exactly `Robinauts` and
       `Copyright 2026 The Robinauts Authors`. Nothing that is not a
       required attribution. **(neorc gap: an extra paragraph)**
-- [ ] `AUTHORS`.
-- [ ] `CONTRIBUTING.md`: the DCO 1.1 text; the **AI-assisted
+- [x] `AUTHORS`.
+- [x] `CONTRIBUTING.md`: the DCO 1.1 sign-off section; the **AI-assisted
       contributions** section (you reviewed every line; it reproduces no
       incompatibly licensed code; machine-generated files or blocks are
       disclosed in the pull request); the provenance rule (no Stack
       Overflow or blog code; nothing copied or ported from a forbidden or
       unlicensed source). **(neorc gap: no AI section)**
-- [ ] `DEPENDENCIES.md`: the three categories, the named MPL-2.0 and
+- [x] `DEPENDENCIES.md`: the three categories, the named MPL-2.0 and
       development-only exceptions.
-- [ ] `docs/legal/ip-clearance.md`, `docs/legal/third-party.md`,
-      `docs/legal/name-search.md`, `docs/legal/assets.md`; a `licenses/`
-      directory. First `ip-clearance` entries: the layout convention and
-      `pyproject.toml` brought from fetchy; later, the sign-in code derived
-      from neorc and the vendored assistant-ui components.
-- [ ] `REUSE.toml` for files that cannot carry a header; `reuse lint`
+- [x] `docs/legal/ip-clearance.md`, `docs/legal/third-party.md`,
+      `docs/legal/name-search.md`, `docs/legal/assets.md`; a `LICENSES/`
+      directory (the name `reuse` expects). `ip-clearance` entries: the
+      sign-in code derived from neorc, and the vendored assistant-ui
+      components.
+- [x] `REUSE.toml` for files that cannot carry a header; `reuse lint`
       passing. **(neorc gap: no header check; no header on any TypeScript
       or CSS file)**
 - [ ] `SECURITY.md` (private reporting, acknowledgement within 3 days,
