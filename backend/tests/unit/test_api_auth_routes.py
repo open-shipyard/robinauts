@@ -105,6 +105,7 @@ async def test_the_session_route_says_a_deployment_has_no_sign_in() -> None:
     assert answered.status_code == 200
     assert answered.json() == {
         "sign_in": False,
+        "local_development": False,
         "public_url": None,
         "providers": [],
         "user": None,
@@ -120,6 +121,7 @@ async def test_the_session_route_names_the_providers_and_nobody() -> None:
     assert answered.status_code == 200
     assert answered.json() == {
         "sign_in": True,
+        "local_development": False,
         "public_url": PUBLIC_URL,
         "providers": [{"id": "google", "title": "Google"}],
         "user": None,

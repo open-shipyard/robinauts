@@ -54,8 +54,13 @@
         "type": "object"
       },
       "SessionResponse": {
-        "description": "What ``GET /auth/session`` answers, signed in or not.\n\n``sign_in`` is whether this deployment has a sign-in configuration at all;\nwithout one there are no providers and nobody to be.",
+        "description": "What ``GET /auth/session`` answers, signed in or not.\n\n``sign_in`` is whether this deployment has a sign-in configuration at all;\nwithout one there are no providers and nobody to be.\n\n``local_development`` is the exception to that last part: the local\ndevelopment mode has no sign-in and no providers, and yet somebody *is*\nsigned in -- the one local user everything runs as. It is what the\ninterface shows its permanent banner for (``docs/specs/frontend.md``), and\nit is why the two are separate fields rather than one: \"nothing is\nconfigured\" and \"sign-in is deliberately off\" are different things to say\nto a person, and only the second one has a user with it.",
         "properties": {
+          "local_development": {
+            "default": false,
+            "title": "Local Development",
+            "type": "boolean"
+          },
           "providers": {
             "default": [],
             "items": {

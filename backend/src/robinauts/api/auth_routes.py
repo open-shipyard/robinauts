@@ -10,6 +10,12 @@
     GET  /auth/callback/{provider} the redirect URI registered with the provider
     POST /auth/logout              end the session
 
+In the **local development mode** there is nothing to sign in to
+(``docs/specs/sign-in.md``): ``/auth/session`` says so and names the one local
+user, the two navigations land back in the interface rather than 404, and
+signing out is 204 with nothing to end. No route of this module reads a cookie
+in that mode, because none is set.
+
 All four are public: a person with no session reaches every one of them, and
 ``/auth/session`` in particular is **never a 401** -- "nobody is signed in" is
 an answer, not a refusal, and it is the answer the interface starts from.
@@ -40,7 +46,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from robinauts.api.access import CurrentUser, public, signing_in
+from robinauts.api.access import CurrentUser, local_access, public, signing_in
 from robinauts.api.cookies import clear_cookie, login_cookie, session_cookie, set_cookie
 from robinauts.api.errors import error_body
 from robinauts.api.logs import shown
@@ -87,7 +93,15 @@ async def read_session(request: Request, response: Response, user: CurrentUser) 
     response.headers["cache-control"] = NO_STORE
     sign_in = signing_in(request)
     if sign_in is None:
-        return SessionResponse(sign_in=False)
+        # No sign-in configuration. Either the local development mode, where
+        # ``user`` is the local user the guard resolved without a cookie and
+        # the interface shows its banner, or nothing configured at all, where
+        # there is no user either.
+        return SessionResponse(
+            sign_in=False,
+            local_development=local_access(request) is not None,
+            user=None if user is None else UserSummary.of(user),
+        )
     return SessionResponse(
         sign_in=True,
         public_url=sign_in.config.public_url,
@@ -109,6 +123,9 @@ async def begin_sign_in(request: Request, provider: str, return_to: str | None =
     (``core.safe_return_to``) before it is stored and again before it is used;
     nothing here trusts it.
     """
+    nothing_to_do = _signed_in_already(request)
+    if nothing_to_do is not None:
+        return nothing_to_do
     sign_in = _configured(request)
     misshapen = _misshapen(sign_in, provider)
     if misshapen is not None:
@@ -143,6 +160,9 @@ async def finish_sign_in(
     claims, asking the allow list -- is the application's, and every refusal it
     raises ends at the sign-in page.
     """
+    nothing_to_do = _signed_in_already(request)
+    if nothing_to_do is not None:
+        return nothing_to_do
     sign_in = _configured(request)
     secure = sign_in.config.secure
     misshapen = _misshapen(sign_in, provider)
@@ -216,6 +236,22 @@ async def sign_out(request: Request) -> Response:
         await sign_in.sign_out(secret)
     clear_cookie(response, name, secure=secure)
     return response
+
+
+def _signed_in_already(request: Request) -> Response | None:
+    """The interface, if this is the local development mode; ``None`` otherwise.
+
+    Beginning or finishing a sign-in has nothing to do there: whoever is
+    asking is the local user already, there is no provider to go to and no
+    sign-in page to fail to. These are navigations, so the answer is a
+    navigation -- back to the interface, which will show its banner -- rather
+    than a JSON refusal a browser would display as a blank page. A bookmark
+    from a deployment, or a link somebody kept, therefore lands somewhere
+    sensible instead of crashing.
+    """
+    if local_access(request) is None:
+        return None
+    return _navigation(UI_PATH)
 
 
 def _configured(request: Request) -> SignIn:

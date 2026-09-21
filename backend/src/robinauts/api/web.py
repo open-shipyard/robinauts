@@ -42,7 +42,8 @@ from robinauts.api.protection import (
     SecurityHeaders,
 )
 from robinauts.api.schemas import HealthResponse
-from robinauts.application import SignIn
+from robinauts.application import LocalAccess, SignIn
+from robinauts.domain import ConfigError
 
 TITLE = "Robinauts"
 
@@ -55,6 +56,16 @@ that moved with every release would make that test about releases.
 
 OPENAPI_URL = "/openapi.json"
 
+BOTH_WAYS = (
+    "an application serves a sign-in or the local development mode, never both:"
+    " the mode exists because there is nothing to sign in to"
+)
+"""What ``create_api`` refuses to build. The composition root says it first,
+with the variable to unset (``robinauts.app``); this is the door behind it, so
+that no other caller -- a test, a later step -- can wire an application where
+the guard would answer with a local user while sessions were being handed
+out."""
+
 
 Opening = Callable[[FastAPI], AbstractAsyncContextManager[None]]
 """What a lifespan is here: a context manager around the life of the process.
@@ -65,7 +76,12 @@ wrapping below honest rather than silently dropping what it was given.
 """
 
 
-def create_api(sign_in: SignIn | None = None, *, lifespan: Opening | None = None) -> FastAPI:
+def create_api(
+    sign_in: SignIn | None = None,
+    *,
+    local: LocalAccess | None = None,
+    lifespan: Opening | None = None,
+) -> FastAPI:
     """The application serving the api, over the services it is given.
 
     ``sign_in`` is the deployment's sign-in flow, or ``None`` where none is
@@ -74,6 +90,10 @@ def create_api(sign_in: SignIn | None = None, *, lifespan: Opening | None = None
     which is where a deployment's collaborators are opened: everything here
     reads ``app.state.sign_in`` at the moment of a request rather than holding
     it, so both ways work and neither is a special case.
+
+    ``local`` is the local development mode, the other thing a deployment may
+    be (``docs/specs/sign-in.md``). It is read the same way, from
+    ``app.state.local``, and asking for both is a ``ConfigError``.
 
     ``ConfigError`` -- at build time, and again at start-up -- if anything the
     application serves declares no permission, or if a router keeps routes
@@ -90,6 +110,9 @@ def create_api(sign_in: SignIn | None = None, *, lifespan: Opening | None = None
         async with lifespan(application):
             yield
 
+    if sign_in is not None and local is not None:
+        raise ConfigError([BOTH_WAYS])
+
     app = FastAPI(
         title=TITLE,
         version=API_VERSION,
@@ -100,6 +123,7 @@ def create_api(sign_in: SignIn | None = None, *, lifespan: Opening | None = None
         lifespan=opening,
     )
     app.state.sign_in = sign_in
+    app.state.local = local
     install_handlers(app, headers=dict(SECURITY_HEADERS))
     # The last added is the outermost, so the headers go on everything that
     # comes back -- the protection's own refusals included -- and the

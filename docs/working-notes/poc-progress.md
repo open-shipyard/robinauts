@@ -289,7 +289,7 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   drop the state cookie on the provider's own redirect back), `Path=/`.
   `api/access.py`: the guard — the session cookie resolved to a `User`, the
   **one place** that answers "who is this" and therefore the seam the local
-  development mode goes through — and the declaration, `public()` and
+  development mode goes through (`local_access`) — and the declaration, `public()` and
   `signed_in()`, which every route carries. `undeclared()` walks what an
   application serves and **fails closed**: it reads every list a router keeps
   routes in (`ROUTE_LISTS`: `routes`, and `_low_priority_routes`, where
@@ -385,7 +385,49 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   `tests/integration/test_create_app.py` does it again through `create_app`
   against the real PostgreSQL, naming its schema in the connection string,
   and checks the refusal to start on a database with no schema.
-  There is no CLI yet, no UI served and no local development mode.
+  There is no CLI yet and no UI served.
+- The **local development mode** (`docs/specs/sign-in.md`): no sign-in at
+  all, everything as one fixed local user, loopback only. `domain/local.py`
+  holds what more than one layer needs — `LOCAL_PROVIDER` (`!local`, spelt so
+  that `is_provider_id` refuses it, which is what reserves it: `core` and now
+  `ProviderConfig` both hold a configured provider to that shape, so no
+  configuration and no identity can ever be this person), `LOCAL_SUBJECT`,
+  `is_loopback` (moved here from `core`, as `is_provider_id` was, because
+  `api` asks it of a `Host` header and may not import `core`), `host_of`, and
+  `LocalMode`, which **carries the bind host, normalises it and refuses a
+  non-loopback one at construction** (by the stricter
+  `is_loopback_bind_host`: a literal address or exactly `localhost`, since a
+  bind address is not left to a resolver, while a request's `Host` may name
+  this machine any way that reaches it): the root binds no socket, so the
+  rule is kept at the one moment that cannot be got around later. `application/local.py`:
+  `LocalAccess`, the counterpart of `SignIn`, which **reads** the one **real
+  row** through the new `CredentialStore.user_by_key` (a plain indexed
+  lookup that writes nothing) and falls back to the same get-or-create
+  `user_at_sign_in` a sign-in uses when there is nobody there — so the user
+  has an id, owns what the mode creates, is the same person after a restart,
+  and an ordinary request leaves no row version behind (`user_at_sign_in` is
+  an upsert). It caches nothing. `api.current_user` resolves every request to
+  them with no cookie; `SignIn.resolve_session` refuses a session that names
+  them, so a database kept from a run of the mode hands nobody the account.
+  The request protection gains, in this mode only, a check on **every**
+  request (one `Host` header naming a loopback host, and an address the
+  server answered on that is loopback — a unix socket counts, a scope that
+  says nothing is refused; the defence against DNS rebinding, which is the
+  attack a same-origin rule cannot see, since the page really does own that
+  origin),
+  and it judges **every** write as credentialed: `Origin` equal to the
+  loopback origin the request was addressed to, or `Sec-Fetch-Site:
+  same-origin` with none. `GET /auth/session` answers `sign_in: false`,
+  `local_development: true`, no providers and the local user (what the
+  interface's banner is drawn from); `/auth/login/*` and `/auth/callback/*`
+  redirect to `/ui/`; `POST /auth/logout` is 204. It is asked for by
+  `create_app(local_development_host=...)` — the address it will be served on
+  — and by nothing else: **no environment variable switches it on**, and
+  asking for it together with a sign-in configuration (including
+  `ROBINAUTS_AUTH_CONFIG` in the environment) is a start-up `ConfigError`, as
+  is wiring both into one `create_api`. `Deployment.open` logs one WARNING
+  saying sign-in is off. The CLI flag (`--dev-no-sign-in`) comes with
+  `robinauts start`.
   **For the CLI step:** the server must be started with the access log off, or
   with query strings stripped for `/auth/callback`, because an ordinary ASGI
   access log would otherwise write `GET /auth/callback/…?code=…&state=…` — the
@@ -750,4 +792,47 @@ Important design decisions made / open questions:
 - The guard (`api.access.current_user`) is the seam for the development
   mode.
 - Derived from neorc; recorded in `docs/legal/ip-clearance.md`.
+
+### Step 7 — dev-mode   (feature/poc-7-dev-mode)
+
+Summary: the local development mode — no sign-in, one fixed local user who
+is a real row, loopback only. `domain/local.py` (`LocalMode`, the reserved
+key `("!local", "developer")`, the loopback predicates),
+`application/local.py` (`LocalAccess`), the guard resolving every request
+to that user, the protection refusing anything not addressed to this
+machine, `GET /auth/session` saying `local_development: true`, and
+`create_app(local_development_host=…)` as the only way to ask for it. The
+CLI flag and the banner come with later steps.
+
+Review: 1 round.
+- High: 0
+- Medium: 1 (1/0)
+- Low: 3 (3/0)
+
+Checks: `scripts/check-all.sh` without a database (1265 passed, 70
+skipped) and with one required (1333 passed, 2 skipped). The reviewer tried
+and failed to switch the mode on unasked, to combine it with sign-in, and
+to get past the loopback and origin rules (trick host spellings, other
+loopback ports, `null` origins, DNS rebinding shapes).
+Not done / to watch: "the local user owns what it creates" can only be
+shown once conversations exist. About 1,700 lines with tests, over the aim.
+Important design decisions made / open questions:
+- No environment variable can switch the mode on: only the explicit
+  argument, which is also the bind host. Asking for it together with a
+  sign-in configuration, or for neither, is a start-up `ConfigError`.
+- The bind host must be a literal loopback address or exactly `localhost`
+  (`domain.is_loopback_bind_host`), stored normalised; a request's `Host`
+  is judged by the looser `is_loopback` (which moved to `domain`, still
+  exported by `core`). Every request, reads included, needs one loopback
+  `Host` and a server that answered on loopback (a unix socket counts; an
+  absent `server` is refused).
+- Every write in the mode is judged as credentialed: `Origin` equal to the
+  host the request was addressed to (port and scheme matter), or
+  `Sec-Fetch-Site: same-origin` with no `Origin`. A client that sends
+  neither (curl) is refused.
+- The reserved provider id `!local` cannot be configured (`ProviderConfig`
+  now holds ids to their shape) and `SignIn.resolve_session` never answers
+  the local user, so nothing reaches that account in normal mode.
+- `CredentialStore.user_by_key` reads a user without writing; the local
+  user is read per request and written once.
 

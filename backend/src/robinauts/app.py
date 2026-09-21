@@ -59,10 +59,18 @@ from robinauts.adapters import (
     read_toml,
 )
 from robinauts.api import create_api
-from robinauts.application import SignIn
+from robinauts.application import LocalAccess, SignIn
 from robinauts.core import parse_sign_in_config
 from robinauts.datastore import PostgresCredentialStore, check_schema, open_pool
-from robinauts.domain import ConfigError, InvalidValueError, SignInConfig
+from robinauts.domain import (
+    LOCAL_PROVIDER,
+    LOCAL_SUBJECT,
+    ConfigError,
+    InvalidValueError,
+    LocalMode,
+    SignInConfig,
+    is_loopback_bind_host,
+)
 from robinauts.ports import Clock, CredentialStore, IdentityProvider, SecretSource
 
 _log = logging.getLogger(__name__)
@@ -72,6 +80,40 @@ AUTH_CONFIG_VARIABLE = "ROBINAUTS_AUTH_CONFIG"
 
 DATABASE_URL_VARIABLE = "ROBINAUTS_DATABASE_URL"
 """Names the one PostgreSQL of the deployment. It may hold a password."""
+
+BOTH_MODES = (
+    f"the local development mode has no sign-in: it cannot be combined with a sign-in"
+    f" configuration, so unset {AUTH_CONFIG_VARIABLE} (or pass no configuration file), or"
+    f" start without the local development mode"
+)
+"""Asking for both is a start-up refusal (``docs/specs/sign-in.md``)."""
+
+NO_MODE = (
+    f"a deployment is either signed in to or developed on: set {AUTH_CONFIG_VARIABLE} to the"
+    f" TOML file describing sign-in, or ask for the local development mode"
+)
+"""Neither was given. ``configured`` says it with whatever else is missing."""
+
+OFF_LOOPBACK = (
+    "the local development mode serves the loopback interface only: %s is not an address of"
+    " it. Serve it on 127.0.0.1, ::1 or localhost. It is not a way to deploy"
+    " (docs/specs/operations.md)."
+)
+"""Why a bind host is refused, with the host put in by the caller.
+
+The rule is ``domain.is_loopback_bind_host``, which is stricter than the one a
+request's ``Host`` header is judged by: a name of another shape -- even
+``dev.localhost`` -- is resolved by whatever this machine resolves names with,
+and a bind address is not a thing to leave to a resolver."""
+
+LOCAL_MODE_WARNING = (
+    "SIGN-IN IS OFF. This is the local development mode: it serves %s and nothing else, and"
+    " every request runs as the one local user %s:%s. It is not a way to deploy"
+    " (docs/specs/operations.md)."
+)
+"""Logged once, at start-up, because a server that asks nobody who they are
+has to say so wherever it is looked at. The interface says it too, in a
+permanent banner (``docs/specs/frontend.md``)."""
 
 
 class Deployment:
@@ -84,8 +126,9 @@ class Deployment:
 
     def __init__(
         self,
-        config: SignInConfig,
+        config: SignInConfig | None = None,
         *,
+        local_development_host: str | None = None,
         database_url: str | None = None,
         credentials: CredentialStore | None = None,
         provider: IdentityProvider | None = None,
@@ -93,10 +136,25 @@ class Deployment:
         secrets: SecretSource | None = None,
         secret_for: SecretLookup = environment,
     ) -> None:
+        if (config is None) == (local_development_host is None):
+            raise ConfigError([BOTH_MODES] if config is not None else [NO_MODE])
         self.config = config
+        """The sign-in configuration, or ``None`` in the local development mode."""
+        self.local_mode = (
+            None if local_development_host is None else LocalMode(host=local_development_host)
+        )
+        """The local development mode, or ``None`` in a deployment.
+
+        Built here, which is where a non-loopback bind host is refused: the
+        root binds no socket -- the command that starts the server does -- so
+        the rule is kept at the one moment that is certain to happen, before
+        anything is opened and long before anything is served.
+        """
         self.database_url = database_url
         self.sign_in: SignIn | None = None
         """The application's sign-in, between ``open`` and ``aclose``."""
+        self.local_access: LocalAccess | None = None
+        """The local development mode's one user, between ``open`` and ``aclose``."""
         self.pool: Any = None
         """The connection pool this opened, if it opened one; ``None`` after.
 
@@ -119,6 +177,7 @@ class Deployment:
         cls,
         *,
         config_path: str | os.PathLike[str] | None = None,
+        local_development_host: str | None = None,
         database_url: str | None = None,
         secret_for: SecretLookup = environment,
         credentials: CredentialStore | None = None,
@@ -134,6 +193,16 @@ class Deployment:
         secret whose variable is unset, a database that was not named. A file
         that does not parse means there is no configuration to check secrets
         against, so those problems are simply not among them.
+
+        ``local_development_host`` asks for the **local development mode**, and
+        is the address the server will be served on -- the mode is loopback
+        only, and this is where that is refused, beside every other start-up
+        problem. It is **never** read from the environment and there is no
+        variable that switches it on: a mode that signs nobody in is asked for
+        in the command that starts the server and nowhere else, so that
+        nothing a process inherits -- a stale export, a unit file, a container
+        image -- can turn sign-in off in a deployment. There is no
+        configuration file in this mode, and asking for both is refused.
         """
         problems: list[str] = []
         path = config_path if config_path is not None else secret_for(AUTH_CONFIG_VARIABLE)
@@ -144,7 +213,12 @@ class Deployment:
                 f" deployment uses"
             )
         config: SignInConfig | None = None
-        if not path:
+        if local_development_host is not None:
+            if path:
+                problems.append(BOTH_MODES)
+            if not is_loopback_bind_host(local_development_host):
+                problems.append(OFF_LOOPBACK % (local_development_host,))
+        elif not path:
             problems.append(
                 f"no sign-in configuration: set {AUTH_CONFIG_VARIABLE} to the TOML file"
                 f" describing it"
@@ -159,10 +233,11 @@ class Deployment:
                 check_client_secrets(config, secret_for=secret_for)
             except ConfigError as exc:
                 problems.extend(exc.problems)
-        if problems or config is None:
+        if problems or (config is None and local_development_host is None):
             raise ConfigError(problems)
         return cls(
             config,
+            local_development_host=local_development_host,
             database_url=url,
             credentials=credentials,
             provider=provider,
@@ -171,8 +246,14 @@ class Deployment:
             secret_for=secret_for,
         )
 
-    async def open(self) -> SignIn:
+    async def open(self) -> SignIn | None:
         """Open what the process holds, and wire the application on top of it.
+
+        ``None`` in the local development mode, which has no sign-in to
+        return: what it wires instead is ``local_access``, the one user every
+        request runs as. Either way the pool is opened and the schema checked
+        first -- the mode changes who is asking, and nothing else about the
+        platform.
 
         The pool is opened and the schema checked before anything is built on
         them: a database of another version is a deployment that does not
@@ -201,6 +282,17 @@ class Deployment:
                 self._closing.append(self._closed_pool)
                 await check_schema(self.pool)
                 credentials = PostgresCredentialStore(self.pool)
+            if self.local_mode is not None:
+                # No identity provider is built: there is nobody to talk to,
+                # and an HTTP client nothing uses is a client to close.
+                self.local_access = LocalAccess(
+                    self.local_mode, credentials=credentials, clock=self._clock
+                )
+                _log.warning(
+                    LOCAL_MODE_WARNING, self.local_mode.host, LOCAL_PROVIDER, LOCAL_SUBJECT
+                )
+                return None
+            assert self.config is not None  # one of the two, decided in __init__
             provider = self._provider or HttpIdentityProvider(secret_for=self._secret_for)
             closer = getattr(provider, "aclose", None)
             if callable(closer):
@@ -236,6 +328,7 @@ class Deployment:
         anything.
         """
         self.sign_in = None
+        self.local_access = None
         while self._closing:
             close = self._closing.pop()
             try:
@@ -247,6 +340,7 @@ class Deployment:
 def create_app(
     *,
     config_path: str | os.PathLike[str] | None = None,
+    local_development_host: str | None = None,
     database_url: str | None = None,
     secret_for: SecretLookup = environment,
     credentials: CredentialStore | None = None,
@@ -266,9 +360,15 @@ def create_app(
     database is opened, pass an identity provider and none is built. That is
     how the tests wire fakes and a stand-in provider into the real application
     (``docs/layout.md``, "Testing strategy").
+
+    ``local_development_host`` is how the **local development mode** is asked
+    for, and the address it will be served on. It is never the default and no
+    environment variable turns it on; a later step gives the command a flag
+    (``--dev-no-sign-in``) that passes the host it is about to bind.
     """
     deployment = Deployment.configured(
         config_path=config_path,
+        local_development_host=local_development_host,
         database_url=database_url,
         secret_for=secret_for,
         credentials=credentials,
@@ -279,11 +379,14 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        app.state.sign_in = await deployment.open()
+        await deployment.open()
+        app.state.sign_in = deployment.sign_in
+        app.state.local = deployment.local_access
         try:
             yield
         finally:
             app.state.sign_in = None
+            app.state.local = None
             await deployment.aclose()
 
     app = create_api(lifespan=lifespan)

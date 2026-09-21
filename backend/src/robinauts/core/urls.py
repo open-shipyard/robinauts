@@ -7,6 +7,12 @@ An origin and an issuer are both compared exactly, by us and by the identity
 provider: the redirect URI a provider registered, the ``Origin`` header of a
 write, and an ID token's ``iss``. They are therefore normalised once, as the
 configuration is read, and never again.
+
+``is_loopback`` is used here and re-exported: it lives in ``domain``
+(``robinauts.domain.local``) because ``api`` asks the same question of a
+request's ``Host`` header in the local development mode and may not import
+``core`` (``docs/layout.md``) -- the arrangement ``is_provider_id`` is in, and
+for the same reason. What "loopback" means is one answer, in one place.
 """
 
 from __future__ import annotations
@@ -15,7 +21,7 @@ import ipaddress
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
-from robinauts.domain import InvalidValueError
+from robinauts.domain import InvalidValueError, is_loopback
 
 DEFAULT_RETURN_TO = "/"
 """Where someone lands after signing in when they asked for nowhere in particular."""
@@ -141,19 +147,6 @@ def safe_return_to(target: object) -> str | None:
     if parts.scheme or parts.netloc:
         return None
     return target
-
-
-def is_loopback(host: str) -> bool:
-    """Whether ``host`` names this machine: ``localhost``, or a loopback address."""
-    if not isinstance(host, str):
-        return False
-    host = host.strip("[]").lower().rstrip(".")
-    if host == "localhost" or host.endswith(".localhost"):
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
 
 
 def _split(url: str, *, query: bool = False) -> tuple[str, str, int | None, str, str]:

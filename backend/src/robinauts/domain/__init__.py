@@ -33,6 +33,16 @@ from robinauts.domain.identity import (
     Session,
     User,
 )
+from robinauts.domain.local import (
+    DEFAULT_LOCAL_HOST,
+    LOCAL_PROVIDER,
+    LOCAL_SUBJECT,
+    LOCAL_USER_NAME,
+    LocalMode,
+    host_of,
+    is_loopback,
+    is_loopback_bind_host,
+)
 from robinauts.domain.sign_in import (
     DEFAULT_SCOPES,
     DEFAULT_SESSION_HOURS,
@@ -52,11 +62,15 @@ from robinauts.domain.sign_in import (
 
 __all__ = [
     "DB_INIT_COMMAND",
+    "DEFAULT_LOCAL_HOST",
     "DEFAULT_SCOPES",
     "DEFAULT_SESSION_HOURS",
     "GOOGLE_BARE_ISSUER",
     "GOOGLE_HOST",
     "GOOGLE_ISSUER",
+    "LOCAL_PROVIDER",
+    "LOCAL_SUBJECT",
+    "LOCAL_USER_NAME",
     "MAX_PENDING_LOGINS",
     "MAX_PROVIDER_ID_CHARS",
     "MAX_SESSION_HOURS",
@@ -69,6 +83,7 @@ __all__ = [
     "Identity",
     "InvalidIdTokenError",
     "InvalidValueError",
+    "LocalMode",
     "Matcher",
     "NotAllowedError",
     "PendingLogin",
@@ -84,6 +99,9 @@ __all__ = [
     "UnknownProviderError",
     "UnsupportedMediaTypeError",
     "User",
+    "host_of",
     "is_google_issuer",
+    "is_loopback",
+    "is_loopback_bind_host",
     "is_provider_id",
 ]

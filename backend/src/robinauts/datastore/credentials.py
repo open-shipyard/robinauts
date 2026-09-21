@@ -183,6 +183,18 @@ class PostgresCredentialStore(CredentialStore):
         assert row is not None  # an upsert always returns its row
         return _user(row)
 
+    async def user_by_key(self, provider: str, subject: str) -> User | None:
+        # One indexed lookup on the UNIQUE (provider, subject) of
+        # ``schema.sql``, and no write: the upsert above rewrites the row
+        # whatever it holds, which is right at a sign-in and wrong for
+        # somebody merely asking who a user is.
+        row = await self._pool.fetchrow(
+            f"SELECT {_USER_COLUMNS} FROM users WHERE provider = $1 AND subject = $2",
+            provider,
+            subject,
+        )
+        return None if row is None else _user(row)
+
     async def user_by_id(self, user_id: uuid.UUID) -> User | None:
         row = await self._pool.fetchrow(f"SELECT {_USER_COLUMNS} FROM users WHERE id = $1", user_id)
         return None if row is None else _user(row)

@@ -78,6 +78,20 @@ class CredentialStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def user_by_key(self, provider: str, subject: str) -> User | None:
+        """The user of ``(provider, subject)``, or ``None`` if there is none.
+
+        **It reads and writes nothing.** ``user_at_sign_in`` is the one that
+        may create a user, and it rewrites the name and the address every time
+        it is called, because a sign-in is when the provider says what they
+        are now. A caller that only wants to know who somebody already is --
+        the local development mode, asking on every request -- would otherwise
+        pay for a row version, and its dead tuple, to be told what it could
+        have read.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
     async def user_by_id(self, user_id: uuid.UUID) -> User | None:
         """The user with that id, or ``None`` if there is none."""
         raise NotImplementedError

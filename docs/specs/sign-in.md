@@ -89,13 +89,42 @@ With providers configured and no allow entry, start-up fails.
 - Everything runs as one fixed local user, who owns the conversations
   created in this mode. The rest of the platform behaves as usual, so
   ownership checks and everything built on users is exercised.
+- That user is a **real row**, got or created under the reserved key
+  `("!local", "developer")`. The provider id is deliberately not spelt like
+  a provider id — an id is a name, and `!local` is not one — so no
+  configuration can name it, no identity can carry it, and nothing but this
+  mode can reach that row. A session that names it is refused by
+  `resolve_session`, so a database kept from a run of the mode hands nobody
+  the account.
 - It is never the default. It is asked for explicitly when starting the
-  server, and it cannot be combined with a sign-in configuration.
+  server, and it cannot be combined with a sign-in configuration: asking
+  for both is a start-up refusal. **No environment variable switches it
+  on** — only the argument the starting command passes — so nothing a
+  process inherits can turn sign-in off in a deployment.
 - It serves the loopback interface only, and refuses to start on any other
-  address.
+  address. Two rules hold that, and they are deliberately of different
+  strictness. **What may be bound**: a literal loopback address, or exactly
+  `localhost` — the mode carries the bind host and refuses anything else
+  when it is built, before a socket exists. A name such as
+  `dev.localhost` is resolved by whatever this machine resolves names with,
+  and a bind address is not a thing to leave to a resolver. **What may be
+  requested**: every request must be addressed to this machine — one `Host`
+  header naming any loopback host (any spelling, any port, `*.localhost`
+  included: a name that arrived here arrived over loopback), and an address
+  the server answered on that is loopback. A unix socket counts as one; a
+  scope that does not say where it answered is refused. The request rule is
+  what defeats DNS rebinding, where a name somebody else controls is pointed
+  at `127.0.0.1` and every same-origin rule holds for the page that did it.
 - The server logs a warning at start-up, and the interface shows a
-  permanent banner saying that sign-in is off.
-- The checks on writes (JSON, same origin) stay on.
+  permanent banner saying that sign-in is off. `GET /auth/session` answers
+  `sign_in: false` with `local_development: true`, no providers, and the
+  local user.
+- The checks on writes (JSON, same origin) stay on. There is no session
+  cookie here, so **every** write is judged as a credentialed one: `Origin`
+  equal to the loopback origin the request was addressed to, or
+  `Sec-Fetch-Site: same-origin` with no `Origin`. Every request in this
+  mode is authenticated, so there is no unauthenticated write to relax the
+  rule for.
 - Tests still exercise the real sign-in flow, against a stand-in identity
   provider; this mode is not a substitute for that.
 

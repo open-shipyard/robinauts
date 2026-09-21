@@ -123,6 +123,10 @@ class MemoryCredentialStore(CredentialStore):
             self._users[key] = user
             return user
 
+    async def user_by_key(self, provider: str, subject: str) -> User | None:
+        async with self._lock:
+            return self._users.get((provider, subject))
+
     async def user_by_id(self, user_id: uuid.UUID) -> User | None:
         async with self._lock:
             for user in self._users.values():

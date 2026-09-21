@@ -39,10 +39,14 @@ signed in. When roles arrive, the mapping from a role to what it may do goes
 in ``core`` and the declaration here grows a permission argument; what does
 not change is that every route names one.
 
-**``current_user`` is the seam for the local development mode** (the next
-step): a deployment with no sign-in configuration answers "who is this" with
-its one fixed local user, and nothing else about the api moves. That is why
-the question is asked in one function rather than at each route.
+**``current_user`` is the seam for the local development mode**: a deployment
+running without sign-in answers "who is this" with its one fixed local user
+(``application.LocalAccess``), and nothing else about the api moves -- every
+``signed_in()`` route resolves to that user, with no cookie and no 401. That
+is why the question is asked in one function rather than at each route. The
+two are never both set: the composition root refuses a deployment asking for
+sign-in and for the local mode at once, and ``create_api`` refuses to build
+one.
 
 Request protection -- the JSON and same-origin checks on writes -- is **not**
 here. It runs as middleware, before FastAPI reads anything of the request, so
@@ -60,7 +64,7 @@ from fastapi.routing import APIRoute
 from starlette.routing import BaseRoute, Mount, Router
 
 from robinauts.api.cookies import session_cookie
-from robinauts.application import SignIn
+from robinauts.application import LocalAccess, SignIn
 from robinauts.domain import AuthenticationError, ConfigError, Permission, User
 
 PERMISSION_ATTRIBUTE = "robinauts_permission"
@@ -108,13 +112,33 @@ def signing_in(request: Request) -> SignIn | None:
     return sign_in
 
 
+def local_access(request: Request) -> LocalAccess | None:
+    """The local development mode, or ``None`` when this is a deployment.
+
+    Set on the application's state by the composition root, beside
+    ``sign_in``; exactly one of the two is ever there.
+    """
+    local: LocalAccess | None = getattr(request.app.state, "local", None)
+    return local
+
+
 async def current_user(request: Request) -> User | None:
     """Whoever the session cookie stands for; ``None`` if it stands for nobody.
 
     An unknown, expired or absent cookie is all one answer. The difference is
     of no use to a caller and of some use to an attacker, and the application
     does not make it either (``application.SignIn.resolve_session``).
+
+    **In the local development mode there is no cookie to read.** Sign-in is
+    off, so every request is the one local user and is resolved to them --
+    which is what makes the rest of the platform, ownership included, behave
+    as it does in a deployment. What keeps that from being an open door is not
+    here: the request never reaches a route unless it was addressed to this
+    machine (``robinauts.api.protection``).
     """
+    local = local_access(request)
+    if local is not None:
+        return await local.user()
     sign_in = signing_in(request)
     if sign_in is None:
         return None

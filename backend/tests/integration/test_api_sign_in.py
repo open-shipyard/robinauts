@@ -133,6 +133,7 @@ async def test_a_whole_sign_in_ends_with_a_session_the_routes_recognise(
 
     assert before == {
         "sign_in": True,
+        "local_development": False,
         "public_url": PUBLIC_URL,
         "providers": [{"id": "okta", "title": "Okta"}],
         "user": None,

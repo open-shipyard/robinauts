@@ -174,6 +174,17 @@ class ProviderConfig:
         for name in ("id", "title", "issuer", "client_id", "client_secret_env"):
             if not getattr(self, name):
                 raise InvalidValueError(f"a provider needs its {name}")
+        # The shape is checked here as well as in ``core``, which refuses a
+        # configuration naming an id of another shape. Twice, deliberately: it
+        # is what reserves ``domain.LOCAL_PROVIDER`` for the local development
+        # mode. That id is spelt so that no provider id can ever equal it, and
+        # a ``ProviderConfig`` built in code rather than read from a file --
+        # by a test, by a later step -- must not be the way round it.
+        if not is_provider_id(self.id):
+            raise InvalidValueError(
+                f"a provider's id is a name: lower-case letters, digits, '-' and '_', at most "
+                f"{MAX_PROVIDER_ID_CHARS} of them, not {self.id!r}"
+            )
         object.__setattr__(self, "scopes", tuple(self.scopes))
         if "openid" not in self.scopes:
             # Without it the provider is not asked for an ID token at all.

@@ -46,9 +46,18 @@ class SessionResponse(BaseModel):
 
     ``sign_in`` is whether this deployment has a sign-in configuration at all;
     without one there are no providers and nobody to be.
+
+    ``local_development`` is the exception to that last part: the local
+    development mode has no sign-in and no providers, and yet somebody *is*
+    signed in -- the one local user everything runs as. It is what the
+    interface shows its permanent banner for (``docs/specs/frontend.md``), and
+    it is why the two are separate fields rather than one: "nothing is
+    configured" and "sign-in is deliberately off" are different things to say
+    to a person, and only the second one has a user with it.
     """
 
     sign_in: bool
+    local_development: bool = False
     public_url: str | None = None
     providers: list[ProviderSummary] = []
     user: UserSummary | None = None

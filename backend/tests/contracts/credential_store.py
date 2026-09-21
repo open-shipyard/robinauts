@@ -211,6 +211,36 @@ class CredentialStoreContract:
         async with self.opened() as store:
             assert await store.user_by_id(uuid.uuid4()) is None
 
+    @asyncio_test
+    async def test_a_user_is_found_by_their_key_without_being_written(self) -> None:
+        """Asking who somebody is must not be a write (``ports.user_by_key``).
+
+        ``user_at_sign_in`` rewrites the row every time, which is what a
+        sign-in wants and what a caller asking on every request must not pay
+        for. So: the same user comes back, an unknown key is nobody, and
+        asking about one changes nothing in the store.
+        """
+        async with self.opened() as store:
+            user = await store.user_at_sign_in(
+                "google", "1", name="Ada", email="ada@example.com", now=NOW
+            )
+            before = await self.dump(store)
+
+            assert await store.user_by_key("google", "1") == user
+            # The key is both halves: the same subject elsewhere is nobody.
+            assert await store.user_by_key("okta", "1") is None
+            assert await store.user_by_key("google", "2") is None
+            assert await self.dump(store) == before
+
+    @asyncio_test
+    async def test_asking_about_a_user_who_is_not_there_creates_nobody(self) -> None:
+        async with self.opened() as store:
+            empty = await self.dump(store)
+
+            assert await store.user_by_key("google", "1") is None
+
+            assert await self.dump(store) == empty
+
     # Sessions.
 
     @asyncio_test

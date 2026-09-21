@@ -42,6 +42,28 @@ names through, ``Sec-Fetch-Site: cross-site`` beside
 one it finds is whichever came first. Reading them once, by a name we folded
 ourselves, is what makes "sent twice" mean sent twice.
 
+**In the local development mode, two of the three change** (``docs/specs/
+sign-in.md``, "Local development mode"). There is no session cookie, because
+there is no sign-in: every request *is* authenticated, as the one local user,
+so check 3 holds for **every** write rather than for a write carrying a
+cookie, and what the ``Origin`` is compared with is the loopback origin the
+request itself names. And one check is added, on every request and not only on
+writes:
+
+0. **It was addressed to this machine.** The ``Host`` header, sent once, must
+   name a loopback host, and the address the server answered on must be one
+   too -- a unix socket, which has no network to be reached over, counts as
+   one, and a scope that says nothing about where it was answered is refused
+   rather than believed. A
+   page on the internet can point a host name of its own at ``127.0.0.1`` --
+   the browser resolves it, connects here, and sends ``Host: evil.example``
+   -- and everything a same-origin policy would have stopped is then simply
+   not cross-site. The ``Host`` header is what says otherwise, and it is why
+   this check covers reads: a rebound name is read from, not only written to.
+   The composition root refuses to run the mode on anything but loopback
+   (``domain.LocalMode``); this is the half that a server started some other
+   way cannot get around.
+
 **A refusal says a fixed sentence.** What was wrong with the request is the
 request, and a body that repeated it would be reflecting whatever somebody
 sent back at whoever they sent it through. The particulars -- the path, the
@@ -88,6 +110,7 @@ from robinauts.api.logs import shown
 from robinauts.domain import (
     CrossSiteRequestError,
     InvalidValueError,
+    LocalMode,
     RobinautsError,
     SignInConfig,
     UnsupportedMediaTypeError,
@@ -116,9 +139,22 @@ DECIDING_HEADERS = ("sec-fetch-site", "content-type", "origin")
 COOKIE_HEADER = "cookie"
 """Read in the same pass, so that a session is found by the same folded names."""
 
+HOST_HEADER = "host"
+"""Who the request was addressed to; judged in the local development mode.
+
+Not in ``DECIDING_HEADERS``, because those are the headers a **write** is
+judged by and this one is asked of every request, reads included -- a name
+pointed at this machine is read from as readily as it is written to. It may be
+sent once, for the same reason the other three may.
+"""
+
+LOCAL_ORIGIN_SCHEME = "http"
+"""The local development mode is served plainly: loopback needs no TLS."""
+
 CROSS_SITE_DETAIL = "a write must come from a page of this deployment"
 MEDIA_TYPE_DETAIL = f"a write must be sent as {JSON_MEDIA_TYPE}"
 REPEATED_HEADER_DETAIL = "a write may carry each of the headers it is judged by only once"
+LOOPBACK_DETAIL = "this server answers the loopback interface of this machine only"
 """What a refusal says. Fixed sentences: a body repeats nothing that was sent."""
 
 WEBSOCKET_POLICY_VIOLATION = 1008
@@ -148,7 +184,9 @@ def request_headers(scope: Scope) -> dict[str, list[str]]:
     lower-cased itself -- so that two spellings of one header are two values
     of one name rather than two headers nobody compared.
     """
-    found: dict[str, list[str]] = {name: [] for name in (*DECIDING_HEADERS, COOKIE_HEADER)}
+    found: dict[str, list[str]] = {
+        name: [] for name in (*DECIDING_HEADERS, COOKIE_HEADER, HOST_HEADER)
+    }
     for raw_name, raw_value in scope.get("headers", ()):
         name = raw_name.decode("latin-1").strip().lower()
         if name in found:
@@ -156,7 +194,9 @@ def request_headers(scope: Scope) -> dict[str, list[str]]:
     return found
 
 
-def refused(scope: Scope, config: SignInConfig | None) -> Refusal | None:
+def refused(
+    scope: Scope, config: SignInConfig | None, local: LocalMode | None = None
+) -> Refusal | None:
     """Why this request may not be taken, or ``None`` if it may.
 
     ``config`` is the deployment's sign-in configuration, and ``None`` when
@@ -165,17 +205,27 @@ def refused(scope: Scope, config: SignInConfig | None) -> Refusal | None:
     signed in there is no credential at all between another site's page and
     this API, which is the case that needs them most.
 
+    ``local`` is the local development mode, when that is what this is. Then
+    check 0 runs on every request, and check 3 runs on every write: there is
+    no cookie to carry, because there is nothing to sign in to, and every
+    request is the local user's. Exactly one of ``config`` and ``local`` is
+    ever given.
+
     Cross-site is answered before the media type: a request another site's
     page sent is refused for what it is, whatever it happens to carry.
     """
     method = str(scope.get("method", ""))
-    if method in SAFE_METHODS:
-        return None
-    # The method is compared with a fixed set above and is escaped here: it
+    # The method is compared with a fixed set below and is escaped here: it
     # comes out of the scope, which is to say off the wire, and a log line is
     # a line until something in it is a newline.
     where = f"{shown(method, most=16)} {shown(scope.get('path', ''))}"
     sent = request_headers(scope)
+    if local is not None:
+        elsewhere = _off_this_machine(scope, sent, local, where)
+        if elsewhere is not None:
+            return elsewhere
+    if method in SAFE_METHODS:
+        return None
     for name in DECIDING_HEADERS:
         if len(sent[name]) > 1:
             return Refusal(
@@ -201,6 +251,14 @@ def refused(scope: Scope, config: SignInConfig | None) -> Refusal | None:
             UnsupportedMediaTypeError(MEDIA_TYPE_DETAIL),
             f"{where} was sent as {shown(media_type)}, not {JSON_MEDIA_TYPE}",
         )
+    if local is not None:
+        # Every request here is authenticated -- as the local user, with no
+        # cookie to leave out -- so every write is judged as a credentialed
+        # one. What it is compared with is the origin of the very host the
+        # request named, which check 0 has already found to be loopback: a
+        # person may reach the same server as ``localhost`` or as
+        # ``127.0.0.1``, and both are this machine talking to itself.
+        return _origin_refused(sent, site, where, sent[HOST_HEADER][0])
     if config is None or not _session_held(sent, config):
         return None
     origin = sent["origin"][0] if sent["origin"] else None
@@ -219,6 +277,111 @@ def refused(scope: Scope, config: SignInConfig | None) -> Refusal | None:
         f" {shown(origin) if origin is not None else '<none>'},"
         f" not {config.public_url}",
     )
+
+
+def _off_this_machine(
+    scope: Scope, sent: dict[str, list[str]], local: LocalMode, where: str
+) -> Refusal | None:
+    """Why this request was not addressed to this machine, or ``None`` if it was.
+
+    Two questions, and both are about addresses rather than about pages. The
+    ``Host`` header is the one that matters: a name somebody else controls,
+    pointed at ``127.0.0.1``, is how a page on the internet reaches a server
+    that only ever listened to loopback, and the ``Host`` it sends is that
+    name. The address the server answered on is the second, for a process
+    started some way that bound more than loopback after all -- the mode's own
+    refusal (``domain.LocalMode``) is at the other end of that, and neither is
+    asked to hold alone.
+    """
+    named = sent[HOST_HEADER]
+    if len(named) != 1:
+        return Refusal(
+            CrossSiteRequestError(LOOPBACK_DETAIL),
+            f"{where} carries {len(named)} host headers",
+        )
+    if not local.serves(named[0]):
+        return Refusal(
+            CrossSiteRequestError(LOOPBACK_DETAIL),
+            f"{where} is addressed to {shown(named[0])}, which is not this machine",
+        )
+    wrong = _answered_elsewhere(scope, local)
+    if wrong is not None:
+        return Refusal(CrossSiteRequestError(LOOPBACK_DETAIL), f"{where} was answered {wrong}")
+    return None
+
+
+def _answered_elsewhere(scope: Scope, local: LocalMode) -> str | None:
+    """How the address this was answered on fails the rule, or ``None`` if it does not.
+
+    ASGI's ``server`` is ``(host, port)``, and ``(path, None)`` for a unix
+    socket. So:
+
+    - a **unix socket** passes. There is no interface it can be reached from,
+      only a file, and whoever may open that file is already on this machine;
+    - a **TCP** address must be loopback;
+    - **nothing at all** is refused. The key is optional in ASGI, and a server
+      that does not say where it answered is a server nothing here can check.
+      This mode's whole safety is that it cannot be reached from elsewhere, so
+      the unknown case is the one to say no to; every server this is run on --
+      uvicorn, and ``httpx.ASGITransport`` in the tests -- sets it.
+    """
+    answered = scope.get("server")
+    if not isinstance(answered, (list, tuple)) or len(answered) != 2:
+        return "on an address it did not say, which is not one that can be checked"
+    address, port = answered
+    where = "" if address is None else str(address)
+    # A socket path, which is what a ``None`` port means. It is judged by
+    # being a path at all: a host is never written with a separator in it.
+    if port is None and "/" in where:
+        return None
+    if local.serves(where):
+        return None
+    return f"on {shown(where)}, which is not loopback"
+
+
+def _origin_refused(sent: dict[str, list[str]], site: str, where: str, host: str) -> Refusal | None:
+    """Whether a write names the origin it was served from; ``None`` if it does.
+
+    ``Origin`` equal to that origin, or -- for a browser that sends no
+    ``Origin`` -- ``Sec-Fetch-Site: same-origin``. The same two ways a
+    deployment accepts a cookie-carrying write, with the loopback origin of
+    this request in place of ``public_url``.
+    """
+    origin = sent["origin"][0] if sent["origin"] else None
+    if origin is not None:
+        if _same_origin(origin, host):
+            return None
+    elif site == "same-origin":
+        return None
+    return Refusal(
+        CrossSiteRequestError(CROSS_SITE_DETAIL),
+        f"{where} named origin {shown(origin) if origin is not None else '<none>'},"
+        f" not {LOCAL_ORIGIN_SCHEME}://{shown(host)}",
+    )
+
+
+def _same_origin(origin: str, host: str) -> bool:
+    """Whether ``origin`` is the plain origin of ``host``, however each is spelt.
+
+    ``isascii`` before ``lower``, as the deployment's own comparison does:
+    outside ASCII, case folding is not a matter of thirty-two. The scheme must
+    be ``http`` -- the mode is served plainly -- and the authority must be the
+    one the request was addressed to, port and all, since a second server on
+    another port of this machine is another origin.
+    """
+    named = origin.strip()
+    if not named.isascii():
+        return False
+    scheme, marker, authority = named.lower().partition("://")
+    if not marker or scheme != LOCAL_ORIGIN_SCHEME:
+        return False
+    return _authority(authority) == _authority(host)
+
+
+def _authority(text: str) -> str:
+    """A ``host[:port]`` in one spelling, so that two of them compare."""
+    written = text.strip().rstrip("/").lower()
+    return written.removesuffix(":80")
 
 
 def _session_held(sent: dict[str, list[str]], config: SignInConfig) -> bool:
@@ -240,9 +403,10 @@ class RequestProtection:
     refused request is answered without a byte of its body being read.
 
     What it needs of the deployment -- the public URL and whether the cookie
-    is ``Secure`` -- is read from the application's state at each request, not
-    captured when the middleware is built: the composition root opens its
-    collaborators in the ASGI lifespan, which runs after this object exists.
+    is ``Secure``, or the local development mode and the address it is served
+    on -- is read from the application's state at each request, not captured
+    when the middleware is built: the composition root opens its collaborators
+    in the ASGI lifespan, which runs after this object exists.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -262,8 +426,14 @@ class RequestProtection:
                 "refusing an ASGI scope of type %s, which nothing here serves", shown(kind)
             )
             return
-        sign_in = getattr(scope["app"].state, "sign_in", None)
-        problem = refused(scope, None if sign_in is None else sign_in.config)
+        state = scope["app"].state
+        sign_in = getattr(state, "sign_in", None)
+        local = getattr(state, "local", None)
+        problem = refused(
+            scope,
+            None if sign_in is None else sign_in.config,
+            None if local is None else local.mode,
+        )
         if problem is None:
             await self.app(scope, receive, send)
             return

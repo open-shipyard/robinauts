@@ -309,6 +309,7 @@ async def test_the_lifespan_opens_before_the_first_request_and_closes_after(
 
     assert answered.json() == {
         "sign_in": True,
+        "local_development": False,
         "public_url": PUBLIC_URL,
         "providers": [{"id": "google", "title": "Google"}],
         "user": None,

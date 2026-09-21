@@ -12,6 +12,10 @@ The other half is the refusal: a database with no schema of ours must stop the
 server from starting, and say what to run (``docs/specs/backend.md``). The
 lifespan is where that happens, so the lifespan is what is driven here.
 
+The local development mode is wired the same way and against the same
+database, because the claim it makes is about a real store: its one user is a
+row, made once, with an id that a restart finds again.
+
 Each test works in a schema of its own, named in the connection string the way
 a deployment would name one.
 
@@ -33,7 +37,13 @@ from aio import asyncio_test
 from postgres import DATABASE_URL, TemporarySchema, requires_postgres
 from robinauts.app import create_app
 from robinauts.datastore import SCHEMA_VERSION, create_schema
-from robinauts.domain import DB_INIT_COMMAND, SchemaError
+from robinauts.domain import (
+    DB_INIT_COMMAND,
+    LOCAL_PROVIDER,
+    LOCAL_SUBJECT,
+    LOCAL_USER_NAME,
+    SchemaError,
+)
 from standin import StandInProvider, redirect_from
 from webapp import running
 
@@ -145,6 +155,66 @@ async def test_a_person_signs_in_and_out_of_a_real_deployment(
     assert closed is None
     assert app.state.sign_in is None
     assert app.state.deployment.sign_in is None
+
+
+@asyncio_test
+async def test_the_local_development_mode_runs_as_one_real_row() -> None:
+    """No file, no provider, no session: one user, in the users table, twice over.
+
+    The second ``create_app`` is the restart. It is the whole promise of the
+    mode -- the rest of the platform behaves as usual, and what the local user
+    owns is still theirs after a restart -- and it is only worth anything
+    against a real database, which is why it is here.
+    """
+    async with schema() as temporary:
+        first = create_app(
+            local_development_host="127.0.0.1",
+            database_url=in_schema(temporary.name),
+            secret_for={}.get,
+        )
+        async with running(first):
+            async with local_browser(first) as client:
+                opened = await client.get("/auth/session")
+                written_by = await temporary.pool.fetchval("SELECT xmin::text FROM users")
+                again = await client.get("/auth/session")
+
+        restarted = create_app(
+            local_development_host="127.0.0.1",
+            database_url=in_schema(temporary.name),
+            secret_for={}.get,
+        )
+        async with running(restarted):
+            async with local_browser(restarted) as client:
+                after = await client.get("/auth/session")
+
+        rows = await temporary.pool.fetch(
+            "SELECT id, provider, subject, name, email, xmin::text AS version FROM users"
+        )
+        sessions = await temporary.pool.fetchval("SELECT count(*) FROM sessions")
+
+    body = opened.json()
+    assert (body["sign_in"], body["local_development"], body["providers"]) == (False, True, [])
+    assert body["user"]["id"] == again.json()["user"]["id"] == after.json()["user"]["id"]
+    assert len(rows) == 1
+    assert str(rows[0]["id"]) == body["user"]["id"]
+    assert (rows[0]["provider"], rows[0]["subject"]) == (LOCAL_PROVIDER, LOCAL_SUBJECT)
+    assert (rows[0]["name"], rows[0]["email"]) == (LOCAL_USER_NAME, None)
+    # Nobody signed in, so nothing was signed in with.
+    assert sessions == 0
+    # And the four requests after the first one only read: ``xmin`` is the
+    # transaction that wrote this row version, so a request that upserted --
+    # which is what ``user_at_sign_in`` does -- would have left another one.
+    assert rows[0]["version"] == written_by
+
+
+def local_browser(app: object) -> httpx.AsyncClient:
+    """A browser on the loopback address the mode is served on, port and all."""
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://127.0.0.1:8000",
+        follow_redirects=False,
+        trust_env=False,
+    )
 
 
 @asyncio_test

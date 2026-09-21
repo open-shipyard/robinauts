@@ -59,6 +59,7 @@ from robinauts.core import (
     verified_email,
 )
 from robinauts.domain import (
+    LOCAL_PROVIDER,
     MAX_PENDING_LOGINS,
     PENDING_LOGIN_MINUTES,
     InvalidIdTokenError,
@@ -547,7 +548,17 @@ class SignIn:
         )
         if session is None:
             return None
-        return await self._credentials.user_by_id(session.user_id)
+        user = await self._credentials.user_by_id(session.user_id)
+        if user is not None and user.provider == LOCAL_PROVIDER:
+            # Nothing in a sign-in can make this row: its provider is spelt so
+            # that no configuration may name it and no identity may carry it
+            # (``domain.local``). A session that points at it therefore came
+            # from somewhere that is not a sign-in -- a database kept from a
+            # run of the local development mode, a row somebody wrote -- and
+            # the local user is not somebody to be signed in as. (Nothing is
+            # logged: the application has no logging port, as ``sweep`` says.)
+            return None
+        return user
 
     async def sign_out(self, secret: str | None) -> bool:
         """End the session that cookie holds; whether there was one to end.

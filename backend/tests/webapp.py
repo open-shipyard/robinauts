@@ -32,11 +32,12 @@ from fakes import (
     ScriptedIdentityProvider,
 )
 from robinauts.api import create_api
-from robinauts.application import SignIn
+from robinauts.application import LocalAccess, SignIn
 from robinauts.core import secret_hash
 from robinauts.domain import (
     MAX_PENDING_LOGINS,
     AllowEntry,
+    LocalMode,
     Matcher,
     ProviderConfig,
     SignInConfig,
@@ -48,6 +49,14 @@ PUBLIC_URL = "https://robinauts.example.com"
 
 LOOPBACK_URL = "http://127.0.0.1:8080"
 """The other shape a deployment may have, and the only ``http`` one allowed."""
+
+LOCAL_URL = "http://127.0.0.1:8000"
+"""Where the local development mode is served in these tests, port and all.
+
+A client on this ``base_url`` sends ``Host: 127.0.0.1:8000`` and, through
+``ASGITransport``, answers on the same address -- which is what the mode's own
+check reads (``robinauts.api.protection``).
+"""
 
 SECRET_VARIABLE = "ROBINAUTS_TEST_SECRET"
 
@@ -156,6 +165,24 @@ def wired(*, max_pending_logins: int = MAX_PENDING_LOGINS, **changes: object) ->
     )
 
 
+@dataclass
+class WiredLocally:
+    """The local development mode over the same fakes, and its one user.
+
+    The store is the test's: the local user is a row in it, as it is a row in
+    a real database, and a test reads it there rather than being told about
+    it.
+    """
+
+    mode: LocalMode = field(default_factory=LocalMode)
+    store: MemoryCredentialStore = field(default_factory=MemoryCredentialStore)
+    clock: FakeClock = field(default_factory=FakeClock)
+    local: LocalAccess = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.local = LocalAccess(self.mode, credentials=self.store, clock=self.clock)
+
+
 @asynccontextmanager
 async def running(app: Any) -> AsyncIterator[None]:
     """Drive an application's ASGI lifespan, as a server does.
@@ -191,14 +218,17 @@ async def running(app: Any) -> AsyncIterator[None]:
 
 @asynccontextmanager
 async def serving(
-    sign_in: SignIn | None, *, base_url: str = PUBLIC_URL
+    sign_in: SignIn | None,
+    *,
+    local: LocalAccess | None = None,
+    base_url: str = PUBLIC_URL,
 ) -> AsyncIterator[httpx.AsyncClient]:
-    """A client on the real application, wired to ``sign_in``.
+    """A client on the real application, wired to ``sign_in`` or to ``local``.
 
     Redirects are not followed: what the tests are about is the ``Location``
     and the ``Set-Cookie`` of each one.
     """
-    app = create_api(sign_in)
+    app = create_api(sign_in, local=local)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url=base_url,
