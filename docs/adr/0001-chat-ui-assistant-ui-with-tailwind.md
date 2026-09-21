@@ -50,7 +50,7 @@ There are two boundaries. assistant-ui exists only between them.
 
 **1. The wire.** The backend knows nothing about assistant-ui. The UI and
 the backend talk through a protocol that is not specific to any UI library —
-AG-UI, per goal 4; its details are a separate ADR. No backend route, payload
+AG-UI, per goal 4; its details are in [specs/wire.md](../specs/wire.md). No backend route, payload
 or stored record is shaped by assistant-ui. In particular `assistant-cloud`,
 which `@assistant-ui/react` pulls in as a dependency, is never configured:
 conversations live in our database only (goal 3).
