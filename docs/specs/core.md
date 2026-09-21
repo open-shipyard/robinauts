@@ -61,7 +61,9 @@ of libraries that a company runs on its own servers.
 
 - The backend is Python.
 - The frontend, in this first version, is built on the open source
-  [assistant-ui](https://github.com/assistant-ui/assistant-ui) library.
+  [assistant-ui](https://github.com/assistant-ui/assistant-ui) library, on
+  Tailwind CSS. It sits behind an explicit seam so that it can be discarded:
+  see [ADR 0001](../adr/0001-chat-ui-assistant-ui-with-tailwind.md).
 - One frontend, one backend, one database (goal 6).
 
 ### Dependency scanning from day zero
