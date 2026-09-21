@@ -14,12 +14,20 @@ in [layout.md](../layout.md). This document holds the component choices.
 - The backend also serves the built frontend
   ([frontend.md](frontend.md)).
 
+## Background work
+
+- Runs and housekeeping execute inside the backend process, on the event
+  loop that serves requests. There is no separate worker or queue
+  ([runs.md](runs.md)).
+- The ASGI lifespan opens and closes what the process holds: the database
+  pool, the run executor, the housekeeping tasks.
+
 ## Database
 
 - PostgreSQL is the one database, and it is always required. There is no
   run mode without it; in-memory stores exist only as test fakes.
-- Everything stored lives there: conversations, attachments, search
-  indexes, users, sessions, projects, audit.
+- Everything stored lives there: conversations, runs and their events,
+  attachments, search indexes, users, sessions, projects, audit.
 - No ORM. SQL is hand-written in the `datastore` layer, which implements
   the store ports and returns domain objects.
 - Where expiry is involved, time comes from the database clock; stores are

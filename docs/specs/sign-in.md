@@ -85,7 +85,8 @@ With providers configured and no allow entry, start-up fails.
 ## Not there yet
 
 - **API tokens** are planned. Until they exist every API is reached with a
-  signed-in session.
+  signed-in session. They are also what channels other than the browser
+  will sign in with ([channels.md](channels.md)).
 
 ## Details likely to change
 

@@ -13,6 +13,9 @@ What an internal platform team deploys and controls.
   ([sign-in.md](sign-in.md)).
 - Upgrades: install the new wheel, run `robinauts db migrate`, restart
   ([backend.md](backend.md)).
+- A restart lets active runs drain for a bounded time; the rest are marked
+  interrupted and can be retried by their authors ([runs.md](runs.md)).
+  Several backend processes may run against the one database.
 - Outbound traffic: the identity providers at sign-in, and the model
   providers the operator configured. Nothing else.
 
@@ -32,6 +35,7 @@ All optional, all set by the operator:
 
 - requests per minute per user;
 - a maximum attachment size;
+- timeouts for a model call, a tool call and a whole run;
 - a maximum context per agent. A history that exceeds it is trimmed above
   the agent port, so both engines behave the same;
 - a token budget per user per period, which refuses new turns once spent

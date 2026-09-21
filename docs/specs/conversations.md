@@ -10,8 +10,15 @@
   ([ADR 0002](../adr/0002-conversation-persistence.md)): not that of an
   agent framework, not that of a model vendor. Each engine translates to
   and from it on every turn ([agents.md](agents.md)).
-- A message carries text, attachments and images. The format leaves room
-  for tool calls and tool results.
+- A message carries text, attachments and images. Tool calls and tool
+  results are messages too; a tool call may stand without a result while
+  its run waits ([runs.md](runs.md)).
+- A message records the delivery channel it came from
+  ([channels.md](channels.md)); a conversation is not tied to one.
+- Messages are persisted as they are produced. At any moment the stored
+  conversation is consistent and complete up to that moment.
+- A conversation has at most one active run. The answer keeps being
+  produced when its author is not watching.
 - A conversation belongs to one user, optionally inside a project, and is
   bound to an agent ([privacy.md](privacy.md), [agents.md](agents.md)).
 

@@ -14,8 +14,9 @@
 ## The agent port
 
 - The controller knows one port, `Agent`: given a history and a new user
-  message, stream the platform's turn events, and return the new messages
-  and the tokens they cost.
+  message, stream the platform's turn events and the new messages with the
+  tokens they cost, and end either "finished" or "waiting on these tool
+  calls" ([runs.md](runs.md)).
 - Two implementations:
   - **LangGraph** (or LangChain). Open source parts only: no LangSmith, no
     LangGraph Platform.
@@ -31,14 +32,16 @@
 ## A turn
 
 Both engines are stateless per turn
-([ADR 0002](../adr/0002-conversation-persistence.md)). The controller runs
-every turn the same way:
+([ADR 0002](../adr/0002-conversation-persistence.md)). A turn executes as a
+**run** ([runs.md](runs.md)): a record in the database, executed in the
+background, independent of the request that started it. The controller
+runs every turn the same way:
 
 1. Load the conversation's messages from the database.
-2. Call the agent port with the history and the new user message; stream
-   the events to the UI ([wire.md](wire.md)).
-3. Translate the new messages into the platform's format and append them
-   to the conversation.
+2. Call the agent port with the history and the new user message; publish
+   the events, which the UI watches ([wire.md](wire.md)).
+3. Translate each new message into the platform's format and append it to
+   the conversation as it is produced.
 4. The next turn starts again from step 1, with whichever engine and
    vendor the agent has at that moment.
 
@@ -72,7 +75,8 @@ every turn the same way:
 
 - The first version has no tool usage. It is planned, over MCP. The port,
   the conversation format and the wire leave room for tool calls and
-  results.
+  results, and runs are designed for tools of any duration
+  ([runs.md](runs.md)).
 
 ## Details likely to change
 

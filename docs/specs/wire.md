@@ -2,13 +2,20 @@
 
 The wire is one of the seams: the backend is not shaped by the UI library
 ([ADR 0001](../adr/0001-chat-ui-assistant-ui-with-tailwind.md)), and
-another UI — or no UI — can drive it.
+another UI — or no UI — can drive it. It is the one API that every
+delivery channel uses ([channels.md](channels.md)).
 
 ## A chat turn
 
 - Streamed as [AG-UI](https://docs.ag-ui.com) events over **server-sent
   events**, on the same origin. The UI starts a turn with a POST; the
-  response is the event stream.
+  response is the event stream of the run it created.
+- **The stream is a view of the run, not the run** ([runs.md](runs.md)).
+  Closing it changes nothing. The UI re-attaches to an active run by its
+  id, giving the last event it saw, and receives what it missed and then
+  the rest. Opening a conversation with an active run attaches to it.
+- A POST to a conversation that has an active run is refused. A run is
+  cancelled by an explicit request.
 - The request names the conversation, the parent message, and the new user
   message. **The server loads the history from its own store**; it does
   not accept a history from the browser. This makes our wire a profile of
@@ -21,6 +28,11 @@ another UI — or no UI — can drive it.
   through the agent port, the controller and the platform's persistence,
   and the wire is the same whatever the engine.
 - Tool calls, when they come, already have AG-UI events.
+
+## Without streaming
+
+- A client that cannot stream starts a run and obtains the result once the
+  run has finished. Planned ([channels.md](channels.md)).
 
 ## Everything else
 
