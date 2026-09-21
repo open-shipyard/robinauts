@@ -5,21 +5,25 @@
 
 They are the ports' own abstract base classes, implemented
 (``docs/layout.md``, "Conventions"): a fake that drifted from a port would
-fail to instantiate. The credential store passes the same contract suite as
-the real one (``tests/contracts/credential_store.py``).
+fail to instantiate. The credential store and the conversation store pass
+the same contract suites as the real ones will (``tests/contracts/``).
 """
 
 from fakes.clock import START, FakeClock
+from fakes.conversations import MemoryConversationStore
 from fakes.credentials import MemoryCredentialStore
 from fakes.identity_provider import Answer, ScriptedIdentityProvider, discovery_for
+from fakes.ids import CountingIdSource
 from fakes.secrets import LENGTH, CountingSecretSource, StuntedSecretSource
 
 __all__ = [
     "LENGTH",
     "START",
     "Answer",
+    "CountingIdSource",
     "CountingSecretSource",
     "FakeClock",
+    "MemoryConversationStore",
     "MemoryCredentialStore",
     "ScriptedIdentityProvider",
     "StuntedSecretSource",

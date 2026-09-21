@@ -41,6 +41,7 @@ from robinauts.adapters.identity_provider import (
     open_client,
     ssl_context,
 )
+from robinauts.adapters.ids import OsIdSource
 from robinauts.adapters.secrets import SECRET_BYTES, OsSecretSource
 
 __all__ = [
@@ -54,6 +55,7 @@ __all__ = [
     "TOTAL_TIMEOUT_SECONDS",
     "USER_AGENT",
     "HttpIdentityProvider",
+    "OsIdSource",
     "OsSecretSource",
     "SecretLookup",
     "SystemClock",

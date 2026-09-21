@@ -10,14 +10,30 @@ classes, and the contract suites say what an implementation must do.
 """
 
 from robinauts.ports.clock import Clock
+from robinauts.ports.conversations import (
+    MAX_PAGE,
+    MAX_SWEPT,
+    ConversationPage,
+    ConversationStore,
+    Document,
+    Snapshot,
+)
 from robinauts.ports.credentials import CredentialStore
 from robinauts.ports.identity_provider import IdentityProvider
+from robinauts.ports.ids import IdSource
 from robinauts.ports.secrets import SECRET_BITS, SecretSource
 
 __all__ = [
+    "MAX_PAGE",
+    "MAX_SWEPT",
     "SECRET_BITS",
     "Clock",
+    "ConversationPage",
+    "ConversationStore",
     "CredentialStore",
+    "Document",
+    "IdSource",
     "IdentityProvider",
     "SecretSource",
+    "Snapshot",
 ]

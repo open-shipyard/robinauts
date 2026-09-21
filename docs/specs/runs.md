@@ -144,6 +144,9 @@ Tool usage is planned ([agents.md](agents.md)); runs are designed for it.
 - On shutdown the backend stops accepting new messages and lets active runs
   drain for a bounded time; what remains is cancelled and marked
   `interrupted`.
+- Asking the store which runs are in a state is asked for the **active**
+  states, by the sweep alone, and is bounded: a read with no bound over a
+  table that only grows is a read waiting to take all of it.
 - A run records the process that owns it, with a heartbeat. A `running` run
   whose owner is gone is marked `interrupted`. **Whoever marks it appends the
   event that ends it** — `interrupted`, at the next position, which the store
@@ -186,8 +189,50 @@ Tool usage is planned ([agents.md](agents.md)); runs are designed for it.
 - A `RunExecutor` port: execute this in the background; subscribe to a
   run's events from a given position; cancel. `api` only subscribes and
   maps events to the wire ([wire.md](wire.md)).
-- A `RunStore` port for the run records and their events, implemented in
-  `datastore`.
+- Runs and their events are stored by the **same port as conversations and
+  messages** (`ConversationStore`), because they are the same database and
+  several operations over them are one transaction: beginning a turn, ending
+  a run, completing a message, deleting a conversation. Two ports would be
+  two calls, and a process can stop between two calls.
+- **The store is where "at most one active run" is held**, not the
+  application: two requests that both looked, both found none and both
+  inserted would give one conversation two answers writing into one branch,
+  so creating a run and refusing a second are one indivisible step, and the
+  second caller is told the conversation is already answering. The store
+  holds four more rules of its own, for the same reason — they are about the
+  rows that are there and not about the request:
+  - **a run that has ended is done with.** It is never written again, and it
+    takes no more events and completes no more messages. That is what stops a
+    process coming back from a timeout and re-opening a run its author
+    cancelled, and what stops a writer that read the last position before the
+    cancel putting an event past the `RunEnded` that is already there, leaving
+    a stream nothing can read back. Refused in the same step as the write.
+  - **an event is stored at the next position and at no other.** The
+    application is the single writer of a run's events and reads the last
+    position from the store before offering the one after it; a position
+    already stored, or one that skips, is refused, and of several callers
+    offering one position at once exactly one succeeds. A refusal means
+    somebody else ended the run first, so the answer is to stop writing into
+    it rather than to renumber and try again.
+  - **nothing is announced that is not stored, and nothing stored goes
+    unannounced.** A message and the event that completes it are written
+    together; so are a run's ended record and the event that says it ended.
+    Both or neither. And they must **say the same thing**: the end announces
+    the state the record ended in, the completion announces the message that
+    was stored, that message is an answer recording that run, and the run is
+    in that message's conversation. The store reads its own columns and the
+    records to see it; that a stored **document** says what its record says,
+    and that a run's stream reads correctly as a whole, are the application's,
+    and are what `core.check_event_order` holds it to.
+  - **a run begins active and answers a question**: it is created in one of
+    the active states, the message it names is a user message of its
+    conversation, and its agent is its conversation's agent — a conversation
+    is bound to one ([agents.md](agents.md)). A run stored already ended, with
+    no events under it, could never be made whole.
+- **Deleting a conversation deletes its runs and their events in the same
+  transaction**, and is refused while a run is active — which is decided
+  inside that transaction, so a run cannot begin in the window between the
+  check and the delete and nothing can be left orphaned.
 
 ## Details likely to change
 

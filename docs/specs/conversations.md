@@ -24,7 +24,10 @@
 - Asking for a conversation that is not there and asking for one that
   belongs to somebody else are answered identically, in status, in words
   and in every header: which of the two it was is a difference only an
-  attacker has a use for. Which it really was is in the log.
+  attacker has a use for. Which it really was is in the log. The
+  application raises the **same error** for both — "no such conversation" —
+  so that the two can never drift apart in a route written later; what it
+  really was is the error's own detail, which reaches the log alone.
 - A conversation has at most one active run. The answer keeps being
   produced when its author is not watching ([runs.md](runs.md)).
 
@@ -158,17 +161,52 @@ from it on every turn ([agents.md](agents.md)).
 
 ## Branches
 
+- Opening a conversation reads **one moment of it**: its messages, the run in
+  flight if there is one, and that run's events, together. Two reads would
+  disagree, and the gap between them is exactly where an answer is — a
+  message completed between them is either shown twice or never shown at all,
+  with the next announcement hanging under a message the reader has not got.
 - A conversation opens on the branch its author was last on. That is the
   message they were last on; if that message has since been answered, it
   is the branch below it **whose own last message is the newest** — the
   branch written in most recently, not the one begun most recently. A
   conversation whose last position names nothing — never opened, or a
   branch since deleted — opens by the same rule over the whole tree.
-- Only the author creates branches and moves between them.
+- Only the author creates branches and moves between them. Moving is
+  choosing **any message** of the conversation, not only the end of a branch:
+  what is recorded is the position its author is at, and the rule above
+  resolves it to a branch when the conversation is opened.
+- **Moving between branches does not date the conversation.** It writes
+  nothing, so it must not reorder a list sorted by when things were last
+  written: opening an old conversation and looking through its branches would
+  otherwise push it to the top of the panel.
+- **Completing a message does**, and it also moves the author's position onto
+  that message: what was just written is where they are, and where the
+  conversation opens next. The message, the date and the position move
+  together or not at all.
 - **Every other reader — a project member, someone with a share link —
   sees the author's current branch only**, live: it follows the author
   when they continue or switch branch. The other branches stay private to
   the author.
+
+## Listing
+
+- A person's conversations are listed **most recently updated first**, and
+  the order is total: ties are broken by id, so two conversations updated in
+  the same millisecond cannot swap places between two pages and be shown
+  twice or not at all.
+- A page is asked for with a count and, after the first, with the cursor the
+  page before it handed back. The cursor is **opaque and is a position inside
+  the caller's own listing**: the store writes it and the store reads it, and
+  one that does not parse is refused rather than read as a position. One that
+  parses and was never issued is simply a position — a listing holds the
+  caller's own conversations whatever the cursor says, so there is nothing
+  for a guessed one to reach, and cursors are not signed.
+- **That is all the cursor promises.** Paging walks a list that is changing,
+  not a transaction over a frozen one: a conversation written to while
+  somebody is paging moves in the order and moves across the cursor with it,
+  so it may be missed in that pass or seen in it twice. An interface that
+  cares folds by id.
 
 ## Forking
 
@@ -210,6 +248,11 @@ from it on every turn ([agents.md](agents.md)).
 
 - Deleting is soft. A deleted conversation sits in a trash for a fixed 30
   days; its author can restore it, or delete it for good.
+- **A conversation with an active run is not deleted**: the author is told it
+  is still answering and cancels the run first ([runs.md](runs.md)).
+  Deleting under a run would leave the run writing messages into a
+  conversation that is no longer there, and cancelling it on the author's
+  behalf would hide a running answer behind a button that says "delete".
 - After 30 days it is removed for good, with its messages, attachments and
   share links.
 - Retention and purge are in [privacy.md](privacy.md).

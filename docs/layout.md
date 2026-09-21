@@ -105,8 +105,21 @@ There so far:
 - `Clock`: current time, as an aware datetime, and a monotonic count for
   measuring intervals.
 - `SecretSource`: fresh unguessable text — the `state`, the `nonce`, the
-  PKCE verifier and the session cookie's value. The only randomness in the
-  platform.
+  PKCE verifier and the session cookie's value. Everything the platform draws
+  that must be **unguessable** comes from here.
+- `ConversationStore`: conversations, the messages of their trees, the runs
+  over them and a run's numbered events — **one port**, because they are one
+  database and several operations over them are one transaction (beginning a
+  turn, completing a message, ending a run, deleting a conversation). A
+  conversation and a run cross as records; a message and a run event cross as
+  the **document** core wrote, with the record beside it for the store's own
+  columns. It is where "at most one active run per conversation" is held, and
+  where an event at a position that is not the next one is refused.
+- `IdSource`: a fresh id for something about to be stored. The records of a
+  turn name each other, so they are built before any of them is stored. It is
+  the platform's other source of randomness, and deliberately not the same
+  one: an id is public and goes in a URL, and a test's id source may be
+  predictable where a test's secrets may not.
 
 Still to come:
 
@@ -115,8 +128,6 @@ Still to come:
   on tool calls. The application turns those into messages and `TurnEvent`s:
   an engine has no ids, no clock and no rows. Implementations: LangGraph and
   Pydantic AI.
-- `ConversationStore`: read and append conversations and messages.
-- `RunStore`: run records, their state and their events.
 - `RunExecutor`: execute a run in the background, subscribe to its events
   from a given position, cancel it. Version 1: asyncio tasks in the
   backend process.
@@ -202,7 +213,8 @@ application or api.
 ### datastore
 
 A special case of adapter for owned state: where application state lives.
-It implements the store ports (`ConversationStore`, `RunStore`, `UsageStore`,
+It implements the store ports (`ConversationStore` — which owns
+conversations, messages, runs and run events — `UsageStore`,
 `CredentialStore`) over the one database of the deployment. Its schema is
 entirely the platform's; no framework creates or migrates tables in it
 (ADR 0002).

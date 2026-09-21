@@ -592,6 +592,94 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   heartbeat. The POC is one process, so nothing can tell an orphan from a
   running run; `runs.md` describes both, and they arrive with the second
   process, not before.
+- The **conversation store port**, its fake, its contract suite and the
+  application for managing conversations (standard library only).
+  `ports/conversations.py`: **one** `ConversationStore` owning conversations,
+  messages, runs and run events, because they are one database and several
+  operations over them are **one transaction**. Conversations and runs cross
+  as records, messages and run events as **documents** with the record beside
+  them, and every method that needs a time is told what `now` is: one clock,
+  as with the credential store. The compound operations are single methods,
+  so no caller can stop half way: `start_run` (optionally create the
+  conversation, optionally append the question, create the run — refused with
+  `RunAlreadyActiveError` if one is going, deciding it in the step that would
+  have inserted), `complete_message` (the message *and* its
+  `MessageCompleted`), `end_run` (the ended record *and* its `RunEnded`) and
+  `delete_conversation` (the conversation with its messages, runs and events,
+  refused while a run is active, checked inside the same transaction so
+  nothing can be orphaned). Beside them: `add_conversation`,
+  `conversation_by_id`, `conversations_of` (newest-updated first with a
+  `limit` and a cursor — a total order, ties broken by id, the cursor a
+  position inside the caller's **own** listing, unsigned because it can reach
+  nothing else), `rename_conversation`, `set_active_leaf` (which deliberately
+  does **not** date the conversation: navigation must not reorder the panel),
+  `touch_conversation`, `append_message`, `messages_of`,
+  `conversation_snapshot` (the conversation, its messages, the run in flight
+  and that run's events **as of one moment** — two reads would disagree, and
+  the gap between them is exactly where an answer is), `run_by_id`,
+  `active_run_of`, `runs_of`, `runs_in` (for the start-up sweep, bounded by
+  `MAX_SWEPT`), `update_run` (which may change a run's state, its start and
+  its error, and nothing else), `append_event`, `events_of(after=…)` and
+  `last_position`. The three methods that change one conversation hand back
+  the record they **wrote**, so a caller never rebuilds one out of a read made
+  before the write. **Who checks what** is in the port's docstring with the
+  whole table of refusals: the store checks everything its own columns and the
+  domain records can show — that a row exists, that one belongs to another,
+  a message's role, a run's state, a position, that an event is of the kind
+  its method is for and names the same run, message or state as the record
+  beside it — while "the document says what its record says" and the shape of
+  a stream as a whole are the application's, held by `core.check_event_order`
+  in the tests. So: a parent that is no message of **that** conversation, a
+  run that answers anything but a user message of its conversation or names
+  an agent that is not the conversation's, a completion crossing into another
+  conversation or announcing another message, an end announcing another state
+  — each refused with its own error; a run that begins in a state it has
+  already ended in is refused too, and **nothing at all is written into a run
+  that has ended** (`IllegalTransitionError`), which is what keeps a cancelled
+  run's stored stream readable. Which error a call that breaks several rules
+  gets is deliberately unspecified -- a SQL store meets them in its own order
+  -- and what every store owes is that a refusal writes nothing. A position that is not the next one
+  is the new `domain.PositionTakenError` (409 in `api/errors.py`): the
+  application is the single writer of a run's events, so a refusal means the
+  run moved on. `ports/ids.py`: `IdSource` — four lines,
+  because the records of a turn name each other and are built before any of
+  them is stored; `adapters/ids.py` is `OsIdSource` on `uuid.uuid4`, the fake
+  counts, and the service of the **next** step is what uses them.
+  `application/conversations.py`: `Conversations` with `list_for`, `open`
+  (the conversation, its messages as a `ConversationTree`, the leaf
+  `default_leaf` resolves, and — if a run is in flight — its id and
+  `core.resume_point` over the run's event documents — all of it from **one**
+  `conversation_snapshot`), `rename`, `select_branch` (any message, not only a
+  leaf) and `delete`, which is one store call. **Ownership is one rule in one place**: `_owned` answers a
+  conversation of somebody else's exactly as one that does not exist, with
+  `ConversationNotFoundError` for both, the reason in a detail that reaches
+  the log alone; the local development user is a user like any other.
+  `backend/tests/fakes/conversations.py` is the store in dictionaries: **one
+  lock held for the whole of an operation**, where a transaction stands, with
+  a yield inside it that interleaves nothing and is where a store without one
+  is caught; documents deep-copied in and out so nothing a caller holds is
+  the database; and "at most one active run" as an index, so two cannot exist
+  by construction. `backend/tests/contracts/conversation_store.py` and
+  `conversation_runs.py` are **one suite over one store**, split for length,
+  and `test_fake_conversation_store.py` runs the whole of it against the same
+  fake with its lock taken away — the only difference — asserting that the
+  set of tests it fails is **exactly** the ten about two things at once
+  -- the compound reads among them: a snapshot is slid across a write at
+  every interleaving a single-threaded loop has, so a store that reads its
+  four parts one after another is caught as surely as one that writes them
+  that way.
+  `backend/tests/contracts/ids.py` is the small suite both id sources pass
+  (a real `uuid.UUID`, version 4 with its variant, never repeating), run
+  against the adapter and the fake by `test_id_sources.py`.
+  The service's own tests are `test_conversations_application.py`.
+  **For the next step:** creating a conversation, appending a message and
+  starting a run are the run lifecycle and are not built here; `start_run`,
+  `complete_message` and `end_run` are defined, faked and pinned for it, and
+  a test builds conversations through the store. And `open` should also
+  surface the **most recent run's state and error when it ended badly** — from
+  `runs_of`, which needs no change to the port — so that somebody who reloads
+  a conversation after a run failed, was cancelled or was interrupted is told
+  so, instead of finding a turn that simply stops.
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -1041,7 +1129,7 @@ Review: 8 rounds.
 - Medium: 39 (39/0)
 - Low: 49 (48/1)
 
-Checks: `scripts/check-all.sh`, with the database required: 1932 passed, 2
+Checks: `scripts/check-all.sh`, with the database required: 1934 passed, 2
 skipped; stable over repeated and randomised runs, no test over a second.
 Reviewers property-tested `publishable` (100,000 sequences), the two order
 checks end to end (4,000 answers at every re-attach prefix), and the
@@ -1074,4 +1162,67 @@ Important design decisions made / open questions:
 - A turn request names the conversation and either a new user message with
   its parent, or the assistant message whose turn is produced again
   (`docs/specs/wire.md`).
+
+### Step 9 — conversations-application   (feature/poc-9-conversations-application)
+
+Summary: ONE `ConversationStore` port owning conversations, messages, runs
+and run events — compound atomic writes (`start_run`, `complete_message`,
+`end_run`, `delete_conversation`), a one-moment read
+(`conversation_snapshot`), the other reads and small writes, a stated
+division of duties and a table of every refusal with its error — and the
+`IdSource` port with `OsIdSource`. An in-memory fake; a contract suite over
+two modules with concurrency tests, and a racy store (the fake minus its
+lock) that must fail exactly the named `NOT_ATOMIC` set. The
+`application.Conversations` service: list, open (from the snapshot),
+rename, select branch, delete, ownership. No PostgreSQL store, no turn
+lifecycle, no executor yet.
+
+Review: 4 rounds.
+- High: 4
+  - Deleting made two calls to two stores, so a run starting between them
+    was orphaned for ever with its answer text — fixed by merging the ports
+    into one store whose compound operations are single transactions.
+  - `open()` read messages before events, so an answer completed in between
+    was neither in the tree nor replayed — fixed: one snapshot read.
+  - Nothing refused writes into a run that had already ended, leaving a
+    stream nothing could read back — fixed: refused in the same step as the
+    write.
+  - The snapshot was not certified: a store doing four separate reads
+    passed the whole suite — fixed: the fake yields between its reads, and
+    two interleaving tests joined `NOT_ATOMIC`.
+- Medium: 17 (17/0)
+- Low: 26 (26/0)
+
+Checks: `scripts/check-all.sh` without a database (1992 passed, 70
+skipped) and with one required; the step's unit modules 30 times over, no
+flakes. A reviewer built five plausible-but-wrong stores and the suite
+caught each, and found no contract test a correct asyncpg store cannot
+pass.
+Not done / to watch: about 5,000 lines with tests, over the aim. Against a
+real database the interleaving tests are attempts at a race, not a proof.
+Important design decisions made / open questions:
+- One store, one transaction per method. `start_run(conversation?,
+  message?, run)` begins every kind of turn (new chat, continue or edit,
+  regenerate); `complete_message` stores an answer and its
+  `MessageCompleted` together; `end_run` the ended record and its
+  `RunEnded`; `delete_conversation` refuses, inside its transaction, while
+  a run is active.
+- The store checks what its columns and the domain records show
+  (existence, belonging, roles, states, positions, that an event is of the
+  kind its method is for); that a document says what its record says, and
+  a stream's order as a whole, are the application's
+  (`core.check_event_order`). When several refusals apply, which is raised
+  is unspecified; a refused call writes nothing.
+- A run answers a USER message of its conversation, with the
+  conversation's agent, and begins active; positions are consecutive and
+  the application is a run's single writer; an ended run takes nothing
+  more.
+- Message ids are unique across the deployment. Listing is a keyset over
+  `(updated_at, id)` with an opaque, unsigned cursor inside the caller's
+  own listing; an item written to during paging may be missed or repeated.
+- Moving between branches does not date the conversation; completing a
+  message does, and moves the author onto it.
+- "Not yours" and "not there" are the same `ConversationNotFoundError`.
+- For the next step: opening should also surface the most recent run's
+  state and error when it ended badly (`runs_of`).
 

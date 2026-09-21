@@ -74,6 +74,7 @@ from robinauts.domain import (
     NotAllowedError,
     NotFoundError,
     NotTheOwnerError,
+    PositionTakenError,
     ProviderUnavailableError,
     RobinautsError,
     RunAlreadyActiveError,
@@ -179,6 +180,10 @@ STATUS_OF: dict[type[RobinautsError], int] = {
     # of something else is what refuses, and trying again may well work.
     RunAlreadyActiveError: 409,
     IllegalTransitionError: 409,
+    # A run's events are numbered by the application alone, so a position
+    # that is not the next one means the run moved on under it. No request
+    # names a position; it is here because the table is exhaustive.
+    PositionTakenError: 409,
     # Start-up, not a request: a deployment in this state does not serve.
     ConfigError: 500,
     SchemaError: 500,

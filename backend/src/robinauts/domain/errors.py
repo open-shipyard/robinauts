@@ -120,6 +120,20 @@ class IllegalTransitionError(RobinautsError):
     """A run cannot go from the state it is in to the one asked for."""
 
 
+class PositionTakenError(InvalidValueError):
+    """An event was offered a position of its run that is not the next one.
+
+    A run's events are numbered from ``FIRST_POSITION`` with no gaps, and the
+    application is the single writer of them: it reads the run's last position
+    and offers the one after it. So meeting this means the run moved on
+    between the two -- somebody ended it, or another process took it up -- and
+    the right answer is to stop writing into it, not to renumber and try
+    again.
+
+    Never something a request did: no browser names a position.
+    """
+
+
 class InvalidMessageTreeError(InvalidValueError):
     """A collection of messages that is no conversation.
 
