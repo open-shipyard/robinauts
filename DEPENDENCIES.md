@@ -39,6 +39,22 @@ test-only dependencies too.
 They follow the same categories. One may be excepted only by name, below,
 with the licence somebody read, the version they read it in, and the reason.
 
+There are three tables of exceptions below, and every one of them is in this
+file — a dependency is excepted here or nowhere. Two are Python's,
+["Restricted dependencies in use"](#restricted-dependencies-in-use) and
+["Excepted development-only dependencies"](#excepted-development-only-dependencies),
+and `scripts/licence_gate.py` reads them against `backend/uv.lock`. The third
+is npm's, ["JavaScript build tooling"](#javascript-build-tooling), and
+`frontend/scripts/check-licences.mjs` reads it against
+`frontend/package-lock.json` and what npm installed. They are separate tables
+because the two gates read two different lockfiles, not because the rules
+differ; the rules are the ones on this page.
+
+What ships in the JavaScript bundle is not excepted anywhere: it is the
+allowed list or nothing, enforced at build time by `rollup-plugin-license`.
+What that gate can and cannot see is written out under
+["JavaScript build tooling"](#javascript-build-tooling) below.
+
 An exception is a signature, not a switch. It can cover metadata that names
 a licence family and no more — the trove classifier
 `License :: OSI Approved :: BSD License` names no version of the BSD licence,
@@ -58,10 +74,6 @@ datasets are shipped. No third-party logos are shipped.
 
 1. One dependency change per pull request, and the pull request says why
    the dependency is needed and what was considered instead. A framework and
-   the provider clients it is reached through count as **one** change: they
-   are adopted or rejected together — a framework with no client reaches no
-   vendor — and the gate reads the whole tree either way, so splitting them
-   over two pull requests would mean reviewing half a tree twice. A framework and
    the provider clients it is reached through count as **one** change: they
    are adopted or rejected together — a framework with no client reaches no
    vendor — and the gate reads the whole tree either way, so splitting them
@@ -126,6 +138,13 @@ through on its name:
 - the row must name a licence that is restricted at all — a row is not a way
   to invent a category.
 
+This table is the **Python** locked set's, and a test asserts that every row
+of it names a package `backend/uv.lock` really has, so an npm package cannot
+go in it. npm's restricted case, `lightningcss`, is a row of
+["JavaScript build tooling"](#javascript-build-tooling) below, which is the
+table the npm gate reads; the conditions it has to meet are the ones stated
+here, and that gate checks them.
+
 | package | licence | scope | why it is acceptable |
 |---|---|---|---|
 | `pathspec` | MPL-2.0 | development only; brought by `black` | unmodified, not shipped in any artifact |
@@ -140,6 +159,89 @@ in; the gate checks both.
 | package | version | licence | why it is acceptable |
 |---|---|---|---|
 | `colorama` | 0.4.6 | BSD-3-Clause | development only; brought by `pytest` on Windows. Its metadata states the classifier `License :: OSI Approved :: BSD License` and nothing else, which names no version of the BSD licence; the LICENSE.txt shipped in the 0.4.6 wheel is the three-clause text |
+
+## JavaScript build tooling
+
+The packages under `frontend/` that are **not** in the bundle: Vite, ESLint,
+Vitest and what they bring. They are not distributed — not in the bundle, not
+in the wheel, not linked into anything — but `DEPENDENCIES.md` asks the same
+questions of a development dependency as of any other, so the ones whose
+licence is not plainly on the allowed list are excepted here by name, with the
+version the licence was read in.
+
+The gate is `frontend/scripts/check-licences.mjs`, which reads this table and
+the licence of every package `frontend/package-lock.json` locks and npm
+installed. A package outside the allowed list with no row here, or with a row
+naming a different version or a different licence, fails the build; so does a
+row for a package that is installed and no longer needs one. A forbidden
+licence fails whatever a row says.
+
+The **scope** column is `development` or `runtime`, and it is checked against
+the lockfile rather than believed: npm marks a package `dev` only when every
+path to it is a development dependency, so a row saying `development` for a
+package the runtime dependencies reach is a failure. A **restricted** licence
+— the MPL-2.0 family — may only ever be carried by a `development` row, which
+is the restricted category's "unmodified, unbundled" condition made into a
+check. Every row below is `development`: none of this is shipped code.
+
+Two things need no row. A licence that is a **choice** including an allowed
+one is allowed — `type-fest` states `MIT OR CC0-1.0`, and MIT is on the list.
+A licence that is a **conjunction** is allowed only if every part of it is, so
+`(MIT AND CC-BY-3.0)` is here.
+
+What ships in the bundle is excepted nowhere: it is the allowed list or
+nothing, enforced at build time by `rollup-plugin-license` in
+`frontend/vite.config.ts` and recorded in `frontend/bundled-packages.txt`. A
+`development` scope below is a statement about dependency edges, not about
+the bundle, and excuses nothing there.
+
+| package | version | scope | licence | why it is acceptable |
+|---|---|---|---|---|
+| `lightningcss`, `lightningcss-android-arm64`, `lightningcss-darwin-arm64`, `lightningcss-darwin-x64`, `lightningcss-freebsd-x64`, `lightningcss-linux-arm-gnueabihf`, `lightningcss-linux-arm64-gnu`, `lightningcss-linux-arm64-musl`, `lightningcss-linux-x64-gnu`, `lightningcss-linux-x64-musl`, `lightningcss-win32-arm64-msvc`, `lightningcss-win32-x64-msvc` | 1.33.0 | development | MPL-2.0 | **restricted**, and the restricted category's conditions hold as they do for `pathspec`: unmodified, unbundled, installed by npm from the registry and never vendored, development only, and in no artefact this project ships. The CSS tool Vite compiles stylesheets with; one package plus the prebuilt binary for each platform, all of which the lock pins, and of which a machine installs the one it can run |
+| `caniuse-lite` | 1.0.30001810 | development | CC-BY-4.0 | a data set of browser support, which the build reads to decide what to compile down to. Attribution only, no copyleft term, and none of it reaches the bundle. Brought by `vite` through `browserslist` |
+| `spdx-exceptions` | 2.5.0 | development | CC-BY-3.0 | the SPDX list of licence exceptions — the data `rollup-plugin-license` judges everything else by. Attribution only |
+| `spdx-expression-validate` | 2.0.0 | development | `(MIT AND CC-BY-3.0)` | the SPDX expression parser, whose code is MIT and whose data carries the CC-BY-3.0 of the list above |
+| `spdx-ranges` | 2.1.1 | development | `(MIT AND CC-BY-3.0)` | the same, for the ranges of the SPDX list |
+| `lru-cache` | 11.5.3 | development | BlueOak-1.0.0 | permissive and OSI-approved, with no copyleft term and no term beyond attribution; it is not on the allowed list only because nothing had brought one before |
+| `minimatch` | 10.2.6 | development | BlueOak-1.0.0 | the same licence and the same reason |
+| `@csstools/color-helpers` | 6.1.1 | development | MIT-0 | MIT with the attribution requirement waived: strictly more permissive than MIT, which is on the list |
+| `@csstools/css-syntax-patches-for-csstree` | 1.1.14 | development | MIT-0 | the same |
+| `argparse` | 2.0.1 | development | Python-2.0 | SPDX `Python-2.0` and SPDX `PSF-2.0` are **different identifiers** — the first is the CNRI-era Python 2.0 licence, the second the PSF licence agreement — so the allowed list's PSF-2.0 does not cover this and a row is the honest way to record it. Both are permissive, non-copyleft and Apache-compatible in the ASF's own category A. The argument parser `js-yaml` uses, brought by ESLint |
+
+### What the bundle's record does not see
+
+`rollup-plugin-license` reads **rollup's module graph**, so it names every
+package a *module* was imported from. A package reached only through a
+stylesheet is not in that graph, and is therefore **not** in
+`frontend/bundled-packages.txt`:
+
+- `@import "some-package"` or `@import "some-package/theme.css"` in a `.css`;
+- `url(some-package/logo.png)` and the other places CSS names a file;
+- the `@import`s inside a package's own stylesheet, once one is reached.
+
+Those packages are still **held to the allowed list**, because
+`frontend/scripts/check-licences.mjs` holds every package the lockfile pins,
+whatever route it takes into the bundle — so nothing outside this policy can
+be installed at all, and the licence of anything a stylesheet reaches has
+already been read. Two things are lost. The **record** is incomplete: the
+bundle may carry a package that `bundled-packages.txt` does not name. And one
+case escapes both gates — a package scoped **development only** in the
+lockfile, excepted in the table below on that basis, which a stylesheet then
+pulls into the bundle. The exception says it ships in no artifact; the CSS
+would make that untrue, and nothing would notice.
+
+So: **a change that adds a CSS `@import` or a `url()` naming a package is
+reviewed by hand**, against the list below and against the allowed list. Say
+in the pull request which package it reaches.
+
+A scanner that read the stylesheets was written for this step and dropped: it
+has to agree with Vite's own resolver about what a specifier means — `exports`
+maps, a file beside the stylesheet versus a package of that name, what Vite
+rewrites inside a string — and ten rounds of review did not get it there. The
+build still refuses what it can judge without resolving anything: CSS Modules,
+any stylesheet language but plain `.css`, and a `<style>` block in
+`index.html`. A scanner that agrees with the resolver is future work.
+
 
 ## Known exclusions
 

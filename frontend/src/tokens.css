@@ -1,0 +1,18 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright The Robinauts Authors */
+
+/*
+ * Design tokens: the colours, spacing and radii the whole interface is built
+ * from, as CSS custom properties. They are carried over from neorc, and the
+ * Tailwind theme will refer to them rather than the other way round, so they
+ * survive a change of Tailwind or of the chat library
+ * (docs/specs/frontend.md, ADR 0001).
+ *
+ * A stub. Step 18 fills it, together with the shell and the Tailwind theme.
+ * What is here is what index.html already promises: a theme that follows the
+ * operating system.
+ */
+
+:root {
+  color-scheme: light dark;
+}

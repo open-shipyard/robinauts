@@ -1,0 +1,5 @@
+# Packages in the built bundle, written by the build.
+# A change here is reviewed: see docs/contributing/js-dependencies.md.
+react 19.3.0 MIT
+react-dom 19.3.0 MIT
+scheduler 0.28.0 MIT

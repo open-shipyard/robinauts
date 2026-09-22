@@ -111,5 +111,41 @@ Entries are never edited after the fact; a correction is a new entry.
 - Attribution added to: this entry. Same authors and the same licence; no
   notice is required.
 
+### 2026-09-22 — frontend tooling and the JavaScript rules, derived from neorc
+
+- Source: https://github.com/open-shipyard/neorc, commit `68e3805`:
+  `contributing/js-dependencies.md` (the rules themselves),
+  `ts/neorc-ui/vite.config.ts` (the licence allowlist over
+  `rollup-plugin-license`, the gzipped size budget, the writer of the
+  bundled-package list), `ts/neorc-ui/package.json`, `.npmrc`, `.nvmrc`,
+  `eslint.config.js`, `tsconfig*.json`, `index.html`, `src/test/setup.ts`,
+  `AGENTS.md`, `README.md`, and the `ui` job of `.github/workflows/ci.yml`.
+- Their licence: Apache-2.0, Copyright The neorc Authors.
+- Landed as: `frontend/` (`package.json`, `.npmrc`, `.nvmrc`,
+  `vite.config.ts`, `eslint.config.js`, `tsconfig.json`,
+  `tsconfig.app.json`, `tsconfig.tools.json`, `index.html`,
+  `src/test/setup.ts`, `AGENTS.md`, `README.md`),
+  `docs/contributing/js-dependencies.md`, `scripts/check-frontend.sh` and
+  the `frontend` job of `.github/workflows/ci.yml`. `frontend/.prettierignore`
+  and `frontend/scripts/check-licences.mjs` are this project's own: neorc runs
+  no formatter and gates only its bundle.
+- Modifications: the shape was copied and adapted; none of neorc's
+  application code, components, styling or branding was. Every package is
+  pinned at the newest version that had been published at least ten days
+  before this date, not at neorc's version. The checks run
+  from one script, as every other gate in this repository does, rather than
+  from steps in the workflow. The bundled-package list is compared by the
+  build itself under `CHECK_BUNDLED`, not by `git diff` afterwards. The
+  licence allowlist is stated as the allowed list of `DEPENDENCIES.md`, and
+  the build tooling that is not on it is recorded by name. The size budget is
+  800 KB rather than 500 KB and is marked provisional
+  (`docs/specs/frontend.md`, "Open"). The lint rule that confines
+  assistant-ui, its test, Prettier, the typed API client and the chat seam
+  are this project's and have no counterpart in neorc, as is the npm licence
+  gate over everything installed. Substantially machine-generated, reviewed
+  by the maintainers.
+- Attribution added to: this entry. Same authors and the same licence; no
+  notice is required.
+
 <!-- Entries go above this line. -->
 <!-- REUSE-IgnoreEnd -->

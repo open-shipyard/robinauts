@@ -3,3 +3,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .import_linter_cache/
+
+frontend/node_modules/
+frontend/dist/
+# Generated from backend/openapi.json by `npm run generate`, on every check.
+frontend/src/api/schema.d.ts

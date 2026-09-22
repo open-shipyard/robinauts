@@ -15,7 +15,7 @@ fi
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd) || exit 2
 
 failed=""
-for check in lint tests licences audit reuse dco; do
+for check in lint tests licences audit frontend reuse dco; do
     printf '\n=== %s ===\n' "$check"
     if ! "$root/scripts/check-$check.sh"; then
         failed="$failed $check"

@@ -17,6 +17,28 @@ path = [
     "docs/**",
     "backend/uv.lock",
     "backend/openapi.json",
+    "scripts/licence-fixtures.json",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "The Robinauts Authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+# The frontend's files that carry no comment syntax, are documentation, or
+# are written by a tool. JSON has no comments; .nvmrc holds a version and
+# nothing else; the Markdown follows the root's, which is listed here too; and
+# bundled-packages.txt is written by the build, byte for byte, and compared
+# with what is committed, so nothing may be added to it by hand.
+[[annotations]]
+path = [
+    "frontend/README.md",
+    "frontend/AGENTS.md",
+    "frontend/package.json",
+    "frontend/package-lock.json",
+    "frontend/tsconfig.json",
+    "frontend/tsconfig.app.json",
+    "frontend/tsconfig.tools.json",
+    "frontend/.nvmrc",
+    "frontend/bundled-packages.txt",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "The Robinauts Authors"

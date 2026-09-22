@@ -55,20 +55,32 @@ them from the start.
 - [x] Python: ruff, black, the test suite with the architecture contracts,
       a licence gate over the locked set, `pip-audit`. **(neorc gap: no
       Python licence gate)**
-- [ ] JavaScript: lint, type check, tests, build with the licence
+- [x] JavaScript: lint, type check, tests, build with the licence
       allowlist, `bundled-packages.txt` diff, size budget, `npm audit`,
       `npm audit signatures --omit=dev`; `.npmrc` with `ignore-scripts` and
-      `save-exact`; `npm ci` only.
+      `save-exact`; `npm ci` only. All of it in `scripts/check-frontend.sh`,
+      which the `frontend` job runs, plus `frontend/scripts/check-licences.mjs`
+      — the licence policy over the whole installed tree, not the bundle
+      alone, with the development exceptions named in `DEPENDENCIES.md`. The
+      size budget is provisional until a bundle with the chat in it exists.
 - [x] `reuse lint`; a DCO check over the commits of the pull request
       **(neorc gap)**. Making them required statuses is branch protection,
       below.
-- [ ] `gitleaks`; the ESLint import rule that confines assistant-ui
-      (ADR 0001).
+- [ ] CSS-reached packages in the bundle record. `bundled-packages.txt` is
+      written from rollup's module graph, so a package reached only through a
+      stylesheet (`@import "pkg"`, `url(pkg/x)`) is in the bundle and not in
+      the record. It is still held to the allowed list by the installed-tree
+      gate; what is missing is the record, and a reviewer reads CSS
+      `@import`/`url()` targets by hand
+      ([DEPENDENCIES.md](../DEPENDENCIES.md)).
+- [ ] `gitleaks`. The ESLint import rule that confines assistant-ui
+      (ADR 0001) is done: `frontend/eslint.config.js`, with
+      `frontend/src/test/seam-rule.test.ts` proving it still fires.
 - [x] Workflows: `permissions: contents: read`, `persist-credentials:
       false`, actions pinned to commit SHAs **(neorc gap: pinned by tag)**.
-- [ ] Dependabot for pip, npm and github-actions, 10-day cooldown
-      **(neorc gap: npm only)**. Done for `uv` (the ecosystem that reads
-      `uv.lock`) and `github-actions`; npm follows the frontend.
+- [x] Dependabot for pip, npm and github-actions, 10-day cooldown
+      **(neorc gap: npm only)**. `uv` (the ecosystem that reads `uv.lock`),
+      `github-actions`, and npm for `/frontend`.
 - [ ] Branch protection on `main`: pull requests only, linear history, no
       force-push, required checks, signed commits.
 

@@ -1,0 +1,22 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright The Robinauts Authors -->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The theme follows the operating system; form controls and scrollbars
+         have to be told so, and this is the only way to tell them before any
+         style has loaded. -->
+    <meta name="color-scheme" content="light dark" />
+    <title>Robinauts</title>
+  </head>
+  <body>
+    <!-- No inline script and no third-party origin, here or anywhere: the
+         backend serves this under a Content-Security-Policy of default-src
+         'none' with script-src 'self' (docs/specs/frontend.md), and an
+         air-gapped install has to work. -->
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

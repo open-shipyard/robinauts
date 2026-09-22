@@ -151,6 +151,25 @@ jobs:
           enable-cache: true
       - run: scripts/check-audit.sh
 
+  frontend:
+    name: lint, types, tests and the bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The Node version is frontend/.nvmrc, the same file nvm reads on a
+      # laptop, so there is one place it is written down.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # Lint, types, tests, the build with its licence gate and its committed
+      # bundled-package list, and the two npm audits. A red step here names
+      # docs/contributing/js-dependencies.md.
+      - run: scripts/check-frontend.sh
+
   reuse:
     name: licence headers
     runs-on: ubuntu-latest

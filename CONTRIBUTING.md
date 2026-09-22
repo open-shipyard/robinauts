@@ -21,7 +21,7 @@ its own.
 ## Repository layout
 
     backend/     the Python backend (the `robinauts` package)
-    frontend/    the web UI (not there yet)
+    frontend/    the web UI (Vite, React, TypeScript)
     docs/        specs, decisions, legal records, working notes
     scripts/     the checks, one script per gate, which CI runs as they are
 
@@ -54,6 +54,8 @@ or one at a time:
     scripts/check-tests.sh      pytest, with the architecture contracts
     scripts/check-licences.sh   the dependency licence gate of DEPENDENCIES.md
     scripts/check-audit.sh      pip-audit over the whole locked set
+    scripts/check-frontend.sh   the frontend: format, lint, types, tests,
+                                the build with its licence gate, npm audit
     scripts/check-reuse.sh      reuse lint: every file states its licence
     scripts/check-dco.sh        sign-off on every commit of the branch
 
@@ -68,10 +70,11 @@ arguments on to the tool they wrap, so `scripts/check-tests.sh -k licence`
 does what you would expect. `check-dco.sh` takes a commit range and defaults
 to what this branch adds to `main`; CI runs it over the commits of the pull
 request, since the first commits of this repository predate the sign-off
-rule. `check-lint.sh`, `check-audit.sh` and `check-all.sh` take no arguments
-and say so rather than ignoring them — `check-audit.sh` reads pip-audit's
-JSON to make sure every pinned package was really looked at, and an argument
-that changed that output would quietly turn the check off.
+rule. `check-lint.sh`, `check-audit.sh`, `check-frontend.sh` and
+`check-all.sh` take no arguments and say so rather than ignoring them —
+`check-audit.sh` reads pip-audit's JSON to make sure every pinned package was
+really looked at, and `check-frontend.sh` is the frontend's whole CI job in
+order; an argument that changed either would quietly turn the check off.
 
 One script under `scripts/` is not a gate: `scripts/update-openapi.sh`
 rewrites `backend/openapi.json` from the routes as they are. The document is
@@ -243,3 +246,17 @@ the allowed list; the pull request says why the dependency is needed; and
 the lockfile is committed. `scripts/check-licences.sh` enforces the licence
 rules over the whole locked set, and a licence it cannot resolve fails as
 surely as a forbidden one.
+
+npm has rules of its own, because its packages are compiled into a bundle
+that ships inside the wheel:
+[docs/contributing/js-dependencies.md](docs/contributing/js-dependencies.md).
+Read it before touching anything under `frontend/`. There are two gates.
+`frontend/scripts/check-licences.mjs` applies the policy of
+[DEPENDENCIES.md](DEPENDENCIES.md) to **everything the lockfile pins and npm
+installed**, with the development exceptions named — by package, version,
+scope and licence — in that document's "JavaScript build tooling" table, and
+it refuses a version in `package.json` that is not exact. The build then
+gates the **bundle** itself: what ends up in it, and nothing else, has to be
+on the allowed list with no exception at all, and
+`frontend/bundled-packages.txt` records what that was, written by the build
+and compared with the commit. `scripts/check-frontend.sh` runs both.

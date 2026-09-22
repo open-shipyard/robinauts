@@ -9,8 +9,7 @@
 version: 2
 updates:
   # The Python backend. "uv" is the ecosystem that understands uv.lock; "pip"
-  # would read pyproject.toml alone and leave the lock behind. npm is added
-  # when there is a frontend to lock.
+  # would read pyproject.toml alone and leave the lock behind.
   - package-ecosystem: "uv"
     directory: "/backend"
     schedule:
@@ -20,6 +19,19 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "backend"
+
+  # The frontend. Exact versions in package.json and a committed
+  # package-lock.json, so an update is a diff somebody reads
+  # (docs/contributing/js-dependencies.md).
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 10
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "frontend"
 
   # The actions this repository's workflows run, pinned to commit SHAs.
   - package-ecosystem: "github-actions"

@@ -1,0 +1,26 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright The Robinauts Authors */
+
+/*
+ * System fonts only: no CDN, no downloaded font, nothing from a third-party
+ * origin, so an air-gapped install looks the same as any other
+ * (docs/specs/frontend.md).
+ *
+ * There is no shell and no styling system here yet; step 18 brings Tailwind
+ * and the panel. This file exists so that the placeholder page is legible.
+ */
+
+@import "./tokens.css";
+
+body {
+  margin: 0;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  line-height: 1.5;
+}

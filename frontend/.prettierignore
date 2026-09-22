@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+#
+# Nothing a person wrote is listed here: these are files written by a tool,
+# and reformatting them would make the next tool run a diff.
+dist
+node_modules
+package-lock.json
+bundled-packages.txt
+src/api/schema.d.ts

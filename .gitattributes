@@ -11,3 +11,10 @@
 
 *.sql text eol=lf
 *.sh text eol=lf
+
+# The frontend's build writes bundled-packages.txt and compares what it wrote
+# with what is committed, byte for byte, so its newlines are not the checkout's
+# to decide. The gate beside it is a program the checks run, like the shell
+# scripts above.
+frontend/bundled-packages.txt text eol=lf
+frontend/scripts/*.mjs text eol=lf

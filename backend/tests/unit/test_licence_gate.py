@@ -10,12 +10,14 @@ apart unnoticed.
 """
 
 import hashlib
+import json
 import re
 import tomllib
 from pathlib import Path
 
 import pytest
 from licence_gate import (
+    _FORBIDDEN_IDENTIFIER,
     SUPPORTED_LOCK_VERSIONS,
     Finding,
     LockedPackage,
@@ -931,3 +933,60 @@ def test_every_package_the_document_excepts_is_really_in_the_locked_set():
     # An exception for a development-only dependency is worth nothing if the
     # dependency is not development-only.
     assert set(policy.development_exceptions) <= development_only
+
+
+@pytest.mark.io
+def test_the_two_gates_forbid_the_same_licences():
+    """One policy, two gates, one list of what it forbids.
+
+    `frontend/scripts/check-licences.mjs` judges the same policy over npm's
+    metadata, which never reaches this gate as PyPI's never reaches that one.
+    Two separately maintained notions of "forbidden" drift. Both test suites
+    read the fixtures below, so the day they disagree one of them goes red --
+    this one for Python, `frontend/src/test/licence-gate.test.ts` for npm.
+
+    The two checks are not identical, and the fixture file says so. This gate
+    resolves a spelling through `_SPELLINGS` before judging it; npm has no such
+    table, so that gate matches fragments instead and catches `GPLv3` and
+    `Commons Clause`, which the regular expression here reads as unknown. Those
+    live under `npm_only`, and all this suite asks of them is that they never
+    come out ALLOWED here -- unknown is refused, ALLOWED would be a hole.
+    """
+    fixtures = json.loads((ROOT / "scripts" / "licence-fixtures.json").read_text(encoding="utf-8"))
+    shared = fixtures["shared"]
+    assert shared, "the shared fixture list is empty, so it proves nothing"
+
+    for identifier, verdict in shared:
+        forbidden = _FORBIDDEN_IDENTIFIER.match(identifier) is not None
+        assert forbidden == (verdict == "forbidden"), (
+            f"{identifier}: this gate says "
+            f"{'forbidden' if forbidden else 'not-forbidden'}, the fixtures say {verdict}"
+        )
+
+    # Both verdicts really occur, so that a fixture file of one kind cannot
+    # pass by saying nothing.
+    verdicts = {verdict for _, verdict in shared}
+    assert verdicts == {"forbidden", "not-forbidden"}
+
+    # The npm-only spellings are npm's, and this gate is not held to them --
+    # but none of them may be something this gate would wave through as
+    # allowed, which is the only way the split could hide anything.
+    policy = parse_policy((ROOT / "DEPENDENCIES.md").read_text(encoding="utf-8"))
+    assert fixtures["npm_only"], "the npm-only list is empty, so it proves nothing"
+    for identifier, verdict in fixtures["npm_only"]:
+        if verdict == "forbidden":
+            assert policy.category(identifier) is not Verdict.ALLOWED, identifier
+
+    # And every identifier the document itself allows is one neither gate
+    # forbids: a category that contradicted the forbidden list would be a
+    # document nobody could satisfy.
+    for identifier in policy.allowed:
+        assert _FORBIDDEN_IDENTIFIER.match(identifier) is None, identifier
+
+    # The restricted family, however it is spelt. The npm gate has to call
+    # every one of these restricted, because only a development-only row may
+    # carry one; all this gate is asked is that it never calls one allowed.
+    assert fixtures["restricted"], "the restricted list is empty, so it proves nothing"
+    for identifier, verdict in fixtures["restricted"]:
+        assert verdict == "restricted", identifier
+        assert policy.category(identifier) is not Verdict.ALLOWED, identifier
