@@ -150,4 +150,5 @@ in; the gate checks both.
 | `tiktoken` | MIT by its LICENSE file, but its metadata puts the licence *text* in the `License` field and states no identifier anywhere | the gate fails closed and cannot classify it |
 | `regex` | `Apache-2.0 AND CNRI-Python`, and CNRI-Python is on no list above | not classifiable under the policy as it stands; adding a licence to the allowed list is a decision for a person, not for a build |
 | `langchain-openai` | MIT, but requires `tiktoken`, which requires `regex` | not adopted: the LangGraph engine offers Anthropic alone. OpenAI, OpenRouter and any other OpenAI-compatible endpoint go through this client ([docs/specs/agents.md](docs/specs/agents.md)) and wait for a tree that passes |
+| `pydantic-ai-slim[openai]` | MIT, but the extra requires `tiktoken`, which requires `regex` | the same tree, and the same answer: the Pydantic AI engine offers Anthropic alone. Only the `anthropic` extra is installed, so the exclusion costs the build nothing but those provider kinds |
 | `pgserver` | no licence metadata published | not a dependency; tests take the URL of a PostgreSQL they are given |

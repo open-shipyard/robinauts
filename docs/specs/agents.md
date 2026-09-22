@@ -69,9 +69,14 @@
   - **Pydantic AI.**
 - Each is confined to its own adapter sub-package, and that is enforced:
   no other code imports the framework, and the two do not import each
-  other ([layout.md](../layout.md)). **The discard test:** deleting either
-  adapter and its dependencies breaks one line, the one in the composition
-  root that constructs it.
+  other ([layout.md](../layout.md)). **The discard test:** five places name an
+  adapter, and deleting it and its dependencies breaks those and nothing else
+  — the import in the composition root and its one entry in the table of
+  engines, the import contracts' exceptions for the sub-package, the
+  sub-package's own tests, and the shared **swap fixtures**, which exist to
+  name both engines at once and cannot be written without both. The
+  composition tests fail too, and name no adapter: they say that both engines
+  are wired, which is a claim about the table.
 - Both must pass one shared contract suite. It includes the swap: a
   conversation started on one engine continues on the other.
 
@@ -120,6 +125,19 @@ runs every turn the same way:
   reads a variable that a switch cannot reach — LangChain's version 1
   tracer, which raises when it is asked for and version 2 is off — the
   adapter unsets the variable rather than leaving a turn to fail over it.
+- **And nothing is written down.** A log of this platform never carries the
+  content of a conversation. A vendor SDK's own debug logging does, and is
+  switched on by an environment variable it reads when it is *imported*, so an
+  adapter that only removed the variable would be too late: the adapter pins
+  the vendor loggers that write request bodies — the one that emits the record
+  as well as its parent, since a level set on a child is what a logger decides
+  by — at a level where no request is ever a record, and removes the variable
+  as well so that a subprocess does not start again from the beginning. Each
+  logger's **own** level is set and not merely its effective one, or an
+  operator turning their root logger up afterwards would turn the vendor's
+  logging on with it. What this does not do is fight a logger an operator
+  names at debug in their own configuration after start-up: that is their
+  deliberate act on their own machine.
 - **A vendor's endpoint is not taken from the environment either.** Every
   client is built with the endpoint it is to use: the one the operator
   configured (`base_url`, for an `openai-compatible` provider) or the
@@ -210,6 +228,9 @@ api_key_env = "ROBINAUTS_OPENROUTER_KEY"
   "Known exclusions"). The configuration still names the three kinds — the
   vocabulary is the platform's — and a deployment asking for a kind this
   build cannot reach is refused at start-up, saying so.
+- The same tree keeps the same kinds out of the **Pydantic AI** engine:
+  `pydantic-ai-slim[openai]` requires `tiktoken` too. So both engines offer
+  Anthropic alone, and the swap holds for every model either of them has.
 - `langsmith` is a hard dependency of `langchain-core`, and the LangGraph
   adapter imports it for **one call**: `langsmith.configure(enabled=False)`,
   made when the engine is constructed, which is the switch langchain-core
@@ -217,3 +238,25 @@ api_key_env = "ROBINAUTS_OPENROUTER_KEY"
   it, nothing is sent to it, no tracer is ever attached and no client is
   ever built. Because it is imported rather than merely installed, it is a
   direct dependency and is pinned as one.
+- **`ANTHROPIC_LOG`**: the Anthropic SDK — which both engines reach the vendor
+  through — reads it at import and, on `debug`, writes every request's options
+  to standard error, `json_data` included: the system prompt and every message
+  of the conversation. Both adapters answer it the same way, in the two halves
+  it needs (above): the SDK's loggers are pinned when the engine is built, and
+  the variable is removed.
+- `logfire-api` arrives with `pydantic-graph`, and `opentelemetry-api` with
+  `pydantic-ai-slim`. Neither is imported anywhere in the platform, and both
+  are named in the import rule all the same
+  ([layout.md](../layout.md)). Pydantic AI has **no environment switch** for
+  tracing — it instruments a run only when an agent's `instrument` says so,
+  which `logfire.instrument_pydantic_ai()` sets process-wide — so the adapter
+  turns it off per agent, where the answer beats the process-wide one, and
+  unsets no variable because there is none to unset. It does set the
+  framework's `BANNER_ENABLED` to `False`: on its first turn Pydantic AI
+  otherwise writes an advertisement for its hosted observability to standard
+  error, which is not a thing a server's log is for. One part of this is the
+  lock's rather than the code's: `pydantic-graph` opens spans through
+  `logfire_api`, which is a no-op shim that **replaces itself with the real
+  `logfire`** the moment that package is importable — outside anything the
+  per-agent switch reaches. So `logfire` not being in the locked set is part
+  of the guarantee, and a test asserts it.

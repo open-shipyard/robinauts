@@ -49,12 +49,14 @@ from fakes import (
     ScriptedIdentityProvider,
     says,
 )
+from robinauts import app as app_module
 from robinauts.adapters import HttpIdentityProvider, SecretLookup
 from robinauts.app import (
     AUTH_CONFIG_VARIABLE,
     CONFIG_VARIABLE,
     DATABASE_URL_VARIABLE,
     SHUTDOWN_SECONDS,
+    WIRED_ENGINES,
     Deployment,
     create_app,
 )
@@ -718,20 +720,29 @@ def test_the_key_itself_is_in_none_of_what_a_start_up_refusal_says(tmp_path: Pat
     assert "sk-pasted-by-mistake" not in str(raised.value)
 
 
-def test_an_agent_on_an_engine_this_build_does_not_run_stops_the_start_up(
+@asyncio_test
+async def test_an_agent_may_name_either_of_the_engines_this_build_runs(
     tmp_path: Path,
 ) -> None:
-    # The Pydantic AI adapter is a step of its own. Until it is written, an
-    # agent asking for it is a refusal that says what to do instead.
+    """Both engines are wired, so the swap is a line of the configuration file.
+
+    The same file, the same model, the same agent -- one word changed -- and
+    the deployment starts either way. That is the whole of what changing an
+    agent's engine costs (``docs/specs/agents.md``); what makes it safe is that
+    the conversation record is the state (ADR 0002), which is proved in
+    ``tests/unit/test_engine_swap.py``.
+    """
     text = WITH_AGENTS.replace('engine = "langgraph"', 'engine = "pydantic-ai"')
 
-    with pytest.raises(ConfigError) as raised:
-        with_agents(tmp_path, text)
+    deployment = with_agents(tmp_path, text)
 
-    assert list(raised.value.problems) == [
-        "agents.assistant.engine: the pydantic-ai engine is not wired in this deployment;"
-        " set engine to one of langgraph"
-    ]
+    await deployment.open()
+    try:
+        assert deployment.turns is not None
+        assert deployment.turns.agents[0].engine is Engine.PYDANTIC_AI
+    finally:
+        await deployment.aclose()
+    assert WIRED_ENGINES == frozenset(Engine)
 
 
 def test_a_provider_of_a_kind_this_build_cannot_reach_stops_the_start_up(
@@ -775,7 +786,12 @@ def test_an_engine_handed_in_is_the_engine_the_configuration_is_judged_against(
     assert deployment is not None
     with pytest.raises(ConfigError) as raised:
         with_agents(tmp_path, WITH_AGENTS, engines=engines)
-    assert "the langgraph engine is not wired" in raised.value.problems[0]
+    # And the refusal says what this deployment does run, which is what an
+    # operator needs and is not the same list in every deployment.
+    assert list(raised.value.problems) == [
+        "agents.assistant.engine: the langgraph engine is not wired in this deployment;"
+        " set engine to one of pydantic-ai"
+    ]
 
 
 # One file, two halves, and which halves each mode reads.
@@ -1005,11 +1021,17 @@ def test_an_agent_handed_in_that_the_configuration_does_know_is_accepted(
 
 
 def test_an_agent_handed_in_must_run_on_an_engine_this_build_constructs(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Handed in without an engine, and asking for one this build does not
     # make: a `ConfigError` at start-up, beside every other problem, rather
     # than the `InvalidValueError` the run lifecycle would raise at `open`.
+    #
+    # This build constructs every engine the vocabulary has, so the situation
+    # has to be made: an `ENGINES` with one entry is what this deployment was
+    # one step ago, and what it is again the day a third engine is named in the
+    # configuration before its adapter exists.
+    monkeypatch.delitem(app_module.ENGINES, Engine.PYDANTIC_AI)
     definition = agent_definition(id="stranger", model="sonnet", engine=Engine.PYDANTIC_AI)
 
     with pytest.raises(ConfigError) as raised:

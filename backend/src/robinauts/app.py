@@ -86,15 +86,16 @@ from robinauts.adapters import (
     read_toml,
 )
 
-# The discard test (``docs/specs/agents.md``): deleting the LangGraph adapter
-# and its dependencies breaks this import and its one entry in ``ENGINES``
+# The discard test (``docs/specs/agents.md``): deleting either agent adapter
+# and its dependencies breaks its import here and its one entry in ``ENGINES``
 # below -- one name, in one place -- and nothing else in the platform. What
 # the root needs to know about an engine besides how to build it, it asks the
 # engine (``Agent.kinds``), so that knowing more never means importing more.
-# It is named by its sub-package and not re-exported from
+# Each is named by its sub-package and not re-exported from
 # ``robinauts.adapters``, so that importing the adapters does not import an
 # agent framework.
 from robinauts.adapters.agents.langgraph import LangGraphAgent
+from robinauts.adapters.agents.pydantic_ai import PydanticAIAgent
 from robinauts.api import create_api
 from robinauts.application import (
     DEFAULT_TURN_SECONDS,
@@ -208,15 +209,24 @@ class EngineAdapter(Protocol):
         ...  # pragma: no cover -- a structural type, never called
 
 
-ENGINES: Mapping[Engine, EngineAdapter] = {Engine.LANGGRAPH: LangGraphAgent}
+ENGINES: Mapping[Engine, EngineAdapter] = {
+    Engine.LANGGRAPH: LangGraphAgent,
+    Engine.PYDANTIC_AI: PydanticAIAgent,
+}
 """The agent adapters this build constructs, one per engine it runs.
 
 **The whole of the choice of agent framework** (``docs/layout.md``,
 "infrastructure"): adding an engine is an entry here, and removing one is the
-same entry and the import above. One for now -- the Pydantic AI adapter is a
-step of its own, and until it is written an agent asking for it is a start-up
-refusal naming what to do (``robinauts.core.parse_models_config``) rather than
-a deployment that starts and fails at that agent's first turn.
+same entry and the import above. Both of the specified engines are here, which
+is what makes the swap a line of configuration: an agent moved from one to the
+other keeps its conversations, because the conversation record is the whole of
+the state (ADR 0002) and both engines are handed the same history.
+
+An engine this build does not construct is a start-up refusal naming what to
+do (``robinauts.core.parse_models_config``) rather than a deployment that
+starts and fails at that agent's first turn -- which is also what a test that
+hands in its own engines gets, since those are then the deployment's whole
+answer to "which engines are there".
 """
 
 WIRED_ENGINES = frozenset(ENGINES)

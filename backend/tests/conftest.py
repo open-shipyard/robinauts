@@ -31,13 +31,45 @@ diagnosis at worst.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
 
 sys.dont_write_bytecode = True
+
+VENDOR_LOGGERS = ("anthropic", "anthropic._base_client", "httpx2", "httpcore2")
+"""The loggers an agent engine pins when it is built, whichever engine it is.
+
+Named here rather than imported from either adapter: this file is loaded for
+every test in the suite, and importing an adapter would make the whole suite
+import an agent framework. The adapters' own tests assert that their
+``QUIET_CLIENT_LOGGERS`` is this list, so the two cannot drift apart.
+"""
+
+
+@pytest.fixture(autouse=True)
+def vendor_logger_levels() -> Iterator[None]:
+    """Put those loggers back where each test found them.
+
+    Their levels are **process-wide**, and building an engine moves them --
+    which is the point of ``quiet_client_logging`` and is therefore something
+    every module that builds one leaves behind it. Here rather than in four
+    modules, because "which tests build an engine" is not a list anybody should
+    have to keep: a test that left one at ``CRITICAL`` would be an environment
+    the next test could not see the end of, and one that left it at ``DEBUG``
+    would hide an engine that forgot to pin it.
+    """
+    was = [(name, logging.getLogger(name).level) for name in VENDOR_LOGGERS]
+    try:
+        yield
+    finally:
+        for name, level in was:
+            logging.getLogger(name).setLevel(level)
+
 
 _DATABASE_TESTS_RUN = 0
 """How many tests marked `database` reached their call phase.

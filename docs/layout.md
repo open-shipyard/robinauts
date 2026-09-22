@@ -218,7 +218,10 @@ The frameworks are confined to their own sub-package:
   that adapter imports for exactly one call, the one that turns hosted
   tracing off, and which is named in the rule so that "nothing phones home"
   cannot become an import somewhere nobody was looking;
-- only `adapters/agents/pydantic_ai/` may import `pydantic_ai`;
+- only `adapters/agents/pydantic_ai/` may import `pydantic_ai`,
+  `pydantic_graph`, `logfire`, `logfire_api` or `opentelemetry` — the last
+  three arrive with the framework, are imported by nothing in the platform,
+  and are named in the rule for the same reason `langsmith` is;
 - the two do not import each other.
 
 **How that is enforced**, which matters as much as the rule: the contract's
@@ -230,12 +233,19 @@ module into `adapters/` that imports the framework and asserts the contract
 breaks (`tests/unit/test_architecture.py`).
 
 This is the backend's counterpart of the frontend seam in ADR 0001.
-**The discard test:** deleting either sub-package and its dependencies must
-leave exactly four things broken, and every one of them names the adapter:
-the import in `app.py` and its one entry in that module's `ENGINES` table;
-the two contract exceptions in `backend/pyproject.toml` that name the
-sub-package; and the sub-package's own tests. Nothing else in the platform
-mentions it.
+**The discard test:** five places name the adapter, and deleting the
+sub-package and its dependencies must break those and nothing else: the
+import in `app.py` and its one entry in that module's `ENGINES` table; the
+contract exceptions in `backend/pyproject.toml` that name the sub-package;
+the sub-package's own tests; and the **shared swap fixtures** under
+`backend/tests/` — `engines.py`, `unit/test_engine_swap.py` and the
+configuration swap in `integration/test_create_app.py` — which exist to name
+both engines at once and cannot be written without both.
+
+Plus one that names no adapter and would fail all the same: the composition
+tests (`unit/test_app_composition.py`) assert that *both* engines are wired,
+which is a claim about the table and not about either sub-package. Removing
+an engine is meant to be noticed there.
 
 Depends on ports and domain. Must not reference core, datastore,
 application or api.
@@ -342,7 +352,8 @@ cover:
 - `ag_ui` is imported only under `api`
 - LangGraph, LangChain, its provider clients and `langsmith` are imported
   only under `adapters/agents/langgraph`
-- Pydantic AI is imported only under `adapters/agents/pydantic_ai`
+- Pydantic AI, `pydantic_graph`, logfire and OpenTelemetry are imported only
+  under `adapters/agents/pydantic_ai`
 - the two agent adapters do not import each other
 
 ## 6. Testing strategy

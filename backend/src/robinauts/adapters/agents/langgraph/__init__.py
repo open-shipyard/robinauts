@@ -21,6 +21,8 @@ from robinauts.adapters.agents.langgraph.engine import (
     DEFAULT_ANTHROPIC_OUTPUT_TOKENS,
     MAX_RETRIES,
     NO_TOOLS,
+    QUIET_CLIENT_LEVEL,
+    QUIET_CLIENT_LOGGERS,
     TOOL_BLOCKS,
     TRACING_VARIABLES_REMOVED,
     ChatModelFactory,
@@ -28,6 +30,7 @@ from robinauts.adapters.agents.langgraph.engine import (
     chat_model,
     clear_client_overrides,
     force_tracing_off,
+    quiet_client_logging,
 )
 
 __all__ = [
@@ -38,6 +41,8 @@ __all__ = [
     "DEFAULT_ANTHROPIC_OUTPUT_TOKENS",
     "MAX_RETRIES",
     "NO_TOOLS",
+    "QUIET_CLIENT_LEVEL",
+    "QUIET_CLIENT_LOGGERS",
     "TOOL_BLOCKS",
     "TRACING_VARIABLES_REMOVED",
     "ChatModelFactory",
@@ -45,4 +50,5 @@ __all__ = [
     "chat_model",
     "clear_client_overrides",
     "force_tracing_off",
+    "quiet_client_logging",
 ]

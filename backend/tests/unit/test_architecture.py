@@ -35,6 +35,7 @@ import subprocess
 import sys
 import tomllib
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -56,17 +57,59 @@ PROBE = """# SPDX-License-Identifier: Apache-2.0
 It imports an agent framework from the wrong place on purpose.
 \"\"\"
 
-import langgraph  # noqa: F401
+import {module}  # noqa: F401
 """
 """A module in the adapters layer that breaks the rule, header and all.
+
+``{module}`` is filled in per framework: the same probe proves the same
+claim about each contract, and one of them passing while the other has no
+probe at all is exactly how a rule written for two engines ends up enforced
+for one.
 
 The licence header is there because this is a file with a Robinauts copyright
 line in it, whatever directory it is written into; a file of ours without one
 is a habit worth not having.
 """
 
-FRAMEWORK_CONTRACT = "LangGraph, LangChain, its provider clients and langsmith"
-"""Enough of the contract's name to find it in what ``lint-imports`` prints."""
+
+@dataclass(frozen=True, slots=True)
+class Framework:
+    """One agent framework, its contract, and the sub-package it belongs to."""
+
+    module: str
+    """What the probe imports: the framework's top-level module."""
+    contract: str
+    """The contract's **whole** name, as ``backend/pyproject.toml`` states it.
+
+    Whole rather than a fragment, because the verdict is read by looking for
+    "<name> KEPT" or "<name> BROKEN" beside it -- and because a name that has
+    drifted from the configuration is then a failure here rather than a test
+    that quietly checks nothing (``verdict``).
+    """
+    sub_package: str
+    """The directory under ``adapters/agents/`` the exception names."""
+    probe: str
+    """A name for this framework's probe module, unique so that two can coexist."""
+
+
+FRAMEWORKS = (
+    Framework(
+        module="langgraph",
+        contract=(
+            "LangGraph, LangChain, its provider clients and langsmith only under"
+            " adapters.agents.langgraph"
+        ),
+        sub_package="langgraph",
+        probe="langgraph",
+    ),
+    Framework(
+        module="pydantic_ai",
+        contract=("Pydantic AI, logfire and OpenTelemetry only under adapters.agents.pydantic_ai"),
+        sub_package="pydantic_ai",
+        probe="pydantic_ai",
+    ),
+)
+"""Both frameworks, so that every probe below runs against both contracts."""
 
 
 def lint_imports(tree: Path = ROOT) -> subprocess.CompletedProcess[str]:
@@ -123,11 +166,56 @@ def copied_package(tmp_path: Path) -> Iterator[Path]:
     yield tree
 
 
-def probe(tree: Path, where: Path) -> None:
+def probe(tree: Path, where: Path, framework: Framework = FRAMEWORKS[0]) -> None:
     """Write the rule-breaking module at that path inside the copy."""
     path = tree / where
     assert not path.exists(), f"{path} is in the way"
-    path.write_text(PROBE, encoding="utf-8")
+    path.write_text(PROBE.format(module=framework.module), encoding="utf-8")
+
+
+def broken_import(module: str, framework: Framework) -> str:
+    """The line ``lint-imports`` prints for that probe's forbidden import.
+
+    Looked for in ``squashed`` output: a module name long enough makes
+    ``lint-imports`` wrap the line, and a test that looked for it unwrapped
+    would pass or fail on how long a probe happened to be called.
+    """
+    return f"{module} -> {framework.module}"
+
+
+def verdict(result: subprocess.CompletedProcess[str], contract: str) -> str:
+    """What ``lint-imports`` said about that contract: ``KEPT`` or ``BROKEN``.
+
+    Read from the report rather than from the exit code, because the exit code
+    is about the whole run: a probe that broke *some* contract would fail a
+    test that only looked at it, whichever contract that was. The name is
+    required to appear exactly once with a verdict beside it, so a contract
+    renamed in the configuration and not here is a failure and not a silence.
+    """
+    printed = squashed(result.stdout)
+    said = [word for word in ("KEPT", "BROKEN") if f"{squashed(contract)} {word}" in printed]
+    assert len(said) == 1, f"lint-imports said {said} about {contract!r}:\n{result.stdout}"
+    return said[0]
+
+
+def only_broken(result: subprocess.CompletedProcess[str], tree: Path, contract: str) -> None:
+    """That contract is broken and **every other one** of them is kept.
+
+    The whole verdict, not half of it: a probe that broke three contracts, or
+    that broke a different one from the one it was written for, would pass an
+    assertion about its own and say nothing about the rest.
+    """
+    names = named(contracts_of(tree / "pyproject.toml"))
+    assert contract in names, f"{contract!r} is not a contract this repository states"
+    assert {name: verdict(result, name) for name in names} == {
+        name: ("BROKEN" if name == contract else "KEPT") for name in names
+    }
+
+
+by_framework = pytest.mark.parametrize(
+    "framework", FRAMEWORKS, ids=[framework.module for framework in FRAMEWORKS]
+)
+"""Every probe below, once per framework: two engines, two contracts, two probes."""
 
 
 def test_import_contracts() -> None:
@@ -159,52 +247,61 @@ def test_the_copy_is_checked_against_the_contracts_this_repository_states(
 
 
 @pytest.mark.io
+@by_framework
 def test_a_new_adapter_module_is_inside_the_framework_rule_without_being_listed(
-    copied_package: Path,
+    copied_package: Path, framework: Framework
 ) -> None:
-    """A module nobody listed, importing LangGraph, breaks the contract.
+    """A module nobody listed, importing a framework, breaks its contract.
 
     The point is what is *not* done: the file is not named anywhere, in the
     configuration or in this test's expectations. It is simply a module of the
-    adapters layer, which is what the contract's source is.
+    adapters layer, which is what the contract's source is. Run for **both**
+    frameworks, because the claim is about each rule and not about the one
+    that happened to be written first.
     """
-    probe(copied_package, ADAPTERS / "_probe_outside_the_rule.py")
+    where = f"_probe_outside_the_rule_{framework.probe}"
+    probe(copied_package, ADAPTERS / f"{where}.py", framework)
 
     result = lint_imports(copied_package)
 
     assert result.returncode != 0, result.stdout + result.stderr
-    assert FRAMEWORK_CONTRACT in squashed(result.stdout)
-    assert "robinauts.adapters._probe_outside_the_rule -> langgraph" in result.stdout
+    only_broken(result, copied_package, framework.contract)
+    assert broken_import(f"robinauts.adapters.{where}", framework) in squashed(result.stdout)
 
 
 @pytest.mark.io
+@by_framework
 def test_the_exception_covers_the_sub_package_and_nothing_beside_it(
-    copied_package: Path,
+    copied_package: Path, framework: Framework
 ) -> None:
     """The same module, one directory further in, is still outside the exception.
 
-    ``adapters/agents/`` is not ``adapters/agents/langgraph/``: the exception
+    ``adapters/agents/`` is not ``adapters/agents/<framework>/``: the exception
     names one sub-package, and a module beside it is held to the rule like
     every other.
     """
-    probe(copied_package, ADAPTERS / "agents" / "_probe_beside_the_exception.py")
+    where = f"_probe_beside_the_exception_{framework.probe}"
+    probe(copied_package, ADAPTERS / "agents" / f"{where}.py", framework)
 
     result = lint_imports(copied_package)
 
     assert result.returncode != 0, result.stdout + result.stderr
-    assert "robinauts.adapters.agents._probe_beside_the_exception -> langgraph" in result.stdout
+    only_broken(result, copied_package, framework.contract)
+    assert broken_import(f"robinauts.adapters.agents.{where}", framework) in squashed(result.stdout)
 
 
 @pytest.mark.io
+@by_framework
 def test_the_probe_is_allowed_inside_the_sub_package_the_exception_names(
-    copied_package: Path,
+    copied_package: Path, framework: Framework
 ) -> None:
     """And the exception really is an exception: there, the same import is fine.
 
     A rule that refused everywhere would pass the two tests above and be
     useless; this is the other half of the claim.
     """
-    probe(copied_package, ADAPTERS / "agents" / "langgraph" / "_probe_inside_the_exception.py")
+    inside = ADAPTERS / "agents" / framework.sub_package / "_probe_inside_the_exception.py"
+    probe(copied_package, inside, framework)
 
     result = lint_imports(copied_package)
 

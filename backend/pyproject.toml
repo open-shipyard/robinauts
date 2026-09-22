@@ -20,6 +20,13 @@ authors = [{ name = "The Robinauts Authors" }]
 # door either way; the range is what makes somebody look.
 dependencies = [
     "ag-ui-protocol>=1.0,<2",
+    # Anthropic's own SDK, which both engines reach the vendor through and
+    # which the Pydantic AI adapter **imports**: the client is built there
+    # rather than by the framework's provider, because the retries and the
+    # headers that must be pinned are the client's and not the provider's
+    # (docs/specs/agents.md). Imported rather than merely installed, so it is
+    # a direct dependency and is pinned as one, exactly as `langsmith` is.
+    "anthropic>=1.3,<2",
     "asyncpg>=0.30",
     "fastapi>=0.141,<0.142",
     "httpx>=0.28",
@@ -27,6 +34,7 @@ dependencies = [
     "langchain-core>=1.2,<2",
     "langgraph>=1.2,<2",
     "langsmith>=0.3.45,<1",
+    "pydantic-ai-slim[anthropic]>=2.47,<3",
 ]
 
 [dependency-groups]
@@ -363,7 +371,7 @@ ignore_imports = [
 unmatched_ignore_imports_alerting = "none"
 
 [[tool.importlinter.contracts]]
-name = "Pydantic AI only under adapters.agents.pydantic_ai"
+name = "Pydantic AI, logfire and OpenTelemetry only under adapters.agents.pydantic_ai"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
@@ -377,8 +385,58 @@ source_modules = [
     "robinauts.app",
     "robinauts.cli",
 ]
-forbidden_modules = ["pydantic_ai"]
+forbidden_modules = [
+    # The framework and the graph library it runs its agents on. A provider
+    # client of Pydantic AI's is a module *inside* `pydantic_ai`, not a
+    # distribution of its own, so unlike the LangGraph contract there is no
+    # list of clients to write out: the day OpenAI's tree passes the licence
+    # policy, this rule already covers it.
+    "pydantic_ai",
+    "pydantic_graph",
+    # Pydantic AI's hosted observability, and the tracing API underneath it.
+    # `logfire_api` arrives with `pydantic-graph` and `opentelemetry-api` with
+    # `pydantic-ai-slim`; neither is imported by this platform at all, and
+    # naming them here is what keeps "nothing phones home" from becoming an
+    # import somewhere nobody was looking (docs/specs/agents.md). The adapter
+    # turns instrumentation off with the framework's own switch and needs no
+    # import of either, so the exception below is what they are allowed by and
+    # not what they are used through.
+    "logfire",
+    "logfire_api",
+    "opentelemetry",
+]
 ignore_imports = [
+    "robinauts.adapters.agents.pydantic_ai -> *",
+    "robinauts.adapters.agents.pydantic_ai.** -> *",
+]
+unmatched_ignore_imports_alerting = "none"
+
+# The vendor's own SDK, which is neither framework's and which both engines
+# end up on: `langchain-anthropic` is built on it, and the Pydantic AI adapter
+# imports it directly to build the client with the retries and the headers
+# pinned. It is confined to the two agent sub-packages for the same reason the
+# frameworks are -- a model call belongs to an engine, and a key is what
+# travels in one, so an `anthropic` import anywhere else is a second way to
+# reach a vendor that no contract suite covers (docs/layout.md).
+[[tool.importlinter.contracts]]
+name = "the Anthropic SDK only under the two agent adapters"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "robinauts.domain",
+    "robinauts.core",
+    "robinauts.ports",
+    "robinauts.application",
+    "robinauts.api",
+    "robinauts.datastore",
+    "robinauts.adapters",
+    "robinauts.app",
+    "robinauts.cli",
+]
+forbidden_modules = ["anthropic"]
+ignore_imports = [
+    "robinauts.adapters.agents.langgraph -> *",
+    "robinauts.adapters.agents.langgraph.** -> *",
     "robinauts.adapters.agents.pydantic_ai -> *",
     "robinauts.adapters.agents.pydantic_ai.** -> *",
 ]

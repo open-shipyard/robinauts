@@ -8,10 +8,17 @@ and the only module in the platform that may name LangGraph or LangChain
 (``docs/layout.md``, enforced by the import contracts in
 ``backend/pyproject.toml``). Everything about the framework stops here: what
 crosses the port is the platform's own history in and the platform's own
-events out, and the **discard test** is that deleting this sub-package and its
-dependencies breaks its import and its one entry in ``robinauts.app.ENGINES``,
-the two contract exceptions that name it, and this sub-package's own tests --
-and nothing else in the platform (``docs/layout.md``).
+events out, and the **discard test** is that five places name this
+sub-package and deleting it and its dependencies breaks those and nothing
+else: its import in ``robinauts.app`` and its one entry in ``ENGINES``; the
+contract exceptions in ``backend/pyproject.toml`` that name the sub-package;
+this sub-package's own tests; and the **shared swap fixtures** under
+``tests/`` (``tests/engines.py``, ``tests/unit/test_engine_swap.py`` and the
+configuration swap in ``tests/integration/test_create_app.py``), which exist
+to name both engines at once and cannot be written without both. The
+composition tests (``tests/unit/test_app_composition.py``) fail too and name
+no adapter: they say that *both* engines are wired, which is a claim about the
+table and not about either sub-package (``docs/layout.md``).
 
 **Stateless per turn** (ADR 0002). The graph is compiled for the turn, with
 **no checkpointer**: the conversation record is the whole of the state and the
@@ -52,14 +59,30 @@ a vendor's client is built from the configuration rather than from the
 environment -- the endpoint, the key, the proxy and the key's header
 (``ANTHROPIC_ENDPOINT``, ``clear_client_overrides``).
 
+**And nothing is written down either.** The platform's logs never carry
+conversation content: the vendor SDK's loggers that write request bodies --
+which on ``ANTHROPIC_LOG``, and on any root logger turned up afterwards, put
+every request's messages and system prompt on standard error -- are pinned at
+``WARNING`` when the engine is built (``quiet_client_logging``).
+
 **Failure and cancellation** are the port's. Whatever the provider raises
 travels out of the generator as it is; ``CancelledError`` is never swallowed;
 and the ``finally`` closes the graph's stream, which is what lets go of the
 model's stream, the HTTP response underneath it and the connection.
+
+**What the ``finally`` does not do is close the vendor client.** A client is
+built per turn (``chat_model``) and is released to the garbage collector with
+the rest of the turn; its connection pool is closed by the HTTP client's own
+finaliser and not by this adapter. Both engines are the same in this, and a
+shared client held for the life of the process -- and closed by the lifespan,
+as the identity provider's is -- is a change to both adapters and to the
+composition root, which is a step of its own
+(``docs/working-notes/poc-progress.md``).
 """
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 from contextlib import aclosing
@@ -119,18 +142,60 @@ of breaking a deployment, and the only honest way to say "no v1 tracing
 either" is to unset them.
 """
 
-CLIENT_VARIABLES_REMOVED = ("ANTHROPIC_CUSTOM_HEADERS",)
+CLIENT_VARIABLES_REMOVED = ("ANTHROPIC_CUSTOM_HEADERS", "ANTHROPIC_LOG")
 """The variables ``clear_client_overrides`` takes out of the environment.
 
-Everything else a client would read can be **overridden by an argument**, and
-``chat_model`` passes one: the endpoint, the key, the proxy. Headers cannot:
-the SDK *merges* what this variable holds into whatever the caller passed, so
-one line of it replaces the ``x-api-key`` header outright and a turn is
-spent on somebody else's key, or adds headers nobody configured. An argument
-cannot say "and nothing else", so the variable goes.
+The two the client reads that **no argument can override**; the endpoint, the
+key and the proxy are arguments, and an argument wins.
+
+``ANTHROPIC_CUSTOM_HEADERS`` because the SDK *merges* what it holds into
+whatever the caller passed, so one line of it replaces the ``x-api-key``
+header outright and a turn is spent on somebody else's key, or adds headers
+nobody configured. An argument cannot say "and nothing else", so the variable
+goes.
+
+``ANTHROPIC_LOG`` because it is read at **import**, before any argument
+exists: the Anthropic SDK under ``ChatAnthropic`` calls its own
+``setup_logging()`` at the bottom of its ``__init__``, and ``debug`` or
+``info`` there puts the ``anthropic`` and ``httpx2`` loggers at that level for
+the whole process. What the first of them then writes is every request's
+options, ``json_data`` included -- which is the system prompt and every
+message of the conversation, in a log. Removing the variable is only half the
+answer, since by construction time the import has already happened:
+``quiet_client_logging`` is the other half, and it is the half that works.
 
 Removed once, at construction, and never per turn: a process-wide edit made
 while turns are running would be one turn changing another's environment.
+"""
+
+QUIET_CLIENT_LOGGERS = ("anthropic", "anthropic._base_client", "httpx2", "httpcore2")
+"""The loggers ``quiet_client_logging`` pins, and why these four.
+
+``anthropic`` is the SDK's own, and ``anthropic._base_client`` is the module
+that **emits** the record carrying a request's ``json_data`` -- the system
+prompt and every message. The child is named as well as the parent because a
+level set on a child is what a logger decides by: an ``anthropic._base_client``
+entry in somebody's ``dictConfig`` would walk straight past a pin on
+``anthropic``. ``httpx2`` is the HTTP client the SDK is built on -- a fork of
+its own, so this is **not** the ``httpx`` the sign-in adapter uses and pinning
+it silences nothing of ours -- and ``httpcore2`` is the connection layer under
+that, which logs request lines and headers.
+
+What this list is, and is not: the vendor loggers that write request bodies.
+A logger an operator names at ``DEBUG`` in their own logging configuration
+**after** start-up is their deliberate act on their own machine, and nothing
+here fights it; what is answered is the state a process is *found* in.
+"""
+
+QUIET_CLIENT_LEVEL = logging.WARNING
+"""The level those loggers are held at or above: no request is ever a record.
+
+**The platform's logs never carry conversation content.** A message is content
+of a conversation and belongs in the database (``docs/specs/conversations.md``);
+a key is the operator's and is never logged (``docs/specs/agents.md``). Both
+of those are in a vendor SDK's ``DEBUG`` records, so the honest guarantee is
+that the records are never emitted -- not that nobody has attached a handler
+that would catch them.
 """
 
 ANTHROPIC_KEY_HEADER = "x-api-key"
@@ -219,10 +284,61 @@ def clear_client_overrides() -> None:
 
     An adapter may touch the environment -- it is the layer that may -- and
     this does it once, when the engine is built at start-up, so that no turn
-    ever edits the environment another turn is reading.
+    ever edits the environment another turn is reading. ``ANTHROPIC_LOG``
+    goes with them so that a subprocess this deployment starts does not import
+    the SDK and turn its own logging on again; what protects **this** process,
+    where the import has already happened, is ``quiet_client_logging``.
     """
     for name in CLIENT_VARIABLES_REMOVED:
         os.environ.pop(name, None)
+
+
+def quiet_client_logging() -> None:
+    """Hold the vendor SDK's loggers at ``WARNING``: no request is ever a record.
+
+    **The platform's logs never carry conversation content, and never a key.**
+    The Anthropic SDK -- which ``langchain-anthropic`` is built on -- reads
+    ``ANTHROPIC_LOG`` at *import*, before anything here exists, and on
+    ``debug`` puts its own logger and its HTTP client's at ``DEBUG`` and calls
+    ``logging.basicConfig()``, which attaches a handler to the root logger if
+    nothing else has. What the SDK's logger then writes for every call is
+    "Request options: ..." with the request's ``json_data`` in it: the agent's
+    system prompt and every message of the conversation, on standard error.
+
+    Removing the variable cannot undo that, because the import is what read it
+    (``CLIENT_VARIABLES_REMOVED``). What does undo it is this: the vendor's
+    loggers (``QUIET_CLIENT_LOGGERS``) are pinned at ``WARNING``
+    (``QUIET_CLIENT_LEVEL``) when the engine is built, so the records are never
+    emitted and it does not matter who has attached a handler -- which is the
+    only form of the promise this adapter can keep, since the platform does not
+    own every handler in the process and a deployment may add its own.
+
+    **Each logger's own level is what is decided on, not its effective one.**
+    An ordinary deployment has the variable unset and the root at ``WARNING``,
+    so these loggers sit at ``NOTSET`` and their *effective* level is already
+    ``WARNING`` -- and a pin that looked at that would do nothing at all,
+    leaving them inheriting whatever the root becomes later. An operator who
+    then turns their root logger up to ``DEBUG``, which is a thing an operator
+    does, would get every message of every conversation on standard error from
+    a switch that had nothing to do with the vendor. So ``NOTSET`` is treated
+    as "not pinned yet" and set, and the promise holds whatever the root is
+    moved to afterwards.
+
+    A level already **stricter** than ``WARNING`` is left where it is: an
+    operator who silenced the SDK altogether meant it.
+
+    Spelt out again here rather than imported from the Pydantic AI adapter:
+    the two adapters do not import each other (``docs/layout.md``), they reach
+    the same SDK by different routes, and deleting either must leave the other
+    whole.
+    """
+    for name in QUIET_CLIENT_LOGGERS:
+        logger = logging.getLogger(name)
+        # `NOTSET` is spelt out rather than left to be the zero it is: it means
+        # "inherit", which is the case this exists for, and a reader should not
+        # have to know its value to see that it is covered.
+        if logger.level == logging.NOTSET or logger.level < QUIET_CLIENT_LEVEL:
+            logger.setLevel(QUIET_CLIENT_LEVEL)
 
 
 def chat_model(model: ModelConfig, provider: ModelProviderConfig, key: str) -> BaseChatModel:
@@ -305,6 +421,7 @@ class LangGraphAgent(Agent):
     ) -> None:
         force_tracing_off()
         clear_client_overrides()
+        quiet_client_logging()
         self._models = models
         """Which model each agent runs on, and through which provider."""
         self._keys = keys
@@ -432,8 +549,13 @@ def _messages(agent: AgentDefinition, history: Sequence[Message]) -> list[BaseMe
     **Text only.** Reasoning a previous turn produced is not carried back to
     the model: this version keeps none of it, and what is stored holds none
     either (``docs/working-notes/poc-scope.md``). A message with no text at
-    all still becomes a message, empty, because dropping it would change whose
-    turn it is.
+    all still becomes a message, empty, because dropping it *here* would be
+    this engine deciding what a turn that said nothing means. What becomes of
+    it is the vendor mapping's, and it is the same answer under both engines:
+    Anthropic's API refuses an empty content block, so langchain-anthropic
+    drops an assistant message whose content came out empty and Pydantic AI
+    leaves out the assistant message it emptied. The model is shown the same
+    history either way, which is what the swap needs.
 
     **A message of the ``tool`` role is refused.** The role is reserved and
     not carried (``docs/specs/conversations.md``); sending one to a model as

@@ -28,7 +28,10 @@ Four subjects:
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
+import subprocess
+import sys
 from collections.abc import AsyncIterator, Iterator, Sequence
 from typing import Any
 
@@ -45,6 +48,7 @@ from langchain_core.tracers import langchain as tracer_module
 from langchain_core.tracers.context import _tracing_v2_is_enabled
 
 from aio import asyncio_test
+from conftest import VENDOR_LOGGERS
 from contracts.agents import AgentContract, Ending, Script
 from conversations import agent_definition, answer, question
 from robinauts.adapters import ProviderKeys
@@ -54,6 +58,8 @@ from robinauts.adapters.agents.langgraph import (
     CLIENT_VARIABLES_REMOVED,
     DEFAULT_ANTHROPIC_OUTPUT_TOKENS,
     MAX_RETRIES,
+    QUIET_CLIENT_LEVEL,
+    QUIET_CLIENT_LOGGERS,
     TRACING_VARIABLES_REMOVED,
     LangGraphAgent,
     chat_model,
@@ -684,3 +690,185 @@ def _headers_of(built: ChatAnthropic) -> list[tuple[str, str]]:
         )
     )
     return list(request.headers.multi_items())
+
+
+# --- and nothing is written down ---------------------------------------------
+
+
+LEAK_SECRET = "the-conversation-nobody-should-log"
+"""Stands in for a message and a system prompt in the subprocess below."""
+
+LEAK_KEY = "sk-the-key-nobody-should-log"
+
+REQUEST = """
+import anthropic
+from robinauts.adapters import ProviderKeys
+from robinauts.adapters.agents.langgraph import chat_model
+from robinauts.domain import ModelConfig, ModelProviderConfig, ModelsConfig, ProviderKind
+
+{built}
+
+provider = ModelProviderConfig(id="anthropic", kind=ProviderKind.ANTHROPIC, api_key_env="K")
+config = ModelConfig(id="m", provider="anthropic", name="claude")
+built_model = chat_model(config, provider, {key!r})
+# The SDK writes its "Request options" record here, on the way to the wire and
+# before anything is sent: no network is needed to make it leak.
+built_model._async_client._build_request(
+    anthropic._models.FinalRequestOptions.construct(
+        method="post",
+        url="/v1/messages",
+        json_data={{"system": {secret!r}, "messages": [{{"role": "user", "content": {secret!r}}}]}},
+    )
+)
+"""
+"""A whole request built in a fresh process, with ``ANTHROPIC_LOG`` set.
+
+A subprocess because the leak happens at **import**: ``anthropic``, which
+``langchain-anthropic`` is built on, reads the variable at the bottom of its
+own ``__init__`` and puts its logger at ``DEBUG`` for the life of the process.
+"""
+
+BUILT = (
+    "from robinauts.adapters.agents.langgraph import LangGraphAgent\n"
+    "LangGraphAgent(ModelsConfig(), ProviderKeys({}))"
+)
+"""The one line under test: building the engine is what silences the SDK."""
+
+
+def in_a_fresh_process(program: str) -> str:
+    """Run that program with ``ANTHROPIC_LOG=debug`` and hand back its stderr."""
+    finished = subprocess.run(
+        [sys.executable, "-c", program],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "ANTHROPIC_LOG": "debug", "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert finished.returncode == 0, finished.stdout + finished.stderr
+    return finished.stderr
+
+
+@pytest.mark.io  # it runs a subprocess
+def test_a_request_is_never_written_to_a_log_however_the_sdk_was_asked_to() -> None:
+    """``ANTHROPIC_LOG=debug`` does not put a conversation on standard error.
+
+    The same promise and the same fix as the other engine
+    (``quiet_client_logging``): both reach the same vendor SDK, so both have
+    the same variable to answer.
+    """
+    quiet = in_a_fresh_process(REQUEST.format(built=BUILT, key=LEAK_KEY, secret=LEAK_SECRET))
+
+    assert LEAK_SECRET not in quiet
+    assert "Request options" not in quiet
+
+
+@pytest.mark.io
+def test_the_same_process_without_the_engine_really_does_leak_the_conversation() -> None:
+    """The other half: the test above would notice."""
+    leaked = in_a_fresh_process(REQUEST.format(built="", key=LEAK_KEY, secret=LEAK_SECRET))
+
+    assert LEAK_SECRET in leaked
+    assert "Request options" in leaked
+    # And what a leak does **not** carry, shown against a real one: the key is
+    # a header, and the record is the request's options without them.
+    assert LEAK_KEY not in leaked
+
+
+def test_the_shared_fixture_knows_every_logger_this_engine_pins() -> None:
+    """``tests/conftest.py`` restores these for the whole suite, and cannot import them.
+
+    It names them itself, because it is loaded for every test and importing an
+    adapter there would make the whole suite import an agent framework. This
+    is what keeps the two lists from drifting apart.
+    """
+    assert tuple(VENDOR_LOGGERS) == QUIET_CLIENT_LOGGERS
+
+
+def test_building_the_engine_holds_the_vendor_loggers_at_warning() -> None:
+    for name in QUIET_CLIENT_LOGGERS:
+        logging.getLogger(name).setLevel(logging.DEBUG)
+
+    LangGraphAgent(models(), keys(), chat_model_for=lambda *_: ScriptedChatModel())  # noqa: ARG005
+
+    assert [logging.getLogger(name).getEffectiveLevel() for name in QUIET_CLIENT_LOGGERS] == [
+        QUIET_CLIENT_LEVEL
+    ] * len(QUIET_CLIENT_LOGGERS)
+
+
+def test_a_logger_an_operator_silenced_further_is_left_where_it_is() -> None:
+    logging.getLogger(QUIET_CLIENT_LOGGERS[0]).setLevel(logging.CRITICAL)
+
+    LangGraphAgent(models(), keys(), chat_model_for=lambda *_: ScriptedChatModel())  # noqa: ARG005
+
+    assert logging.getLogger(QUIET_CLIENT_LOGGERS[0]).level == logging.CRITICAL
+
+
+def test_building_the_engine_takes_the_logging_variable_out_of_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_LOG", "debug")
+
+    LangGraphAgent(models(), keys(), chat_model_for=lambda *_: ScriptedChatModel())  # noqa: ARG005
+
+    assert "ANTHROPIC_LOG" in CLIENT_VARIABLES_REMOVED
+    assert all(name not in os.environ for name in CLIENT_VARIABLES_REMOVED)
+
+
+def a_request_carrying(secret: str) -> None:
+    """Build a whole request with that text in it, and send nothing.
+
+    The same call the subprocess above makes, in this process: it is where the
+    SDK writes its record, and it happens before anything reaches a socket.
+    """
+    built = chat_model(ModelConfig(id=MODEL, provider=PROVIDER, name="c"), ANTHROPIC_PROVIDER, KEY)
+    assert isinstance(built, ChatAnthropic)
+    built._async_client._build_request(
+        anthropic._models.FinalRequestOptions.construct(
+            method="post",
+            url="/v1/messages",
+            json_data={"system": secret, "messages": [{"role": "user", "content": secret}]},
+        )
+    )
+
+
+def test_a_root_logger_turned_up_later_gets_no_conversation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The ordinary deployment: the variable unset, and the root moved later.
+
+    The same promise and the same case as the other engine: with
+    ``ANTHROPIC_LOG`` unset the vendor's loggers sit at ``NOTSET`` and are
+    already effectively quiet, so what has to be pinned is their **own** level
+    -- otherwise an operator turning their root logger up to ``DEBUG`` gets
+    every message of every conversation on standard error.
+    """
+    LangGraphAgent(models(), keys(), chat_model_for=lambda *_: ScriptedChatModel())  # noqa: ARG005
+
+    with caplog.at_level(logging.DEBUG):
+        a_request_carrying(LEAK_SECRET)
+
+    assert LEAK_SECRET not in caplog.text
+    assert "Request options" not in caplog.text
+
+
+def test_the_same_root_logger_leaks_it_when_no_engine_pinned_anything(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The other half: a process where nothing pinned them really does leak."""
+    for name in QUIET_CLIENT_LOGGERS:
+        logging.getLogger(name).setLevel(logging.NOTSET)
+
+    with caplog.at_level(logging.DEBUG):
+        a_request_carrying(LEAK_SECRET)
+
+    assert LEAK_SECRET in caplog.text
+
+
+def test_a_level_named_on_the_emitting_logger_itself_is_raised_too() -> None:
+    """A ``dictConfig`` entry naming the child walks past a pin on the parent."""
+    emitting = logging.getLogger("anthropic._base_client")
+    emitting.setLevel(logging.DEBUG)
+
+    LangGraphAgent(models(), keys(), chat_model_for=lambda *_: ScriptedChatModel())  # noqa: ARG005
+
+    assert emitting.level == QUIET_CLIENT_LEVEL
+    assert "anthropic._base_client" in QUIET_CLIENT_LOGGERS

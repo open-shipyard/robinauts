@@ -1287,12 +1287,13 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   `tiktoken` and `regex`, which do not pass the licence policy, so the
   `openai` and `openai-compatible` kinds are refused at start-up with a
   message saying so (`DEPENDENCIES.md`, "Known exclusions"). `app.py` wires
-  it through one table, `ENGINES = {Engine.LANGGRAPH: LangGraphAgent}`, which
-  is the whole of the choice of agent framework: `WIRED_ENGINES` and
+  it through one table, `ENGINES` (one entry per engine), which is the whole
+  of the choice of agent framework: `WIRED_ENGINES` and
   `BUILDABLE_KINDS` are derived from it, the second by **asking each adapter**
   what it can reach (`ports.Agent.kinds`), so that knowing more about an
   engine never means importing more from its sub-package — the discard test
-  is that import and that one entry. An agent asking for `pydantic-ai` is
+  is that import and that one entry. An agent asking for an engine this build
+  does not construct is
   a start-up refusal naming what to do, agents handed in without an engine
   must name models the configuration has, and a file with no `[agents]` table
   is a deployment that **starts with none** — `/api/agents` is empty, and the
@@ -1313,6 +1314,74 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   `tests/live/test_langgraph_live.py` runs one real turn against Anthropic
   when `ROBINAUTS_LIVE_ANTHROPIC_KEY` is set; `tests/live` is in
   `norecursedirs`, so a plain run — and therefore CI — never collects it.
+- The **second engine**, Pydantic AI, and the **swap**. Dependency:
+  `pydantic-ai-slim[anthropic]`, which brings `pydantic-graph`,
+  `genai-prices`, `griffelib`, `logfire-api` and `opentelemetry-api` — all on
+  the allowed list, and the last two are **installed and never imported**.
+  `anthropic` is pinned as a direct dependency in the same step: both
+  frameworks already brought it, and this adapter *imports* it, which is what
+  makes a dependency direct (the `langsmith` precedent).
+  `adapters/agents/pydantic_ai/` is the engine and the only place
+  `pydantic_ai`, `pydantic_graph`, `logfire`, `logfire_api` and
+  `opentelemetry` may be named (import contracts; the two adapters still do
+  not import each other). `PydanticAIAgent` builds a framework agent per turn
+  with the system prompt as **`instructions`** — the half of Pydantic AI that
+  is not carried in `message_history`, which is what lets the platform's
+  history be the messages and nothing else — the whole history as
+  `ModelRequest` / `ModelResponse` with text only, `ModelSettings(timeout,
+  max_tokens)`, no tools and no output type. It iterates `agent.iter(...)`
+  and streams the **first model request node**, then leaves: Pydantic AI
+  answers an empty response, or a call to a tool that is not declared, with a
+  *retry prompt* and a second model call, and retrying is sending the message
+  again. `PartStartEvent` and `PartDeltaEvent` become text and reasoning
+  deltas, `PartEndEvent` is passed over (it repeats the whole part), any
+  `BaseToolCallPart` raises, and the answer completes with the joined deltas.
+  `chat_model` builds the `AsyncAnthropic` client itself — `max_retries = 0`
+  and the key header are the client's, not the provider's — and hands it to
+  `AnthropicProvider(anthropic_client=...)`, with the endpoint and the key
+  pinned so that no `ANTHROPIC_*` variable, profile or federation credential
+  can move a request or change what pays for it. **Nothing phones home**:
+  Pydantic AI has no environment switch for tracing, so
+  `TRACING_VARIABLES_REMOVED` is deliberately **empty** and the adapter sets
+  `instrument = False` on every agent it builds, which beats
+  `Agent.instrument_all()`; `force_tracing_off()` also sets
+  `pydantic_ai.BANNER_ENABLED = False`, because the framework otherwise
+  writes an advertisement for its hosted observability to a server's standard
+  error on the first turn. **Anthropic only**, for the same reason as the
+  other engine: the `openai` extra needs `tiktoken` and `regex`.
+  `ENGINES` now has both entries, so an agent's `engine = "pydantic-ai"` is a
+  line of configuration.
+  Tests: `tests/unit/test_pydantic_ai_engine.py` (the contract suite over the
+  real engine, the messages, thinking, the empty answer, the split character,
+  the tool refusal, the client's fields against a hostile environment, and a
+  whole turn with every Logfire and OpenTelemetry variable set, sockets
+  blocked and anything that would build instrumentation refusing to exist —
+  with the counter-test that an agent which did *not* say no is caught);
+  `tests/unit/test_engine_swap.py` (one conversation over both real engines
+  and the real `Turns`: every answer records its engine, each engine is given
+  the same stored history with no reasoning, and the two stored documents
+  differ in `provenance.engine` alone); the configuration swap across a
+  restart on the real PostgreSQL in `tests/integration/test_create_app.py`;
+  `tests/engines.py` holds the two scripted models both swap tests share.
+  `tests/live/test_pydantic_ai_live.py` is the live turn, gated the same way.
+- **Both engines, and the vendor SDK under them.** `anthropic` is now a direct
+  dependency and is confined by an import contract to the two agent
+  sub-packages. Its `ANTHROPIC_LOG` variable, read at *import*, puts every
+  request's `json_data` — the system prompt and every message — on standard
+  error; both adapters now pin the `anthropic`, `anthropic._base_client` (the
+  logger that emits the record), `httpx2` and `httpcore2` loggers at `WARNING`
+  when the engine is built (`quiet_client_logging`) and remove the variable.
+  Each logger's **own** level is set and not merely its effective one, so an
+  operator who turns their root logger up to `DEBUG` afterwards does not turn
+  the vendor's logging on with it. Each engine has a subprocess test that
+  reproduces the leak without the engine and shows it silenced with it, and an
+  in-process pair for the root-turned-up-later case; `tests/conftest.py` puts
+  the four levels back after every test, since they are process-wide. **To watch:** both engines
+  build a vendor client **per turn** and neither closes it — its pool is left
+  to the HTTP client's own finaliser. A shared client held for the life of the
+  process and closed by the lifespan, as the identity provider's is, is a
+  change to both adapters and to the composition root, and is a step of its
+  own.
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -2199,3 +2268,59 @@ Important design decisions made / open questions:
   still checked on every turn by `core.check_engine_events`.
 - The adapter removes `LANGCHAIN_TRACING`, `LANGCHAIN_HANDLER` and
   `ANTHROPIC_CUSTOM_HEADERS` from the environment at construction.
+
+### Step 16 — second-engine   (feature/poc-16-second-engine)
+
+Summary: the Pydantic AI engine and the swap test. `pydantic-ai-slim
+[anthropic]` (and `anthropic`, imported directly, as a direct dependency);
+`logfire-api`/`opentelemetry-api` arrive transitively and are imported by
+nothing. `PydanticAIAgent` mirrors the LangGraph engine: a framework agent
+per turn with `instructions` (never in `message_history`), the stored
+history as `message_history` with no separate prompt, node-level streaming
+mapped to text and reasoning deltas, `AnswerCompleted` from the joined
+deltas, one model call per turn (the loop breaks after the first model
+node, so the framework cannot retry an empty answer), tool calls refused,
+the vendor client built by the adapter with endpoint/key/headers pinned and
+no retries, `instrument = False` per agent, the Logfire banner off. Both
+adapters now also pin the vendor loggers that write request bodies, so no
+`ANTHROPIC_LOG` or root-DEBUG can put a conversation in a log. The swap:
+LangGraph → Pydantic AI → LangGraph over one store with real engines over
+scripted models — each answer's `provenance.engine` is the engine that
+produced it, each engine receives exactly the stored history (no
+reasoning), and the stored document is identical but for
+`provenance.engine`; plus the swap by configuration across a restart on
+PostgreSQL. A third import contract confines the Anthropic SDK to the two
+adapters; the architecture probe tests run over both frameworks.
+
+Review: 2 rounds (one full, one focused).
+- High: 1
+  - the log-quieting guard of the previous round decided on the inherited
+    level, so it pinned nothing in the ordinary deployment and a root
+    logger turned up later leaked every conversation — fixed: the
+    logger's own level, and the emitting child logger pinned too.
+- Medium: 3 (3/0) — `ANTHROPIC_LOG=debug` leaked request bodies through
+  the SDK's import-time logging (both engines); the documented discard
+  test missed the shared swap fixtures; a level named on the child logger
+  bypassed the parent pin.
+- Low: 8 (8/0)
+
+Checks: `scripts/check-all.sh` without a database (2527 passed, 196
+skipped) and with one required (2717 passed, 6 skipped); the changed
+modules 10× under `python -X dev -W error`; no provider reached in any
+test.
+Not done / to watch: both engines build a vendor client per turn and
+nothing closes it but the wrapper's finaliser (a shared, closed client
+lifetime is a change to both adapters and the root). The "nothing phones
+home" guarantee for `pydantic_graph`'s spans rests on `logfire` being
+absent from the lock (asserted by a test). A logger an operator names at
+DEBUG in their own configuration after start-up is not fought. About
+2,900 lines with tests; the engine and its tests are within ten lines of
+the LangGraph pair. `DEPENDENCIES.md` has a duplicated paragraph from an
+earlier step (to fix in passing).
+Important design decisions made / open questions:
+- `instructions`, not `system_prompt`: the prompt is taken from the
+  definition at every run and never enters the stored history.
+- One model call is the whole of a turn; an empty answer is an empty
+  answer, never a retry.
+- Both engines offer Anthropic alone in this build, so the swap holds
+  for every model either has.
