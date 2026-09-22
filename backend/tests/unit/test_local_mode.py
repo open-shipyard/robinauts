@@ -51,6 +51,7 @@ from robinauts.api import (
 )
 from robinauts.app import (
     AUTH_CONFIG_VARIABLE,
+    CONFIG_VARIABLE,
     DATABASE_URL_VARIABLE,
     Deployment,
     create_app,
@@ -601,7 +602,13 @@ def test_no_environment_variable_can_switch_it_on(tmp_path: Path) -> None:
     )
 
     assert deployment.local_mode is None
-    assert set(asked) == {AUTH_CONFIG_VARIABLE, DATABASE_URL_VARIABLE, "ROBINAUTS_GOOGLE_SECRET"}
+    assert set(asked) == {
+        CONFIG_VARIABLE,
+        # Read too, and only because it is the old name of the one above.
+        AUTH_CONFIG_VARIABLE,
+        DATABASE_URL_VARIABLE,
+        "ROBINAUTS_GOOGLE_SECRET",
+    }
 
 
 def test_it_cannot_be_combined_with_a_sign_in_configuration(tmp_path: Path) -> None:

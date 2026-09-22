@@ -1,15 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""Reading the configuration: the file, the environment, and the start-up check.
+"""Reading the configuration: the file, the environment, and the start-up checks.
 
 Marked ``io``: it writes small files into a temporary directory and reads them
 back, which is the whole point -- a reader tested against a string would not
 be tested against a file that is a directory, or is not there.
 
-The last test here reads the very example in ``docs/specs/sign-in.md`` through
-both halves, ``adapters.read_toml`` and ``core.parse_sign_in_config``, because
-a documented example that does not parse is a bug report waiting to be filed.
+Both halves of the file are here: the sign-in tables with their client
+secrets, and the model tables with the providers' API keys. Neither secret is
+ever in the file, and neither check ever prints one.
+
+The last test of each half reads the very example in ``docs/specs/sign-in.md``
+and ``docs/specs/agents.md`` through both halves, ``adapters.read_toml`` and
+the matching parser, because a documented example that does not parse is a bug
+report waiting to be filed.
 """
 
 from __future__ import annotations
@@ -19,13 +24,30 @@ from pathlib import Path
 
 import pytest
 
-from robinauts.adapters import check_client_secrets, environment, read_toml
-from robinauts.core import parse_sign_in_config
-from robinauts.domain import ConfigError, Matcher, ProviderConfig, SignInConfig
+from robinauts.adapters import (
+    ProviderKeys,
+    check_api_keys,
+    check_client_secrets,
+    environment,
+    read_toml,
+)
+from robinauts.app import BUILDABLE_KINDS, WIRED_ENGINES
+from robinauts.core import parse_models_config, parse_sign_in_config
+from robinauts.domain import (
+    ConfigError,
+    Engine,
+    Matcher,
+    ModelProviderConfig,
+    ModelsConfig,
+    ProviderConfig,
+    ProviderKind,
+    SignInConfig,
+)
 
 pytestmark = pytest.mark.io
 
 SPEC = Path(__file__).resolve().parents[3] / "docs" / "specs" / "sign-in.md"
+AGENTS_SPEC = Path(__file__).resolve().parents[3] / "docs" / "specs" / "agents.md"
 
 GOOD = """
 public_url = "https://robinauts.example.com"
@@ -237,4 +259,148 @@ def test_the_example_still_names_the_variables_rather_than_the_secrets(tmp_path:
     assert config.provider("google").client_secret_env == "ROBINAUTS_GOOGLE_SECRET"
     with pytest.raises(ConfigError) as raised:
         check_client_secrets(config, secret_for=lambda name: None)
+    assert len(raised.value.problems) == 2
+
+
+# The model half of the same file: the keys, and where they are read from.
+
+
+def model_provider(name: str) -> ModelProviderConfig:
+    return ModelProviderConfig(
+        id=name, kind=ProviderKind.ANTHROPIC, api_key_env=f"ROBINAUTS_{name.upper()}_KEY"
+    )
+
+
+def with_models(*names: str) -> ModelsConfig:
+    return ModelsConfig(providers={name: model_provider(name) for name in names})
+
+
+def test_the_keys_of_every_provider_are_read_at_start_up() -> None:
+    held = {"ROBINAUTS_ONE_KEY": "a", "ROBINAUTS_TWO_KEY": "b"}
+
+    keys = check_api_keys(with_models("one", "two"), secret_for=held.get)
+
+    assert keys.key_for("one") == "a"
+    assert keys.key_for("two") == "b"
+
+
+def test_every_unset_key_variable_is_named_at_once() -> None:
+    held = {"ROBINAUTS_TWO_KEY": "b"}
+
+    with pytest.raises(ConfigError) as raised:
+        check_api_keys(with_models("one", "two", "three"), secret_for=held.get)
+
+    assert len(raised.value.problems) == 2
+    assert "ROBINAUTS_ONE_KEY" in raised.value.problems[0]
+    assert "ROBINAUTS_THREE_KEY" in raised.value.problems[1]
+
+
+def test_a_missing_key_is_reported_by_the_name_of_its_variable_and_never_a_value() -> None:
+    held = {"ROBINAUTS_ONE_KEY": "sk-the-real-key"}
+
+    with pytest.raises(ConfigError) as raised:
+        check_api_keys(with_models("one", "two"), secret_for=held.get)
+
+    assert "sk-the-real-key" not in str(raised.value)
+
+
+def test_an_empty_key_variable_is_an_unset_one() -> None:
+    with pytest.raises(ConfigError):
+        check_api_keys(with_models("one"), secret_for={"ROBINAUTS_ONE_KEY": ""}.get)
+
+
+def test_a_provider_no_model_uses_still_needs_its_key() -> None:
+    # It is a provider the operator meant to have; a deployment that started
+    # without its key would work until somebody picked the wrong agent.
+    with pytest.raises(ConfigError):
+        check_api_keys(with_models("unused"), secret_for=lambda name: None)
+
+
+def test_a_deployment_with_no_model_provider_has_no_key_to_read() -> None:
+    assert repr(check_api_keys(ModelsConfig(), secret_for=lambda name: None)) == "ProviderKeys()"
+
+
+def test_the_keys_print_the_providers_and_never_a_key() -> None:
+    keys = check_api_keys(with_models("one"), secret_for={"ROBINAUTS_ONE_KEY": "sk-secret"}.get)
+
+    assert repr(keys) == "ProviderKeys(one)"
+    assert "sk-secret" not in f"{keys!r} {keys}"
+
+
+def test_asking_for_a_provider_this_process_read_no_key_for_says_so() -> None:
+    keys = check_api_keys(with_models("one"), secret_for={"ROBINAUTS_ONE_KEY": "a"}.get)
+
+    with pytest.raises(ConfigError) as raised:
+        keys.key_for("two")
+
+    assert "model_providers.two" in str(raised.value)
+
+
+def test_the_keys_hold_a_copy_of_what_they_were_given() -> None:
+    given = {"one": "a"}
+    keys = ProviderKeys(given)
+
+    given["one"] = "changed"
+
+    assert keys.key_for("one") == "a"
+
+
+# The model half of the documented example, read through both halves.
+
+
+def models_examples() -> tuple[str, str]:
+    """The two TOML blocks of ``docs/specs/agents.md``, as they are written there.
+
+    The first is a configuration this build runs; the second shows the shape
+    of an OpenAI-compatible provider, which it refuses. Both are read here, and
+    each is held to the thing it is an example of.
+    """
+    blocks = re.findall(r"```toml\n(.*?)```", AGENTS_SPEC.read_text(encoding="utf-8"), re.DOTALL)
+    assert len(blocks) == 2, f"{AGENTS_SPEC} should hold two TOML examples, not {len(blocks)}"
+    return blocks[0], blocks[1]
+
+
+def test_the_model_example_in_the_specification_reads_and_parses(tmp_path: Path) -> None:
+    # With the kinds and engines a deployment really passes, so that the
+    # documented example is one an operator can start a server with.
+    deployable, _ = models_examples()
+
+    config = parse_models_config(
+        read_toml(written(tmp_path, deployable)),
+        engines=WIRED_ENGINES,
+        kinds=BUILDABLE_KINDS,
+    )
+
+    assert sorted(config.providers) == ["anthropic"]
+    assert config.providers["anthropic"].kind is ProviderKind.ANTHROPIC
+    assert config.models["sonnet"].name == "claude-sonnet-5"
+    assert config.models["sonnet"].timeout_seconds == 120.0
+    assert config.models["sonnet"].max_output_tokens == 8192
+    assert config.agents["assistant"].engine is Engine.LANGGRAPH
+
+
+def test_the_second_example_is_the_shape_this_build_refuses(tmp_path: Path) -> None:
+    # It is in the spec because the configuration language is settled; it is
+    # refused because the client that reaches it does not pass the licence
+    # policy (DEPENDENCIES.md, "Known exclusions").
+    _, not_buildable = models_examples()
+    tables = read_toml(written(tmp_path, not_buildable))
+
+    parsed = parse_models_config(tables)
+    with pytest.raises(ConfigError) as raised:
+        parse_models_config(tables, engines=WIRED_ENGINES, kinds=BUILDABLE_KINDS)
+
+    assert parsed.providers["openrouter"].kind is ProviderKind.OPENAI_COMPATIBLE
+    assert parsed.providers["openrouter"].base_url == "https://openrouter.ai/api/v1"
+    assert "this build cannot reach" in raised.value.problems[0]
+
+
+def test_the_model_example_names_the_variables_rather_than_the_keys(tmp_path: Path) -> None:
+    deployable, not_buildable = models_examples()
+    config = parse_models_config(read_toml(written(tmp_path, deployable + not_buildable)))
+
+    assert config.providers["anthropic"].api_key_env == "ROBINAUTS_ANTHROPIC_KEY"
+    assert config.providers["openrouter"].api_key_env == "ROBINAUTS_OPENROUTER_KEY"
+    with pytest.raises(ConfigError) as raised:
+        check_api_keys(config, secret_for=lambda name: None)
     assert len(raised.value.problems) == 2

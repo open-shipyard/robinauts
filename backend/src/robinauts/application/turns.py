@@ -356,7 +356,8 @@ class Turns:
             if definition.engine not in engines:
                 raise InvalidValueError(
                     f"agent {agent_id!r} runs on the {definition.engine.value} engine,"
-                    " which this deployment has not wired"
+                    " which this deployment has not wired: point the agent at an engine"
+                    " this build runs, or build one and hand it in"
                 )
         if isinstance(history_chars, bool) or not isinstance(history_chars, int):
             raise InvalidValueError(

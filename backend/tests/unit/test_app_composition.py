@@ -52,6 +52,7 @@ from fakes import (
 from robinauts.adapters import HttpIdentityProvider, SecretLookup
 from robinauts.app import (
     AUTH_CONFIG_VARIABLE,
+    CONFIG_VARIABLE,
     DATABASE_URL_VARIABLE,
     SHUTDOWN_SECONDS,
     Deployment,
@@ -64,6 +65,7 @@ from robinauts.domain import (
     AnswerStarted,
     AnswerTextDelta,
     ConfigError,
+    Engine,
     InvalidValueError,
     Run,
     RunQuietError,
@@ -213,7 +215,7 @@ def test_the_file_and_the_database_are_read_from_the_environment(
     deployment = Deployment.configured(
         secret_for=reading(
             {
-                AUTH_CONFIG_VARIABLE: str(path),
+                CONFIG_VARIABLE: str(path),
                 DATABASE_URL_VARIABLE: DATABASE_URL,
                 "ROBINAUTS_GOOGLE_SECRET": "a-secret",
             }
@@ -229,7 +231,7 @@ def test_a_deployment_that_was_told_nothing_says_what_to_set() -> None:
         Deployment.configured(secret_for=reading({}))
 
     problems = "\n".join(raised.value.problems)
-    assert AUTH_CONFIG_VARIABLE in problems
+    assert CONFIG_VARIABLE in problems
     assert DATABASE_URL_VARIABLE in problems
 
 
@@ -612,3 +614,409 @@ async def test_a_turn_begun_through_the_deployment_runs_to_its_end(tmp_path: Pat
     ended = await store.run_by_id(started.run.id)
     assert ended is not None and ended.state is RunState.FINISHED
     await deployment.aclose()
+
+
+# The model half of the configuration: the agents, their keys and their engine.
+
+
+MODEL_TABLES = """
+[model_providers.anthropic]
+kind = "anthropic"
+api_key_env = "ROBINAUTS_ANTHROPIC_KEY"
+
+[models.sonnet]
+provider = "anthropic"
+name = "claude-sonnet-5"
+
+[agents.assistant]
+title = "Assistant"
+model = "sonnet"
+engine = "langgraph"
+system_prompt = "Play fair."
+"""
+"""The model half, appended to the sign-in half: one file holds both."""
+
+WITH_AGENTS = CONFIGURATION + MODEL_TABLES
+
+BOTH_KEYS = {"ROBINAUTS_GOOGLE_SECRET": "a-secret", "ROBINAUTS_ANTHROPIC_KEY": "sk-not-a-real-key"}
+
+
+def with_agents(tmp_path: Path, text: str = WITH_AGENTS, **changes: object) -> Deployment:
+    """A deployment configured from a file that holds both halves.
+
+    In a directory of its own, because ``deployed`` writes its own file at
+    ``tmp_path`` under the same name and would overwrite this one.
+    """
+    here = tmp_path / "with-agents"
+    here.mkdir(exist_ok=True)
+    fields: dict[str, object] = {
+        "config_path": written(here, text),
+        "secret_for": reading(BOTH_KEYS),
+    }
+    fields.update(changes)
+    return deployed(tmp_path, **fields)
+
+
+@asyncio_test
+async def test_the_agents_of_the_configuration_are_wired_on_the_engine_they_name(
+    tmp_path: Path,
+) -> None:
+    # The whole of the model half, end to end through the composition root:
+    # the tables read, the key found, the engine built, and the agent handed
+    # to the run lifecycle -- which is what refuses an agent whose engine is
+    # not there.
+    deployment = with_agents(tmp_path)
+
+    await deployment.open()
+    try:
+        assert deployment.turns is not None
+        assert [definition.id for definition in deployment.turns.agents] == ["assistant"]
+        assert deployment.turns.agents[0].engine is Engine.LANGGRAPH
+        assert deployment.turns.agents[0].system_prompt == "Play fair."
+    finally:
+        await deployment.aclose()
+
+
+@asyncio_test
+async def test_a_deployment_whose_file_names_no_agent_starts_with_none(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Allowed, and said out loud: the picker has nothing in it and
+    # /api/agents is empty, which is what the local development mode has too.
+    with caplog.at_level(logging.INFO):
+        deployment = deployed(tmp_path)
+
+    await deployment.open()
+    try:
+        assert deployment.turns is not None
+        assert deployment.turns.agents == ()
+    finally:
+        await deployment.aclose()
+    assert any("no [agents] table" in record.message for record in caplog.records)
+
+
+def test_a_model_provider_whose_key_is_unset_stops_the_start_up(tmp_path: Path) -> None:
+    # Named at start-up, by the variable, so that a deployment never gets as
+    # far as a person waiting for an answer it cannot pay for.
+    with pytest.raises(ConfigError) as raised:
+        with_agents(tmp_path, secret_for=reading({"ROBINAUTS_GOOGLE_SECRET": "a-secret"}))
+
+    assert list(raised.value.problems) == [
+        "model_providers.anthropic: the API key is read from the environment variable"
+        " ROBINAUTS_ANTHROPIC_KEY, which is unset or empty"
+    ]
+
+
+def test_the_key_itself_is_in_none_of_what_a_start_up_refusal_says(tmp_path: Path) -> None:
+    text = WITH_AGENTS.replace(
+        'api_key_env = "ROBINAUTS_ANTHROPIC_KEY"', 'api_key_env = "sk-pasted-by-mistake"'
+    )
+
+    with pytest.raises(ConfigError) as raised:
+        with_agents(tmp_path, text)
+
+    assert "sk-pasted-by-mistake" not in str(raised.value)
+
+
+def test_an_agent_on_an_engine_this_build_does_not_run_stops_the_start_up(
+    tmp_path: Path,
+) -> None:
+    # The Pydantic AI adapter is a step of its own. Until it is written, an
+    # agent asking for it is a refusal that says what to do instead.
+    text = WITH_AGENTS.replace('engine = "langgraph"', 'engine = "pydantic-ai"')
+
+    with pytest.raises(ConfigError) as raised:
+        with_agents(tmp_path, text)
+
+    assert list(raised.value.problems) == [
+        "agents.assistant.engine: the pydantic-ai engine is not wired in this deployment;"
+        " set engine to one of langgraph"
+    ]
+
+
+def test_a_provider_of_a_kind_this_build_cannot_reach_stops_the_start_up(
+    tmp_path: Path,
+) -> None:
+    # A client whose dependency tree fails the licence policy is a provider
+    # this build does not offer (DEPENDENCIES.md).
+    text = WITH_AGENTS.replace('kind = "anthropic"', 'kind = "openai"')
+
+    with pytest.raises(ConfigError) as raised:
+        with_agents(tmp_path, text)
+
+    assert "this build cannot reach" in raised.value.problems[0]
+
+
+def test_both_halves_of_the_file_report_their_problems_together(tmp_path: Path) -> None:
+    # One file, two parsers, one refusal: an operator with a mistake in each
+    # half fixes a deployment in one pass.
+    text = WITH_AGENTS.replace("public_url =", "pulic_url =").replace(
+        'model = "sonnet"', 'model = "opus"'
+    )
+
+    with pytest.raises(ConfigError) as raised:
+        with_agents(tmp_path, text)
+
+    assert "unknown key 'pulic_url'" in raised.value.problems
+    assert "agents.assistant.model: 'opus' is not one of [models]" in raised.value.problems
+
+
+def test_an_engine_handed_in_is_the_engine_the_configuration_is_judged_against(
+    tmp_path: Path,
+) -> None:
+    # A test that wires a scripted engine is the deployment's whole answer to
+    # "which engines are there", so an agent on that engine is accepted and
+    # one on the engine this build happens to construct is not.
+    text = WITH_AGENTS.replace('engine = "langgraph"', 'engine = "pydantic-ai"')
+    engines = {Engine.PYDANTIC_AI: ScriptedAgent(*says("Answered."))}
+
+    deployment = with_agents(tmp_path, text, engines=engines)
+
+    assert deployment is not None
+    with pytest.raises(ConfigError) as raised:
+        with_agents(tmp_path, WITH_AGENTS, engines=engines)
+    assert "the langgraph engine is not wired" in raised.value.problems[0]
+
+
+# One file, two halves, and which halves each mode reads.
+
+
+MODELS_ONLY = MODEL_TABLES
+"""A configuration file with no sign-in in it at all: the local mode's."""
+
+LOCAL_HOST = "127.0.0.1"
+
+
+def developed(tmp_path: Path, text: str | None = None, **changes: object) -> Deployment:
+    """A deployment in the local development mode, with or without a file."""
+    here = tmp_path / "developed"
+    here.mkdir(exist_ok=True)
+    fields: dict[str, object] = {
+        "local_development_host": LOCAL_HOST,
+        "config_path": None if text is None else written(here, text),
+        "database_url": DATABASE_URL,
+        "secret_for": reading(BOTH_KEYS),
+        "credentials": MemoryCredentialStore(),
+        "conversation_store": MemoryConversationStore(),
+        "clock": FakeClock(),
+    }
+    fields.update(changes)
+    return Deployment.configured(**fields)  # type: ignore[arg-type]
+
+
+@asyncio_test
+async def test_the_local_development_mode_with_no_file_has_no_agents(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO):
+        deployment = developed(tmp_path)
+
+    await deployment.open()
+    try:
+        assert deployment.turns is not None
+        assert deployment.turns.agents == ()
+        assert deployment.local_access is not None
+    finally:
+        await deployment.aclose()
+    assert any("no [agents] table" in record.message for record in caplog.records)
+
+
+@asyncio_test
+async def test_the_local_development_mode_may_be_given_the_model_tables(
+    tmp_path: Path,
+) -> None:
+    # The chat is developed in this mode (docs/specs/frontend.md), and a chat
+    # needs an agent: the mode has no sign-in, not no configuration.
+    deployment = developed(tmp_path, MODELS_ONLY)
+
+    await deployment.open()
+    try:
+        assert deployment.turns is not None
+        assert [definition.id for definition in deployment.turns.agents] == ["assistant"]
+        assert deployment.turns.agents[0].engine is Engine.LANGGRAPH
+        # Still the local mode: nobody signs in, and one user is everybody.
+        assert deployment.sign_in is None
+        assert deployment.local_access is not None
+    finally:
+        await deployment.aclose()
+
+
+def test_the_local_development_mode_checks_the_model_keys_the_same_way(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(ConfigError) as raised:
+        developed(tmp_path, MODELS_ONLY, secret_for=reading({}))
+
+    assert list(raised.value.problems) == [
+        "model_providers.anthropic: the API key is read from the environment variable"
+        " ROBINAUTS_ANTHROPIC_KEY, which is unset or empty"
+    ]
+
+
+def test_the_local_development_mode_refuses_a_file_that_holds_sign_in(
+    tmp_path: Path,
+) -> None:
+    # The mode exists where there is nothing to sign in to, so sign-in in its
+    # file is a file written for another deployment.
+    with pytest.raises(ConfigError) as raised:
+        developed(tmp_path, WITH_AGENTS)
+
+    assert any("cannot be combined" in problem for problem in raised.value.problems)
+
+
+@pytest.mark.parametrize("table", ['public_url = "https://x.example"', "[[admin]]\nprovider = 'g'"])
+def test_any_sign_in_table_at_all_is_what_that_refusal_looks_for(
+    tmp_path: Path, table: str
+) -> None:
+    # Including `admin`, which only the sign-in parser refuses by name and
+    # which nothing would read in this mode.
+    with pytest.raises(ConfigError) as raised:
+        developed(tmp_path, f"{table}\n{MODELS_ONLY}")
+
+    assert any("cannot be combined" in problem for problem in raised.value.problems)
+
+
+def test_a_misspelt_table_is_still_refused_in_the_local_development_mode(
+    tmp_path: Path,
+) -> None:
+    # Reading only one half is not reading it loosely.
+    with pytest.raises(ConfigError) as raised:
+        developed(tmp_path, MODELS_ONLY.replace("[models.sonnet]", "[modles.sonnet]"))
+
+    assert "unknown key 'modles'" in raised.value.problems
+
+
+# The variable that names the file, and the name it used to have.
+
+
+def test_the_old_variable_still_names_the_file_and_says_so(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A deployment written against ROBINAUTS_AUTH_CONFIG goes on starting, and
+    # is told once to rename the variable. An alias that worked silently is an
+    # alias nobody ever renames.
+    path = written(tmp_path)
+
+    with caplog.at_level(logging.WARNING):
+        deployment = Deployment.configured(
+            secret_for=reading(
+                {
+                    AUTH_CONFIG_VARIABLE: str(path),
+                    DATABASE_URL_VARIABLE: DATABASE_URL,
+                    "ROBINAUTS_GOOGLE_SECRET": "a-secret",
+                }
+            ),
+        )
+
+    assert deployment.config is not None
+    assert deployment.config.public_url == "https://robinauts.example.com"
+    warned = [record.getMessage() for record in caplog.records if record.levelno >= logging.WARNING]
+    assert any(AUTH_CONFIG_VARIABLE in message and CONFIG_VARIABLE in message for message in warned)
+
+
+def test_the_new_variable_wins_when_both_are_set_and_the_old_one_is_ignored(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Two names for one file are two files waiting to disagree, so which one
+    # was read is said out loud.
+    other = tmp_path / "other"
+    other.mkdir()
+    wanted = written(
+        tmp_path,
+        CONFIGURATION.replace("https://robinauts.example.com", "https://wanted.example.com"),
+    )
+    ignored = written(other, CONFIGURATION)
+
+    with caplog.at_level(logging.WARNING):
+        deployment = Deployment.configured(
+            secret_for=reading(
+                {
+                    CONFIG_VARIABLE: str(wanted),
+                    AUTH_CONFIG_VARIABLE: str(ignored),
+                    DATABASE_URL_VARIABLE: DATABASE_URL,
+                    "ROBINAUTS_GOOGLE_SECRET": "a-secret",
+                }
+            ),
+        )
+
+    assert deployment.config is not None
+    assert deployment.config.public_url == "https://wanted.example.com"
+    assert any("is ignored" in record.getMessage() for record in caplog.records)
+
+
+def test_a_deployment_named_no_file_at_all_is_not_warned_about_the_old_name(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level(logging.WARNING), pytest.raises(ConfigError):
+        Deployment.configured(secret_for=reading({}))
+
+    assert not [record for record in caplog.records if AUTH_CONFIG_VARIABLE in record.getMessage()]
+
+
+# Agents handed in, and the engines that must be able to run them.
+
+
+def test_an_agent_handed_in_must_run_on_a_model_the_configuration_has(
+    tmp_path: Path,
+) -> None:
+    # Handing in agents and not engines means they will be run by the engine
+    # built from the configuration file, so a model that is not in it is a
+    # turn that would fail in the middle -- the engine looking a model up and
+    # finding nothing. Said at start-up instead.
+    definition = agent_definition(id="stranger", model="opus", engine=Engine.LANGGRAPH)
+
+    with pytest.raises(ConfigError) as raised:
+        with_agents(tmp_path, agents={definition.id: definition})
+
+    (problem,) = raised.value.problems
+    assert problem.startswith("the agent 'stranger' that was handed in runs on model 'opus'")
+    assert "hand in the engine" in problem
+
+
+NO_AGENT_TABLE = CONFIGURATION + MODEL_TABLES.partition("[agents.assistant]")[0]
+"""Both halves of the file, with the provider and the model but no agent."""
+
+
+def test_an_agent_handed_in_with_its_own_engine_is_nobody_else_s_business(
+    tmp_path: Path,
+) -> None:
+    # The engine that was handed in is what will run it, and what model it can
+    # reach is that engine's affair, not this file's.
+    definition = agent_definition(id="stranger", model="opus", engine=Engine.PYDANTIC_AI)
+
+    deployment = with_agents(
+        tmp_path,
+        NO_AGENT_TABLE,
+        agents={definition.id: definition},
+        engines={Engine.PYDANTIC_AI: ScriptedAgent(*says("Answered."))},
+    )
+
+    assert deployment is not None
+
+
+def test_an_agent_handed_in_that_the_configuration_does_know_is_accepted(
+    tmp_path: Path,
+) -> None:
+    definition = agent_definition(id="assistant", model="sonnet", engine=Engine.LANGGRAPH)
+
+    deployment = with_agents(tmp_path, agents={definition.id: definition})
+
+    assert deployment is not None
+
+
+def test_an_agent_handed_in_must_run_on_an_engine_this_build_constructs(
+    tmp_path: Path,
+) -> None:
+    # Handed in without an engine, and asking for one this build does not
+    # make: a `ConfigError` at start-up, beside every other problem, rather
+    # than the `InvalidValueError` the run lifecycle would raise at `open`.
+    definition = agent_definition(id="stranger", model="sonnet", engine=Engine.PYDANTIC_AI)
+
+    with pytest.raises(ConfigError) as raised:
+        with_agents(tmp_path, NO_AGENT_TABLE, agents={definition.id: definition})
+
+    (problem,) = raised.value.problems
+    assert problem.startswith(
+        "the agent 'stranger' that was handed in runs on the pydantic-ai engine"
+    )
+    assert "hand in the engine" in problem

@@ -15,12 +15,18 @@ start-up failure has a path to look at and nothing else. TOML puts the line
 and the column of a syntax error in its own message, so the message is
 repeated whole.
 
-``environment`` and ``check_client_secrets`` are the other half. A secret is
-never in the file: a provider names the environment variable its client secret
-is read from (``docs/specs/operations.md``), and this is the layer that may
-touch the environment. The check exists so that a deployment with three
-providers and three unset variables is told about all three at once, at
-start-up, rather than one at a time as people try to sign in.
+``environment``, ``check_client_secrets`` and ``check_api_keys`` are the other
+half. A secret is never in the file: a provider names the environment variable
+its client secret or its model API key is read from
+(``docs/specs/operations.md``), and this is the layer that may touch the
+environment. The checks exist so that a deployment with three providers and
+three unset variables is told about all three at once, at start-up, rather
+than one at a time as people try to sign in or to ask an agent something.
+
+What ``check_api_keys`` read travels on in a ``ProviderKeys``, which prints
+nothing: the keys have to reach the engine adapter, and the shortest path
+from the environment to the vendor's client is the one with the fewest places
+a key could be written down.
 """
 
 from __future__ import annotations
@@ -31,7 +37,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from robinauts.domain import ConfigError, SignInConfig
+from robinauts.domain import ConfigError, ModelsConfig, SignInConfig
 
 SecretLookup = Callable[[str], str | None]
 """How a secret is asked for: given a variable's name, its value or ``None``.
@@ -108,6 +114,89 @@ def check_client_secrets(config: SignInConfig, *, secret_for: SecretLookup = env
     ]
     if problems:
         raise ConfigError(problems)
+
+
+class ProviderKeys:
+    """The model providers' API keys, as this process read them, and nothing else.
+
+    **A carrier, not a store.** It exists so that a key can be handed from the
+    one layer that may read the environment to the one layer that talks to a
+    vendor, without passing through anything that might write it down. What it
+    promises is what it refuses to do:
+
+    - it **prints nothing**. ``repr`` and ``str`` name the providers it holds
+      and never a key, so a key cannot reach a log, a traceback frame summary
+      or a debugger transcript by being somewhere a value is formatted;
+    - it holds a **copy**, so the mapping a caller built cannot be edited
+      behind the engine's back;
+    - it is **not iterable** and has no ``items``: the only question it
+      answers is "the key for this provider", which is the only question an
+      engine has.
+
+    It carries the values rather than the ``SecretLookup`` they came from,
+    because the promise made at start-up is that the environment was read
+    *then*: a deployment that started is a deployment whose keys were there,
+    and a variable unset later must not turn into a turn that fails halfway
+    (``docs/specs/agents.md``).
+    """
+
+    __slots__ = ("_keys",)
+
+    def __init__(self, keys: Mapping[str, str]) -> None:
+        self._keys = dict(keys)
+
+    def key_for(self, provider_id: str) -> str:
+        """The key of that provider; ``ConfigError`` if this process has none.
+
+        Unreachable in a deployment that started, because ``check_api_keys``
+        is what lets one start; it is here so that a mistake in the wiring is
+        a refusal naming the provider rather than a ``KeyError`` in the middle
+        of somebody's turn.
+        """
+        try:
+            return self._keys[provider_id]
+        except KeyError:
+            raise ConfigError(
+                [f"model_providers.{provider_id}: no key was read for this provider"]
+            ) from None
+
+    def __repr__(self) -> str:
+        """The providers, never the keys: this is what a log line would hold."""
+        return f"ProviderKeys({', '.join(sorted(self._keys))})"
+
+
+def check_api_keys(config: ModelsConfig, *, secret_for: SecretLookup = environment) -> ProviderKeys:
+    """Read every model provider's key, refusing if any variable is unset.
+
+    **Every** missing variable is reported at once, in one ``ConfigError``,
+    the same promise and for the same reason as ``check_client_secrets``: a
+    deployment with three providers and three unset variables is fixed in one
+    pass. Only the variable's **name** is in the message.
+
+    Every **declared** provider is looked at, whether or not a model uses it.
+    A provider in the file is a provider the operator meant to have, and a
+    deployment that started with one of its keys missing would be a deployment
+    that works until somebody picks the wrong agent.
+
+    It returns what it read, because the read that proves a variable is set is
+    the read whose result is used: going back to the environment later would
+    be a second answer to a question already asked, and a chance for the two
+    to differ.
+    """
+    problems: list[str] = []
+    keys: dict[str, str] = {}
+    for provider in config.providers.values():
+        key = secret_for(provider.api_key_env)
+        if key:
+            keys[provider.id] = key
+        else:
+            problems.append(
+                f"model_providers.{provider.id}: the API key is read from the environment"
+                f" variable {provider.api_key_env}, which is unset or empty"
+            )
+    if problems:
+        raise ConfigError(problems)
+    return ProviderKeys(keys)
 
 
 def _named(path: str | os.PathLike[str]) -> str:

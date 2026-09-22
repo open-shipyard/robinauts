@@ -116,7 +116,20 @@ runs every turn the same way:
   model — taken from the provider's response.
 - **Nothing phones home.** The engines never enable a framework's hosted
   tracing: LangSmith and Pydantic Logfire stay off whatever the
-  environment says. The adapter sets this explicitly.
+  environment says. The adapter sets this explicitly, and where a framework
+  reads a variable that a switch cannot reach — LangChain's version 1
+  tracer, which raises when it is asked for and version 2 is off — the
+  adapter unsets the variable rather than leaving a turn to fail over it.
+- **A vendor's endpoint is not taken from the environment either.** Every
+  client is built with the endpoint it is to use: the one the operator
+  configured (`base_url`, for an `openai-compatible` provider) or the
+  vendor's own, named as a constant in the adapter. Left to the client,
+  `ANTHROPIC_BASE_URL` and its equivalents would send a turn — and the
+  operator's key — to whatever host a stale export named. For the same
+  reason the key is always passed and never left to a client's
+  `*_API_KEY` fallback, and a vendor-specific proxy variable is pinned off;
+  an operator's proxy is `HTTPS_PROXY`, which every outbound call of the
+  process obeys.
 
 ## Tools
 
@@ -124,6 +137,10 @@ runs every turn the same way:
   the conversation format and the wire leave room for tool calls and
   results, and runs are designed for tools of any duration
   ([runs.md](runs.md)).
+- Until then, a model that **asks** to use a tool fails the turn: an engine
+  raises rather than passing the call over. Everything after the call would
+  belong to an answer that cannot be produced, so a turn that carried on
+  would store half an answer that looks whole.
 
 ## Details likely to change
 
@@ -140,27 +157,43 @@ runs every turn the same way:
   offered by that engine until it passes.
 - Not every model has to exist under both engines, but an agent's engine
   can be swapped only if its model does.
-- A sketch of the configuration:
+- A sketch of the configuration. It is written in the **same file** as
+  sign-in ([sign-in.md](sign-in.md)), which is why the model providers are
+  `[model_providers.*]` and not `[providers.*]`: that name is already the
+  identity providers people sign in with, and one file cannot have a table
+  that means one of them here and the other there. `timeout_seconds` (per
+  model call) and `max_output_tokens` are optional; what they default to is
+  the platform's and the engine's business respectively.
 
 ```toml
-[providers.anthropic]
+[model_providers.anthropic]
 kind = "anthropic"
 api_key_env = "ROBINAUTS_ANTHROPIC_KEY"
-
-[providers.openrouter]
-kind = "openai-compatible"
-base_url = "https://openrouter.ai/api/v1"
-api_key_env = "ROBINAUTS_OPENROUTER_KEY"
 
 [models.sonnet]
 provider = "anthropic"
 name = "claude-sonnet-5"
+timeout_seconds = 120
+max_output_tokens = 8192
 
 [agents.assistant]
 title = "Assistant"
 model = "sonnet"
-engine = "pydantic-ai"        # or "langgraph"
-system_prompt = "..."
+engine = "langgraph"
+system_prompt = "Play fair."
+```
+
+  The other two kinds are written the same way. **This build refuses them**
+  at start-up, naming the provider, because the client that reaches them
+  does not pass the dependency policy (see "Known findings" below); the
+  shape is settled all the same, and `base_url` belongs to
+  `openai-compatible` and to nothing else:
+
+```toml
+[model_providers.openrouter]
+kind = "openai-compatible"
+base_url = "https://openrouter.ai/api/v1"
+api_key_env = "ROBINAUTS_OPENROUTER_KEY"
 ```
 
 ## Known findings
@@ -168,3 +201,19 @@ system_prompt = "..."
 - `langgraph-checkpoint-postgres` depends on `psycopg`, which is
   LGPL-3.0-only. It cannot be adopted as it is (ADR 0002). The LangGraph
   core is not affected.
+- `langchain-openai` requires `tiktoken`, which states its licence as the
+  licence *text* and no identifier, and which in turn requires `regex`,
+  `Apache-2.0 AND CNRI-Python`. Neither resolves under the policy, so the
+  client is not adopted and the LangGraph engine offers **Anthropic alone**
+  for now: OpenAI, OpenRouter and every other OpenAI-compatible endpoint
+  wait for a tree that passes ([DEPENDENCIES.md](../../DEPENDENCIES.md),
+  "Known exclusions"). The configuration still names the three kinds — the
+  vocabulary is the platform's — and a deployment asking for a kind this
+  build cannot reach is refused at start-up, saying so.
+- `langsmith` is a hard dependency of `langchain-core`, and the LangGraph
+  adapter imports it for **one call**: `langsmith.configure(enabled=False)`,
+  made when the engine is constructed, which is the switch langchain-core
+  itself consults before the environment. Nothing else in the platform uses
+  it, nothing is sent to it, no tracer is ever attached and no client is
+  ever built. Because it is imported rather than merely installed, it is a
+  direct dependency and is pinned as one.

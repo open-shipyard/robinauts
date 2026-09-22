@@ -9,7 +9,9 @@ the package (``docs/layout.md``). What sign-in needs is here: the allow list,
 the ID token's claims, the URLs, and the configuration's rules. So is what the
 conversation format needs: the rules of the tree, the one canonical encoding
 of a message, the derived title, the history a model is given, and where a run
-may go next.
+may go next. **One file holds two configurations** -- sign-in and models --
+and each parser is handed the whole of it and reads its own share, which is
+what ``TOP_LEVEL_KEYS`` is for.
 """
 
 from robinauts.core.allow import ascii_lower, is_allowed, matches, verified_email
@@ -70,6 +72,14 @@ from robinauts.core.hashing import (
     secret_hash,
 )
 from robinauts.core.history import history_chars, message_chars, trim_history
+from robinauts.core.models_config import (
+    AGENT_KEYS,
+    ALL_ENGINES,
+    ALL_KINDS,
+    MODEL_ENTRY_KEYS,
+    MODEL_PROVIDER_KEYS,
+    parse_models_config,
+)
 from robinauts.core.oidc import (
     AUTHORIZATION_PARAMETERS,
     MAX_CODE_CHARS,
@@ -95,7 +105,12 @@ from robinauts.core.runs import (
     run_error,
     transition,
 )
-from robinauts.core.sign_in_config import parse_sign_in_config
+from robinauts.core.sign_in_config import (
+    MODEL_KEYS,
+    SIGN_IN_KEYS,
+    TOP_LEVEL_KEYS,
+    parse_sign_in_config,
+)
 from robinauts.core.titles import (
     ELLIPSIS,
     MAX_TITLE_LINES,
@@ -117,6 +132,9 @@ from robinauts.core.urls import (
 )
 
 __all__ = [
+    "AGENT_KEYS",
+    "ALL_ENGINES",
+    "ALL_KINDS",
     "AUTHORIZATION_PARAMETERS",
     "CLOCK_SKEW_SECONDS",
     "DEFAULT_RETURN_TO",
@@ -137,12 +155,17 @@ __all__ = [
     "MESSAGE_COMPLETED",
     "MESSAGE_STARTED",
     "MIN_SECRET_CHARS",
+    "MODEL_ENTRY_KEYS",
+    "MODEL_KEYS",
+    "MODEL_PROVIDER_KEYS",
     "REASONING_DELTA",
     "RUN_ENDED",
     "RUN_STARTED",
     "RUN_TRANSITIONS",
+    "SIGN_IN_KEYS",
     "TEXT_DELTA",
     "TOKEN_PARAMETERS",
+    "TOP_LEVEL_KEYS",
     "TRUNCATED",
     "UNRESERVED",
     "UNSAID_ERROR",
@@ -190,6 +213,7 @@ __all__ = [
     "normalise_issuer",
     "normalise_origin",
     "parameters_taken",
+    "parse_models_config",
     "parse_sign_in_config",
     "part_from_data",
     "part_to_data",

@@ -213,14 +213,29 @@ Each agent adapter translates between the platform's conversation format
 and its framework's format, in both directions, on every turn (ADR 0002).
 The frameworks are confined to their own sub-package:
 
-- only `adapters/agents/langgraph/` may import `langgraph`, `langchain` or
-  `langchain_core`;
+- only `adapters/agents/langgraph/` may import `langgraph`, `langchain`,
+  `langchain_core`, a `langchain_*` provider client, or `langsmith` — which
+  that adapter imports for exactly one call, the one that turns hosted
+  tracing off, and which is named in the rule so that "nothing phones home"
+  cannot become an import somewhere nobody was looking;
 - only `adapters/agents/pydantic_ai/` may import `pydantic_ai`;
 - the two do not import each other.
 
+**How that is enforced**, which matters as much as the rule: the contract's
+source is the whole `robinauts.adapters` **package**, so a module added to
+that layer tomorrow is inside the rule without anybody remembering to list
+it, and the one sub-package that may import the framework is written as an
+*exception* to the rule rather than as an omission from it. A test writes a
+module into `adapters/` that imports the framework and asserts the contract
+breaks (`tests/unit/test_architecture.py`).
+
 This is the backend's counterpart of the frontend seam in ADR 0001.
 **The discard test:** deleting either sub-package and its dependencies must
-leave exactly one thing broken — the line in `app.py` that constructs it.
+leave exactly four things broken, and every one of them names the adapter:
+the import in `app.py` and its one entry in that module's `ENGINES` table;
+the two contract exceptions in `backend/pyproject.toml` that name the
+sub-package; and the sub-package's own tests. Nothing else in the platform
+mentions it.
 
 Depends on ports and domain. Must not reference core, datastore,
 application or api.
@@ -325,8 +340,8 @@ cover:
 - FastAPI, Starlette and uvicorn are imported only under `api` and in the
   composition root (`app.py`, `cli.py`)
 - `ag_ui` is imported only under `api`
-- LangGraph and LangChain are imported only under
-  `adapters/agents/langgraph`
+- LangGraph, LangChain, its provider clients and `langsmith` are imported
+  only under `adapters/agents/langgraph`
 - Pydantic AI is imported only under `adapters/agents/pydantic_ai`
 - the two agent adapters do not import each other
 

@@ -27,9 +27,16 @@ What an internal platform team deploys and controls.
 
 - Files, version-controllable, with no secret in them: a secret is always
   given as the *name* of an environment variable.
+- **One file names the deployment**, and `ROBINAUTS_CONFIG` names the file.
+  It was `ROBINAUTS_AUTH_CONFIG` while sign-in was all the file held; that
+  name is still read, with a warning at start-up, and is deprecated. If both
+  are set, `ROBINAUTS_CONFIG` is what is read and the start-up log says so.
 - What the operator configures: sign-in providers, the allow list and the
   admins ([sign-in.md](sign-in.md)); model providers, models and agents
   ([agents.md](agents.md)); limits and retention (below).
+- The **local development mode** ([sign-in.md](sign-in.md)) may be given the
+  same file and reads only its model tables; a file that also holds sign-in
+  tables is a start-up refusal there.
 - Unknown keys are errors, and all problems are reported at once, at
   start-up.
 

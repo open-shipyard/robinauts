@@ -25,7 +25,9 @@ that are in ``backend/pyproject.toml`` and are run by the test suite.
 
 from robinauts.adapters.clock import SystemClock
 from robinauts.adapters.config_file import (
+    ProviderKeys,
     SecretLookup,
+    check_api_keys,
     check_client_secrets,
     environment,
     read_toml,
@@ -75,8 +77,10 @@ __all__ = [
     "MemoryRunSignals",
     "OsIdSource",
     "OsSecretSource",
+    "ProviderKeys",
     "SecretLookup",
     "SystemClock",
+    "check_api_keys",
     "check_client_secrets",
     "environment",
     "open_client",

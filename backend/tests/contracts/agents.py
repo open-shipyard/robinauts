@@ -20,6 +20,18 @@ suite never says how, and asks nothing about the framework.
 handed its own model id or a longer history says so there. What is **not**
 overridable is any of the promises below.
 
+Two declarations say what a turn of this engine **can be scripted into**, and
+neither weakens a promise: they say which of the situations the port allows
+this engine ever produces, and the promises are then checked on what it does
+produce. ``answers_per_turn`` is how many answers of a script one turn can
+hold -- one, for an engine whose graph calls the model once and ends -- and
+``can_answer_without_streaming`` is whether it can be asked for an answer with
+no text delta in it at all. The port allows either side of both
+(``robinauts.core.check_engine_events``), so an engine that always streams and
+answers once is as good a citizen as one that does neither; what would not be
+allowed, and is checked on every turn either way, is two answers interleaved
+or an answer completing with something other than what it streamed.
+
 The five situations, which are the ones the application distinguishes:
 
 - an answer that is **streamed**: announced, its text in deltas, completed
@@ -102,8 +114,30 @@ class Script:
     ending: Ending = Ending.COMPLETE
 
 
+ANSWERS = ("First.", "Second.")
+"""What the several-answers script asks for, as far as the engine goes."""
+
+
 class AgentContract:
     """Subclass this and override ``new_agent``."""
+
+    answers_per_turn: int = len(ANSWERS)
+    """How many answers of a script one turn of this engine can hold.
+
+    **One** for an engine whose graph calls the model once and ends: a second
+    answer is not something such an engine can be asked for, and the port does
+    not ask for one -- "a turn produces at least one answer". Lowering it
+    lowers what the script says, not what the turn is held to.
+    """
+
+    can_answer_without_streaming: bool = True
+    """Whether a turn of this engine can be scripted to yield no text delta.
+
+    ``False`` for an engine whose framework hands the answer over in pieces
+    however the provider sent it: what is then streamed is one piece, which is
+    streaming. The half of the promise that still holds -- and that is checked
+    -- is that what it streamed is what it completed with.
+    """
 
     def new_agent(self, script: Script) -> Agent:
         """An engine whose model says that, and which reaches no provider."""
@@ -117,6 +151,12 @@ class AgentContract:
         it cannot be checked from outside: only the implementation knows what
         it opened. An engine over a framework answers with the number of
         streams, responses or clients it has not closed.
+
+        It may be **engine-wide** rather than per turn -- a deployment shares
+        one engine between every conversation, so "is anything still open" is
+        the question an implementation can cheaply answer. The suite asks it
+        only between turns, and runs one turn at a time, which is when that
+        answer and "is *this* turn still open" are the same answer.
         """
         raise NotImplementedError("an AgentContract subclass overrides `held`")
 
@@ -160,17 +200,20 @@ class AgentContract:
         seen = await self.turn(Script(answers=(Say("All of it at once.", streamed=False),)))
 
         check_engine_events(seen)
-        assert not [event for event in seen if isinstance(event, AnswerTextDelta)]
+        if self.can_answer_without_streaming:
+            assert not [event for event in seen if isinstance(event, AnswerTextDelta)]
         assert _completed(seen) == ["All of it at once."]
 
     @asyncio_test
-    async def test_a_turn_may_produce_several_answers_one_after_another(self) -> None:
-        seen = await self.turn(Script(answers=(Say("First."), Say("Second."))))
+    async def test_a_turn_produces_its_answers_one_after_another(self) -> None:
+        wanted = list(ANSWERS[: self.answers_per_turn])
+        assert wanted, "a turn holds at least one answer"
+        seen = await self.turn(Script(answers=tuple(Say(text) for text in wanted)))
 
         # One at a time and never interleaved: `check_engine_events` is what
         # says so, and it is the same rule the application publishes by.
         check_engine_events(seen)
-        assert _completed(seen) == ["First.", "Second."]
+        assert _completed(seen) == wanted
 
     @asyncio_test
     async def test_what_was_streamed_is_what_the_answer_completes_with(self) -> None:

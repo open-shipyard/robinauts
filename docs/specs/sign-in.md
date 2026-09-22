@@ -101,6 +101,14 @@ With providers configured and no allow entry, start-up fails.
   for both is a start-up refusal. **No environment variable switches it
   on** — only the argument the starting command passes — so nothing a
   process inherits can turn sign-in off in a deployment.
+- It may still be given the **configuration file** (`ROBINAUTS_CONFIG`),
+  and then **only its model tables are read** ([agents.md](agents.md)):
+  the chat is developed in this mode ([frontend.md](frontend.md)) and a
+  chat needs an agent. A file that also holds sign-in tables — `public_url`,
+  `session_hours`, `providers`, `allow`, `admin` — is what "cannot be
+  combined" refuses,
+  because the mode exists where there is nothing to sign in to. With no
+  file, the mode starts with no agents and the agent list is empty.
 - It serves the loopback interface only, and refuses to start on any other
   address. Two rules hold that, and they are deliberately of different
   strictness. **What may be bound**: a literal loopback address, or exactly
@@ -136,9 +144,10 @@ With providers configured and no allow entry, start-up fails.
 
 ## Details likely to change
 
-Configuration — a TOML file; secrets are given as the *name* of an
-environment variable; unknown keys are errors; all problems are reported
-at once:
+Configuration — one TOML file, named by `ROBINAUTS_CONFIG`, holding the
+sign-in tables below and the model tables of [agents.md](agents.md);
+secrets are given as the *name* of an environment variable; unknown keys
+are errors; all problems are reported at once:
 
 ```toml
 public_url = "https://robinauts.example.com"

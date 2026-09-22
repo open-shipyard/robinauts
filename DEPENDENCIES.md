@@ -57,7 +57,15 @@ datasets are shipped. No third-party logos are shipped.
 ## Adopting or upgrading a dependency
 
 1. One dependency change per pull request, and the pull request says why
-   the dependency is needed and what was considered instead.
+   the dependency is needed and what was considered instead. A framework and
+   the provider clients it is reached through count as **one** change: they
+   are adopted or rejected together — a framework with no client reaches no
+   vendor — and the gate reads the whole tree either way, so splitting them
+   over two pull requests would mean reviewing half a tree twice. A framework and
+   the provider clients it is reached through count as **one** change: they
+   are adopted or rejected together — a framework with no client reaches no
+   vendor — and the gate reads the whole tree either way, so splitting them
+   over two pull requests would mean reviewing half a tree twice.
 2. The licence of the package and of everything it brings is on the allowed
    list — or restricted, and then added to the table below in the same
    pull request. The licence is re-checked on every upgrade: a minor
@@ -122,6 +130,7 @@ through on its name:
 |---|---|---|---|
 | `pathspec` | MPL-2.0 | development only; brought by `black` | unmodified, not shipped in any artifact |
 | `certifi` | MPL-2.0 | runtime; brought by `httpx` and `httpcore` | unmodified, and not bundled: it is installed by the package manager from PyPI, never vendored into this repository and never copied inside the wheel. It is the CA bundle the HTTPS client verifies identity providers with, which is why the sign-in adapter can insist on TLS verification with no way to turn it off |
+| `orjson` | MPL-2.0 | runtime; brought by `langgraph-sdk` and `langsmith`, which `langgraph` and `langchain-core` require | unmodified, unbundled, installed from PyPI as a wheel and never vendored. Its metadata states `MPL-2.0 AND (Apache-2.0 OR MIT)`: its own code is dual Apache-2.0/MIT and the MPL-2.0 part is code it carries; MPL-2.0 is the only restricted licence it names. Both packages that bring it are hard dependencies of the framework. `langgraph-sdk` is the LangGraph Platform client and is not used at all — the adapter compiles its graph with no checkpointer and reaches no platform. `langsmith` is used for exactly one thing: `langsmith.configure(enabled=False)`, which is how the adapter turns hosted tracing off ([docs/specs/agents.md](docs/specs/agents.md)); nothing is sent to it, and no LangSmith client is ever built |
 
 ## Excepted development-only dependencies
 
@@ -138,4 +147,7 @@ in; the gate checks both.
 |---|---|---|
 | `psycopg`, `psycopg-pool` | LGPL-3.0-only | not used; the PostgreSQL driver is `asyncpg` |
 | `langgraph-checkpoint-postgres` | MIT, but depends on `psycopg` | cannot be adopted as it is ([ADR 0002](docs/adr/0002-conversation-persistence.md)) |
+| `tiktoken` | MIT by its LICENSE file, but its metadata puts the licence *text* in the `License` field and states no identifier anywhere | the gate fails closed and cannot classify it |
+| `regex` | `Apache-2.0 AND CNRI-Python`, and CNRI-Python is on no list above | not classifiable under the policy as it stands; adding a licence to the allowed list is a decision for a person, not for a build |
+| `langchain-openai` | MIT, but requires `tiktoken`, which requires `regex` | not adopted: the LangGraph engine offers Anthropic alone. OpenAI, OpenRouter and any other OpenAI-compatible endpoint go through this client ([docs/specs/agents.md](docs/specs/agents.md)) and wait for a tree that passes |
 | `pgserver` | no licence metadata published | not a dependency; tests take the URL of a PostgreSQL they are given |

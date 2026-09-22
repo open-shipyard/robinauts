@@ -53,6 +53,7 @@ from robinauts.domain import (
     LOCAL_PROVIDER,
     LOCAL_SUBJECT,
     LOCAL_USER_NAME,
+    ConfigError,
     Conversation,
     Message,
     Role,
@@ -67,6 +68,7 @@ pytestmark = requires_postgres
 
 PUBLIC_URL = "https://robinauts.example.com"
 SECRET_VARIABLE = "ROBINAUTS_STAND_IN_SECRET"
+KEY_VARIABLE = "ROBINAUTS_ANTHROPIC_KEY"
 
 LOCAL_URL = "http://127.0.0.1:8000"
 """Where the local development mode is served here, port and all."""
@@ -104,7 +106,13 @@ def stand_in() -> Iterator[StandInProvider]:
         yield provider
 
 
-def written(tmp_path: Path, stand_in: StandInProvider) -> Path:
+def written(tmp_path: Path, stand_in: StandInProvider, extra: str = "") -> Path:
+    """The configuration file of a deployment, sign-in half and whatever else.
+
+    ``extra`` is appended as it stands: one file holds the sign-in tables and
+    the model tables (``docs/specs/agents.md``), and a test about agents adds
+    its own rather than having a second file to keep in step.
+    """
     path = tmp_path / "sign-in.toml"
     path.write_text(
         CONFIGURATION.format(
@@ -112,7 +120,8 @@ def written(tmp_path: Path, stand_in: StandInProvider) -> Path:
             issuer=stand_in.issuer,
             client_id=stand_in.client_id,
             secret_variable=SECRET_VARIABLE,
-        ),
+        )
+        + extra,
         encoding="utf-8",
     )
     return path
@@ -340,8 +349,9 @@ async def test_a_conversation_is_listed_opened_renamed_and_deleted_over_http() -
             "provenance": None,
         }
     ]
-    # No agent is configured in this deployment, and the picker is told so
-    # rather than left to guess.
+    # The local development mode has no configuration file at all, so it has
+    # no agents: the picker is told so rather than left to guess
+    # (docs/working-notes/poc-scope.md).
     assert agents.json() == {"items": []}
     assert renamed.json()["title"] == "Robinauts"
     assert deleted.status_code == 204
@@ -463,3 +473,137 @@ async def test_the_pool_is_opened_only_when_the_lifespan_runs(
             assert not opened.is_closing()
 
     assert opened.is_closing()
+
+
+AGENT_TABLES = f"""
+[model_providers.anthropic]
+kind = "anthropic"
+api_key_env = "{KEY_VARIABLE}"
+
+[models.sonnet]
+provider = "anthropic"
+name = "claude-sonnet-5"
+
+[agents.assistant]
+title = "Assistant"
+model = "sonnet"
+engine = "langgraph"
+system_prompt = "Play fair."
+"""
+"""The model half of the same file: one provider, one model, one agent."""
+
+
+@asyncio_test
+async def test_an_agent_in_the_configuration_is_offered_to_whoever_signed_in(
+    tmp_path: Path, stand_in: StandInProvider
+) -> None:
+    """The model half of the file, end to end: read, keyed, wired, served.
+
+    Nothing reaches Anthropic -- the key is read and never spent, and no turn
+    is started -- so what this proves is the wiring: the tables parsed at
+    start-up, the key found in the environment, the LangGraph engine built,
+    and the agent on the list the picker is drawn from.
+    """
+    async with schema() as temporary:
+        app = create_app(
+            config_path=written(tmp_path, stand_in, AGENT_TABLES),
+            database_url=in_schema(temporary.name),
+            secret_for={
+                SECRET_VARIABLE: stand_in.client_secret,
+                KEY_VARIABLE: "sk-not-a-real-key",
+            }.get,
+        )
+
+        async with running(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app),
+                base_url=PUBLIC_URL,
+                follow_redirects=False,
+                trust_env=False,
+            ) as client:
+                anonymous = await client.get("/api/agents")
+                begun = await client.get("/auth/login/standin")
+                back = await redirect_from(begun.headers["location"])
+                await client.get(f"/auth/callback/standin?{urlsplit(back).query}")
+                agents = await client.get("/api/agents")
+
+    # A picker is for people who signed in, like everything else here.
+    assert anonymous.status_code == 401
+    assert agents.json() == {
+        "items": [{"id": "assistant", "title": "Assistant", "engine": "langgraph"}]
+    }
+
+
+def test_an_unset_model_key_stops_the_server_before_it_binds_a_port(
+    tmp_path: Path, stand_in: StandInProvider
+) -> None:
+    # Named at start-up, by the variable and never by a value
+    # (docs/working-notes/poc-scope.md, "Done when" 5).
+    with pytest.raises(ConfigError) as raised:
+        create_app(
+            config_path=written(tmp_path, stand_in, AGENT_TABLES),
+            database_url="postgresql://nobody@127.0.0.1:1/never-opened",
+            secret_for={SECRET_VARIABLE: stand_in.client_secret}.get,
+        )
+
+    assert list(raised.value.problems) == [
+        f"model_providers.anthropic: the API key is read from the environment variable"
+        f" {KEY_VARIABLE}, which is unset or empty"
+    ]
+
+
+def models_only(tmp_path: Path) -> Path:
+    """A configuration file with the model tables and no sign-in in it.
+
+    What the local development mode may be given: the chat is developed in
+    that mode (``docs/specs/frontend.md``) and a chat needs an agent, but the
+    mode exists where there is nothing to sign in to, so the sign-in half must
+    not be there.
+    """
+    path = tmp_path / "models.toml"
+    path.write_text(AGENT_TABLES, encoding="utf-8")
+    return path
+
+
+@asyncio_test
+async def test_the_local_development_mode_serves_the_agents_of_its_own_file(
+    tmp_path: Path,
+) -> None:
+    """No sign-in, one local user, and a real agent to develop the chat against.
+
+    Whole, on the real PostgreSQL: the model tables read at start-up, the key
+    found in the environment, the LangGraph engine built, and the agent listed
+    to a browser that never signed in to anything.
+    """
+    async with schema() as temporary:
+        app = create_app(
+            local_development_host="127.0.0.1",
+            config_path=models_only(tmp_path),
+            database_url=in_schema(temporary.name),
+            secret_for={KEY_VARIABLE: "sk-not-a-real-key"}.get,
+        )
+
+        async with running(app):
+            assert app.state.sign_in is None
+            async with local_browser(app) as client:
+                whoever = await client.get("/auth/session")
+                agents = await client.get("/api/agents")
+
+    assert whoever.json()["local_development"] is True
+    assert agents.json() == {
+        "items": [{"id": "assistant", "title": "Assistant", "engine": "langgraph"}]
+    }
+
+
+def test_the_local_development_mode_refuses_a_file_that_signs_anybody_in(
+    tmp_path: Path, stand_in: StandInProvider
+) -> None:
+    with pytest.raises(ConfigError) as raised:
+        create_app(
+            local_development_host="127.0.0.1",
+            config_path=written(tmp_path, stand_in, AGENT_TABLES),
+            database_url="postgresql://nobody@127.0.0.1:1/never-opened",
+            secret_for={KEY_VARIABLE: "sk-not-a-real-key"}.get,
+        )
+
+    assert any("cannot be combined" in problem for problem in raised.value.problems)

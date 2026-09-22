@@ -362,8 +362,10 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   `scripts/update-openapi.sh` and kept honest by
   `tests/unit/test_openapi_snapshot.py`.
 - `app.py` — the composition root. `Deployment.configured(...)` reads the
-  TOML file (path from `ROBINAUTS_AUTH_CONFIG`), has `core` validate it,
-  looks for the client secrets and for `ROBINAUTS_DATABASE_URL`, and reports
+  TOML file (path from `ROBINAUTS_CONFIG`; `ROBINAUTS_AUTH_CONFIG` is the old
+  name, still read with a start-up WARNING, and the new name wins if both are
+  set), has `core` validate **both halves** of it — sign-in and models — looks for the client secrets, the
+  model providers' API keys and `ROBINAUTS_DATABASE_URL`, and reports
   **every problem it can see in one `ConfigError`** — which is the promise
   `check_client_secrets` could not make on its own. A file that does not
   parse stops there, since there is no configuration to check secrets
@@ -424,9 +426,13 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   redirect to `/ui/`; `POST /auth/logout` is 204. It is asked for by
   `create_app(local_development_host=...)` — the address it will be served on
   — and by nothing else: **no environment variable switches it on**, and
-  asking for it together with a sign-in configuration (including
-  `ROBINAUTS_AUTH_CONFIG` in the environment) is a start-up `ConfigError`, as
-  is wiring both into one `create_api`. `Deployment.open` logs one WARNING
+  asking for it together with a *sign-in* configuration (including one named
+  by `ROBINAUTS_CONFIG` in the environment) is a start-up `ConfigError`, as
+  is wiring both into one `create_api`. The **configuration file itself is
+  allowed** in this mode and only its model tables are read, so the chat can
+  be developed against a real agent; a file holding any sign-in table —
+  `public_url`, `session_hours`, `providers`, `allow`, `admin` — is what that
+  refusal looks for, and with no file the mode starts with no agents. `Deployment.open` logs one WARNING
   saying sign-in is off. The CLI flag (`--dev-no-sign-in`) comes with
   `robinauts start`.
   **For the CLI step:** the server must be started with the access log off, or
@@ -1238,6 +1244,75 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   runs an application to its end before it answers, which cannot show a stream
   that is still going.
 
+- The **model configuration** and the **first engine**, LangGraph. The same
+  TOML file now holds both halves: `[model_providers.<id>]` (`kind`,
+  `api_key_env`, `base_url` for `openai-compatible`), `[models.<id>]`
+  (`provider`, `name`, optional `timeout_seconds` and `max_output_tokens`)
+  and `[agents.<id>]` (`title`, `model`, `engine`, `system_prompt`) beside
+  the sign-in tables — `model_providers`, not `providers`, which is already
+  the identity providers. `core/sign_in_config.py` names both key sets
+  (`SIGN_IN_KEYS`, `MODEL_KEYS`, `TOP_LEVEL_KEYS`), so each parser is handed
+  the whole file and an unknown key means unknown to both.
+  `core/models_config.py` is `parse_models_config(data, engines=, kinds=)`,
+  written like the sign-in parser: every problem at once, references checked
+  against what was **declared** so that one mistake does not cascade, and the
+  two sets the composition root passes in — the engines it wired and the
+  provider kinds it has a client for — because `core` cannot know either.
+  `domain/agents.py` grew `ProviderKind`, `ModelProviderConfig`,
+  `ModelConfig`, `ModelsConfig` (whole by construction: `model_for`,
+  `provider_for`), `is_env_name` and `is_endpoint_url` (https anywhere,
+  http on the loopback only, a host required, no query, no fragment and **no
+  userinfo** — a key is what travels there, and `https://user:sk-live@host/v1`
+  would put another one in the file; the host comes from `urlsplit`, which
+  unbrackets IPv6 and separates userinfo, so `http://localhost@evil.example/`
+  is not this machine). `adapters/config_file.py` grew `check_api_keys`, which names every
+  unset variable at once and hands back a `ProviderKeys`: a carrier that
+  holds a copy, is not iterable, answers only "the key for this provider"
+  and whose `repr` names the providers and never a key.
+  `adapters/agents/langgraph/` is the engine and the only place LangGraph,
+  LangChain and `langsmith` may be named (import contracts):
+  `LangGraphAgent` compiles a one-node graph per turn with **no
+  checkpointer**, streams it with `stream_mode=["messages", "updates"]`, and
+  maps chunks through langchain-core's provider-neutral `content_blocks` —
+  text to `AnswerTextDelta`, `reasoning` (which is what Anthropic's
+  `thinking` becomes) to `AnswerReasoningDelta`, and the completed parts from
+  **what was streamed**, never from the framework's final message and never
+  with reasoning in the text. `chat_model` builds `ChatAnthropic` with the
+  key, the timeout, `max_retries = 0` and a ceiling; the factory is
+  injectable, which is how the tests run the real engine over a chat model
+  they script. `force_tracing_off()` calls `langsmith.configure(enabled=False)`
+  at construction, which is the switch langchain-core consults **before** the
+  environment, so `LANGSMITH_TRACING=true` changes nothing and no client is
+  ever built. **Anthropic only for now**: `langchain-openai` requires
+  `tiktoken` and `regex`, which do not pass the licence policy, so the
+  `openai` and `openai-compatible` kinds are refused at start-up with a
+  message saying so (`DEPENDENCIES.md`, "Known exclusions"). `app.py` wires
+  it through one table, `ENGINES = {Engine.LANGGRAPH: LangGraphAgent}`, which
+  is the whole of the choice of agent framework: `WIRED_ENGINES` and
+  `BUILDABLE_KINDS` are derived from it, the second by **asking each adapter**
+  what it can reach (`ports.Agent.kinds`), so that knowing more about an
+  engine never means importing more from its sub-package — the discard test
+  is that import and that one entry. An agent asking for `pydantic-ai` is
+  a start-up refusal naming what to do, agents handed in without an engine
+  must name models the configuration has, and a file with no `[agents]` table
+  is a deployment that **starts with none** — `/api/agents` is empty, and the
+  start-up log says so. The **local development mode may be given the same
+  file** and reads only its model tables, so the chat can be developed
+  against a real engine; a file holding sign-in tables is refused there. The
+  variable that names the file is now `ROBINAUTS_CONFIG` (`CONFIG_VARIABLE`),
+  since it is no longer about authentication alone; `ROBINAUTS_AUTH_CONFIG`
+  is still read, with a start-up WARNING. The contract suite (`tests/contracts/agents.py`) now runs over
+  a real engine and gained two declarations a subclass may lower —
+  `answers_per_turn` and `can_answer_without_streaming` — which say what a
+  turn of that engine can be **scripted** into, not what it is held to.
+  Tests: `tests/unit/test_models_config.py`, `tests/unit/test_langgraph_engine.py`
+  (the contract, the messages the model is given, thinking, the client's
+  fields, tracing), the key checks in `tests/integration/test_config_file.py`
+  (which also parses the example in `docs/specs/agents.md`), the wiring in
+  `tests/unit/test_app_composition.py` and `tests/integration/test_create_app.py`.
+  `tests/live/test_langgraph_live.py` runs one real turn against Anthropic
+  when `ROBINAUTS_LIVE_ANTHROPIC_KEY` is set; `tests/live` is in
+  `norecursedirs`, so a plain run — and therefore CI — never collects it.
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -2065,3 +2140,62 @@ Important design decisions made / open questions:
   AG-UI's interrupt outcome.
 - A position past what an active run has stored is 422; past the end of
   an ended run answers the run's outcome.
+
+### Step 15 — first-engine   (feature/poc-15-first-engine)
+
+Summary: the LangGraph engine and the model configuration. Dependencies:
+`langgraph`, `langchain-core`, `langchain-anthropic`, `langsmith` (imported
+for the one call that turns tracing off) — the whole tree passes the
+licence gate; `orjson` (MPL-2.0, unmodified, unbundled) is rowed as a
+restricted dependency. `[model_providers.*]`, `[models.*]`, `[agents.*]`
+in the one TOML (`ROBINAUTS_CONFIG`; `ROBINAUTS_AUTH_CONFIG` kept as a
+deprecated alias): domain records, `core.parse_models_config` collecting
+every problem at once, `adapters.check_api_keys` naming every unset
+variable, `ProviderKeys` that never prints a key. `LangGraphAgent`: a
+compiled `StateGraph` per turn with no checkpointer, streamed through
+`content_blocks` (text and reasoning, vendor-neutral), `AnswerCompleted`
+built from what was streamed, tool calls refused (no tools yet), the
+endpoint/key/proxy/headers pinned so no `ANTHROPIC_*` variable can move a
+request or change its credential, LangSmith tracing forced off process-wide
+and the legacy variables removed. `app.py` wires `ENGINES` (the port's
+`kinds` decide which provider kinds a build reaches); the local
+development mode reads the model tables of the file and refuses sign-in
+tables. The contract suite runs over the real engine with a scripted chat
+model; a live test exists outside CI.
+
+Review: 2 rounds.
+- High: 1
+  - `ChatAnthropic` was built without a base URL, so `ANTHROPIC_BASE_URL`
+    in the environment redirected every call — and the key — to any host;
+    fixed: endpoint, key, proxy and headers pinned, tested against ~25
+    variables with sockets blocked.
+- Medium: 4 (4/0) — the legacy `LANGCHAIN_TRACING` variable made every
+  turn fail once v2 tracing was forced off; the discard test no longer
+  held; a URL with embedded credentials was accepted in the configuration;
+  the framework-confinement contracts left the adapter package's own
+  modules uncovered (now structural, with probe tests over a copy).
+- Low: 22 (22/0)
+
+Checks: `scripts/check-all.sh` without a database (2473 passed, 195
+skipped) and with one required (2662 passed, 6 skipped); the changed
+modules 10× under `python -X dev -W error`; no network call to a provider
+in any test.
+Not done / to watch: **OpenAI / OpenAI-compatible (OpenRouter) is not in
+this build**: `langchain-openai` needs `tiktoken` (metadata carries the
+MIT text but no identifier) and `regex` (`Apache-2.0 AND CNRI-Python`, on
+no list) — a policy decision, recorded under "Known exclusions" in
+`DEPENDENCIES.md`; the configuration vocabulary keeps all three kinds and
+a deployment naming one this build cannot reach is refused at start-up.
+`system_prompt_file` not implemented. About 4,400 lines with tests and the
+lock, far over the aim: the engine is small, the parser and its tests are
+most of it. Three direct dependencies in one step (recorded as one change
+in `DEPENDENCIES.md`).
+Important design decisions made / open questions:
+- The model tables live in the same file as sign-in, under
+  `model_providers` (sign-in already owns `providers`).
+- `MAX_RETRIES = 0` on the client: retrying is sending the message again.
+- The contract suite declares per engine what a script can ask for
+  (`answers_per_turn`, `can_answer_without_streaming`); every promise is
+  still checked on every turn by `core.check_engine_events`.
+- The adapter removes `LANGCHAIN_TRACING`, `LANGCHAIN_HANDLER` and
+  `ANTHROPIC_CUSTOM_HEADERS` from the environment at construction.

@@ -28,6 +28,12 @@ rather than in as many restarts as there are mistakes.
 Secrets are never in the file: a provider names the environment variable its
 client secret is read from, and the variable is read elsewhere, by the layer
 that may touch the environment.
+
+**One file, two parsers.** The same file holds the model tables
+(``core.models_config``), and each parser is handed the whole of it and reads
+its own share. So "unknown key" means unknown to *both*, which is what
+``TOP_LEVEL_KEYS`` below is for: a misspelt table is still refused, and a
+table that is simply the other parser's is not.
 """
 
 from __future__ import annotations
@@ -54,7 +60,26 @@ from robinauts.domain import (
     is_provider_id,
 )
 
-TOP_LEVEL_KEYS = frozenset({"public_url", "session_hours", "providers", "allow"})
+SIGN_IN_KEYS = frozenset({"public_url", "session_hours", "providers", "allow"})
+"""The top-level tables sign-in is written in."""
+
+MODEL_KEYS = frozenset({"model_providers", "models", "agents"})
+"""The top-level tables the model half is written in (``core.models_config``).
+
+Named here, beside sign-in's own, because **one file holds both** and each
+parser is handed the whole of it: a table that belongs to the other parser is
+not an unknown key, and the one way for the two to agree about that is for
+both sets to be written down once. ``core.models_config`` imports these rather
+than repeating them.
+
+They are ``model_providers`` and not ``providers`` because ``providers`` is
+already taken, by the identity providers people sign in with: one file, two
+kinds of provider, and a table that meant one of them in one place and the
+other elsewhere would be the worst of both (``docs/specs/agents.md``).
+"""
+
+TOP_LEVEL_KEYS = SIGN_IN_KEYS | MODEL_KEYS
+"""Every table a configuration file may hold: what neither parser refuses."""
 PROVIDER_KEYS = frozenset(
     {
         "title",

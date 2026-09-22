@@ -54,11 +54,31 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Sequence
 
-from robinauts.domain import AgentDefinition, EngineEvent, Message
+from robinauts.domain import AgentDefinition, EngineEvent, Message, ProviderKind
 
 
 class Agent(ABC):
     """One engine, able to run one turn of one agent."""
+
+    kinds: frozenset[ProviderKind] = frozenset()
+    """The model provider kinds this engine has a client for.
+
+    **Not every model exists under every engine** (``docs/specs/agents.md``),
+    and not every provider's client passes the dependency policy at a given
+    version (``DEPENDENCIES.md``). So an engine says what it can reach, and
+    the composition root asks it rather than knowing: the configuration is
+    then refused at start-up, naming the provider, instead of a person
+    waiting for an answer from a client that was never built.
+
+    Declared here and not in an adapter so that asking costs the root no
+    second name from a framework's sub-package -- the one import and the one
+    construction are what deleting an adapter must break, and nothing else
+    (``docs/layout.md``, the discard test).
+
+    Empty by default, which is a test double's honest answer: a scripted
+    engine reaches no provider at all, and a deployment wired with one
+    configures no model provider either.
+    """
 
     @abstractmethod
     def run_turn(

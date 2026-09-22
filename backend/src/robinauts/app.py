@@ -12,11 +12,12 @@ environment variable.
 Two moments, deliberately apart:
 
 - **configuring**, which happens the moment ``create_app`` is called and needs
-  no event loop: the TOML file is read (``adapters.read_toml``), ``core``
-  turns it into a ``SignInConfig``, the client secrets are looked for, and
-  **every problem found is reported together** in one ``ConfigError``. An
-  operator with three mistakes fixes three mistakes, not one restart at a
-  time (``docs/specs/operations.md``);
+  no event loop: the one TOML file is read (``adapters.read_toml``, path from
+  ``ROBINAUTS_CONFIG``), ``core`` turns its two halves into a ``SignInConfig``
+  and a ``ModelsConfig``, the client secrets and the model providers' API keys
+  are looked for, and **every problem found is reported together** in one
+  ``ConfigError``. An operator with three mistakes fixes three mistakes, not
+  one restart at a time (``docs/specs/operations.md``);
 - **opening**, which happens in the ASGI lifespan, because that is where a
   process may hold something: the connection pool, the schema check, the
   identity provider's HTTP client. What the lifespan opens, the lifespan
@@ -66,7 +67,7 @@ import logging
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Protocol
 
 from fastapi import FastAPI
 
@@ -76,12 +77,24 @@ from robinauts.adapters import (
     MemoryRunSignals,
     OsIdSource,
     OsSecretSource,
+    ProviderKeys,
     SecretLookup,
     SystemClock,
+    check_api_keys,
     check_client_secrets,
     environment,
     read_toml,
 )
+
+# The discard test (``docs/specs/agents.md``): deleting the LangGraph adapter
+# and its dependencies breaks this import and its one entry in ``ENGINES``
+# below -- one name, in one place -- and nothing else in the platform. What
+# the root needs to know about an engine besides how to build it, it asks the
+# engine (``Agent.kinds``), so that knowing more never means importing more.
+# It is named by its sub-package and not re-exported from
+# ``robinauts.adapters``, so that importing the adapters does not import an
+# agent framework.
+from robinauts.adapters.agents.langgraph import LangGraphAgent
 from robinauts.api import create_api
 from robinauts.application import (
     DEFAULT_TURN_SECONDS,
@@ -93,7 +106,7 @@ from robinauts.application import (
     Turns,
     Watch,
 )
-from robinauts.core import parse_sign_in_config
+from robinauts.core import SIGN_IN_KEYS, parse_models_config, parse_sign_in_config
 from robinauts.datastore import (
     PostgresConversationStore,
     PostgresCredentialStore,
@@ -108,6 +121,8 @@ from robinauts.domain import (
     Engine,
     InvalidValueError,
     LocalMode,
+    ModelsConfig,
+    ProviderKind,
     SignInConfig,
     is_loopback_bind_host,
 )
@@ -122,24 +137,118 @@ from robinauts.ports import (
 
 _log = logging.getLogger(__name__)
 
+CONFIG_VARIABLE = "ROBINAUTS_CONFIG"
+"""Names the TOML file describing this deployment: sign-in **and** models.
+
+One file, two halves (``docs/specs/operations.md``). It was
+``ROBINAUTS_AUTH_CONFIG`` while sign-in was all it held; that name is still
+read, with a warning, and is the one thing about it that is deprecated.
+"""
+
 AUTH_CONFIG_VARIABLE = "ROBINAUTS_AUTH_CONFIG"
-"""Names the TOML file describing sign-in (``docs/specs/sign-in.md``)."""
+"""The older name of the same file. Still read, with a warning at start-up.
+
+The file stopped being about authentication alone when it grew the model
+tables (``docs/specs/agents.md``), so the variable that names it stopped being
+right. A deployment that already exports the old name goes on working and is
+told, once, to rename it; if both are set the new one is what is read, and
+that is said too, because two names for one file are two files waiting to
+disagree.
+"""
+
+OLD_CONFIG_VARIABLE = (
+    "%s is the old name of %s and is what this deployment was configured from."
+    " Rename the variable: the old name will not be read for ever."
+)
+"""Logged once, at start-up, when the deprecated name is the one in use."""
+
+OLD_CONFIG_VARIABLE_IGNORED = (
+    "%s and %s are both set; %s is what is read and the old name is ignored. Unset %s."
+)
+"""Logged once, at start-up, when both names are set: the new one wins."""
 
 DATABASE_URL_VARIABLE = "ROBINAUTS_DATABASE_URL"
 """Names the one PostgreSQL of the deployment. It may hold a password."""
 
 BOTH_MODES = (
     f"the local development mode has no sign-in: it cannot be combined with a sign-in"
-    f" configuration, so unset {AUTH_CONFIG_VARIABLE} (or pass no configuration file), or"
-    f" start without the local development mode"
+    f" configuration, so take the sign-in tables out of the file {CONFIG_VARIABLE}"
+    f" (or {AUTH_CONFIG_VARIABLE}) names -- in this mode its model tables are read and"
+    f" nothing else -- or start without the local development mode"
 )
-"""Asking for both is a start-up refusal (``docs/specs/sign-in.md``)."""
+"""Asking for both is a start-up refusal (``docs/specs/sign-in.md``).
+
+**The file itself is not refused any more**, only sign-in inside it: the mode
+needs agents to develop a chat against (``docs/specs/frontend.md``), and the
+agents are in the same file as the sign-in it must not have.
+"""
 
 NO_MODE = (
-    f"a deployment is either signed in to or developed on: set {AUTH_CONFIG_VARIABLE} to the"
-    f" TOML file describing sign-in, or ask for the local development mode"
+    f"a deployment is either signed in to or developed on: set {CONFIG_VARIABLE} to the"
+    f" TOML file describing it, or ask for the local development mode"
 )
 """Neither was given. ``configured`` says it with whatever else is missing."""
+
+
+class EngineAdapter(Protocol):
+    """What the composition root needs of an agent adapter, and no more.
+
+    Two things: what it can reach (``kinds``, which the port declares) and how
+    to build one -- the model configuration and the providers' keys, which is
+    the same constructor for every engine because it is the platform's
+    configuration and not a framework's (``docs/specs/agents.md``). Written as
+    a protocol rather than a base class so that an adapter satisfies it by
+    being what it already is.
+    """
+
+    kinds: frozenset[ProviderKind]
+
+    def __call__(self, models: ModelsConfig, keys: ProviderKeys) -> Agent:
+        """Build the engine for this deployment's models."""
+        ...  # pragma: no cover -- a structural type, never called
+
+
+ENGINES: Mapping[Engine, EngineAdapter] = {Engine.LANGGRAPH: LangGraphAgent}
+"""The agent adapters this build constructs, one per engine it runs.
+
+**The whole of the choice of agent framework** (``docs/layout.md``,
+"infrastructure"): adding an engine is an entry here, and removing one is the
+same entry and the import above. One for now -- the Pydantic AI adapter is a
+step of its own, and until it is written an agent asking for it is a start-up
+refusal naming what to do (``robinauts.core.parse_models_config``) rather than
+a deployment that starts and fails at that agent's first turn.
+"""
+
+WIRED_ENGINES = frozenset(ENGINES)
+"""The engines this build runs, which is what the configuration is judged against."""
+
+BUILDABLE_KINDS = frozenset().union(*(adapter.kinds for adapter in ENGINES.values()))
+"""The model providers those engines have a client for, as they report them.
+
+**Asked, not known.** Which vendors an engine can reach is the engine's own
+answer -- it depends on which client passes the dependency policy at the
+version this build pins (``DEPENDENCIES.md``) -- and the root would be keeping
+a copy of it that could only go stale (``robinauts.ports.Agent.kinds``).
+"""
+
+NO_AGENTS = (
+    "no [agents] table: this deployment starts with no agents, so /api/agents is empty"
+    " and there is nothing to pick. Add [model_providers], [models] and [agents] to the"
+    " configuration file to give it one."
+)
+"""Logged, not raised. A deployment with no agents is a deployment
+(``docs/working-notes/poc-scope.md``): everything but answering a turn works.
+It is said out loud so that an empty picker is a thing somebody was told about
+rather than something to guess at -- which is the whole of what the local
+development mode gets when it is started with no configuration file."""
+
+SIGN_IN_TABLES = SIGN_IN_KEYS | {"admin"}
+"""The top-level keys that make a file a sign-in configuration.
+
+``admin`` among them: it is the sign-in parser that refuses roles by name, and
+in the local development mode that parser never runs, so a file carrying one
+there would be a rule the operator believes is in force and is not.
+"""
 
 NO_DATABASE = f"no database: set {DATABASE_URL_VARIABLE} to the PostgreSQL this deployment uses"
 """Said wherever a store this deployment needs would have to come from one.
@@ -192,6 +301,32 @@ LOCAL_MODE_WARNING = (
 """Logged once, at start-up, because a server that asks nobody who they are
 has to say so wherever it is looked at. The interface says it too, in a
 permanent banner (``docs/specs/frontend.md``)."""
+
+
+def _configured_path(secret_for: SecretLookup) -> str | None:
+    """The configuration file the environment names, under either variable.
+
+    ``ROBINAUTS_CONFIG`` is the name; ``ROBINAUTS_AUTH_CONFIG`` is what it was
+    called while sign-in was all the file held, and it is still read so that a
+    deployment written against the old name keeps starting. Whichever way, the
+    deprecation is **said at start-up**, once, in the log -- an alias that
+    works silently is an alias nobody ever renames -- and the new name wins if
+    both are set, because two names for one file are two files waiting to
+    disagree.
+    """
+    path = secret_for(CONFIG_VARIABLE)
+    older = secret_for(AUTH_CONFIG_VARIABLE)
+    if older and path:
+        _log.warning(
+            OLD_CONFIG_VARIABLE_IGNORED,
+            AUTH_CONFIG_VARIABLE,
+            CONFIG_VARIABLE,
+            CONFIG_VARIABLE,
+            AUTH_CONFIG_VARIABLE,
+        )
+    elif older:
+        _log.warning(OLD_CONFIG_VARIABLE, AUTH_CONFIG_VARIABLE, CONFIG_VARIABLE)
+    return path or older
 
 
 class Deployment:
@@ -287,19 +422,18 @@ class Deployment:
         self._agents = dict(agents or {})
         """The agents this deployment offers, as the operator defined them.
 
-        **Injected, and empty until a later step**: reading them out of the
-        configuration file is its own piece of work (``docs/specs/agents.md``),
-        and nothing is served on top of them yet. A deployment with none can do
-        everything but answer a turn, which is what the routes of the steps
-        after this one will begin to need.
+        ``configured`` reads them out of the ``[agents]`` table of the
+        configuration file; handing them in is how a test names its own. Empty
+        is a deployment that can do everything but answer a turn, which is
+        allowed and is what a file with no agents -- and the local development
+        mode, which has no file -- describes.
         """
         self._engines = dict(engines or {})
-        """The engine of each kind this deployment runs, likewise injected.
+        """The engine of each kind this deployment runs, likewise from ``configured``.
 
         This is the one place the choice of agent framework is made
-        (``docs/layout.md``, "infrastructure"), and it is made by whoever
-        builds the deployment until the step that constructs the two adapters
-        here."""
+        (``docs/layout.md``, "infrastructure"), and handing one in is how a
+        test runs a turn over a scripted engine and reaches no provider."""
         self._executor = AsyncioRunExecutor()
         """Where a run's work happens: tasks on the loop that serves requests."""
         self._signals = MemoryRunSignals()
@@ -341,37 +475,110 @@ class Deployment:
         variable that switches it on: a mode that signs nobody in is asked for
         in the command that starts the server and nowhere else, so that
         nothing a process inherits -- a stale export, a unit file, a container
-        image -- can turn sign-in off in a deployment. There is no
-        configuration file in this mode, and asking for both is refused.
+        image -- can turn sign-in off in a deployment.
+
+        **One file, two halves.** The same TOML holds the sign-in tables and
+        the model tables (``docs/specs/agents.md``), and which halves are read
+        is what the mode decides:
+
+        - **signed in to**: the file is required and both halves are read.
+          Each parser is handed the whole of it and reads its own share, so a
+          mistake in either lands in the one list of problems;
+        - **developed on**: the file is **optional**, and only the model
+          tables are read. A file that also holds sign-in tables is refused
+          (``BOTH_MODES``) -- the mode exists because there is nothing to sign
+          in to -- but the file itself is welcome, because the chat is
+          developed in this mode and a chat needs an agent
+          (``docs/specs/frontend.md``).
+
+        Either way, a file with no ``[agents]`` table is a deployment with
+        **no agents**: it starts, ``/api/agents`` is empty, and the log says
+        so. What is built out of the model half -- the agents, and the engine
+        that runs them -- is built here unless the caller handed its own in,
+        which is how the tests wire a scripted engine and reach no provider.
         """
         problems: list[str] = []
-        path = config_path if config_path is not None else secret_for(AUTH_CONFIG_VARIABLE)
+        path = config_path if config_path is not None else _configured_path(secret_for)
         url = database_url if database_url is not None else secret_for(DATABASE_URL_VARIABLE)
         if (credentials is None or conversation_store is None) and not url:
             problems.append(NO_DATABASE)
+        local = local_development_host is not None
         config: SignInConfig | None = None
-        if local_development_host is not None:
-            if path:
-                problems.append(BOTH_MODES)
-            if not is_loopback_bind_host(local_development_host):
-                problems.append(OFF_LOOPBACK % (local_development_host,))
-        elif not path:
-            problems.append(
-                f"no sign-in configuration: set {AUTH_CONFIG_VARIABLE} to the TOML file"
-                f" describing it"
-            )
+        models = ModelsConfig()
+        if local and not is_loopback_bind_host(local_development_host):
+            problems.append(OFF_LOOPBACK % (local_development_host,))
+        if not path:
+            if not local:
+                problems.append(
+                    f"no configuration: set {CONFIG_VARIABLE} to the TOML file describing"
+                    f" this deployment"
+                )
         else:
+            # A file that does not parse stops here: there is nothing to judge,
+            # and every other check would only say so again in its own words.
             try:
-                config = parse_sign_in_config(read_toml(path))
+                data = read_toml(path)
             except ConfigError as exc:
                 problems.extend(exc.problems)
+            else:
+                if not local:
+                    try:
+                        config = parse_sign_in_config(data)
+                    except ConfigError as exc:
+                        problems.extend(exc.problems)
+                elif any(key in data for key in SIGN_IN_TABLES):
+                    # Read no further: the sign-in half of this file was
+                    # written for a deployment, and this is not one.
+                    problems.append(BOTH_MODES)
+                    data = {}
+                try:
+                    models = parse_models_config(
+                        data,
+                        # What this deployment can actually build, which core
+                        # cannot know: the engines wired below, and the
+                        # provider kinds the engine has a client for.
+                        engines=frozenset(engines) if engines is not None else WIRED_ENGINES,
+                        kinds=BUILDABLE_KINDS,
+                    )
+                except ConfigError as exc:
+                    problems.extend(exc.problems)
         if config is not None:
             try:
                 check_client_secrets(config, secret_for=secret_for)
             except ConfigError as exc:
                 problems.extend(exc.problems)
+        keys: ProviderKeys | None = None
+        try:
+            keys = check_api_keys(models, secret_for=secret_for)
+        except ConfigError as exc:
+            problems.extend(exc.problems)
+        if agents is not None and engines is None:
+            # Agents handed in, engines not: they will be run by the engines
+            # built below, out of the model configuration read above. So each
+            # must name an engine this build constructs and a model that
+            # configuration has -- said here rather than found out in the
+            # middle of somebody's turn, when the engine looks the model up
+            # and there is nothing there, or at `open`, where the same mistake
+            # would arrive as a different kind of error.
+            problems.extend(
+                f"the agent {agent_id!r} that was handed in runs on the"
+                f" {definition.engine.value} engine, which this build does not"
+                f" construct: hand in the engine that is to run the agent"
+                for agent_id, definition in agents.items()
+                if definition.engine not in ENGINES
+            )
+            problems.extend(
+                f"the agent {agent_id!r} that was handed in runs on model"
+                f" {definition.model!r}, which is not in the configuration: configure the"
+                f" model, or hand in the engine that is to run the agent"
+                for agent_id, definition in agents.items()
+                if definition.model not in models.models
+            )
         if problems or (config is None and local_development_host is None):
             raise ConfigError(problems)
+        assert keys is not None  # every failure above is a problem, and we raised
+        if not models.agents:
+            _log.info(NO_AGENTS)
         return cls(
             config,
             local_development_host=local_development_host,
@@ -382,8 +589,16 @@ class Deployment:
             clock=clock,
             secrets=secrets,
             secret_for=secret_for,
-            agents=agents,
-            engines=engines,
+            agents=agents if agents is not None else models.agents,
+            # Built whether or not an agent uses it: it holds nothing -- a
+            # graph and a client are made per turn -- and constructing it is
+            # what turns hosted tracing off for this process, which is true of
+            # every deployment and not only of one that answers.
+            engines=(
+                engines
+                if engines is not None
+                else {name: adapter(models, keys) for name, adapter in ENGINES.items()}
+            ),
             turn_seconds=turn_seconds,
         )
 
@@ -393,8 +608,10 @@ class Deployment:
         ``None`` in the local development mode, which has no sign-in to
         return: what it wires instead is ``local_access``, the one user every
         request runs as. Either way the pool is opened and the schema checked
-        first -- the mode changes who is asking, and nothing else about the
-        platform.
+        first, and either way the agents of the configuration -- if it was
+        given one -- are wired into ``turns`` and listed by ``/api/agents``:
+        the mode changes **who is asking** and nothing else about the
+        platform, which is what makes a chat developed there the same chat.
 
         The pool is opened and the schema checked before anything is built on
         them: a database of another version is a deployment that does not
@@ -610,7 +827,12 @@ def create_app(
     ``local_development_host`` is how the **local development mode** is asked
     for, and the address it will be served on. It is never the default and no
     environment variable turns it on; a later step gives the command a flag
-    (``--dev-no-sign-in``) that passes the host it is about to bind.
+    (``--dev-no-sign-in``) that passes the host it is about to bind. In that
+    mode ``config_path`` (``ROBINAUTS_CONFIG``) is **optional** and only its
+    model tables are read: with one, the deployment has the agents it names
+    and the chat can be developed against a real engine; without one, it
+    starts with none. A file that also holds sign-in tables is refused there,
+    because the mode exists where there is nothing to sign in to.
     """
     deployment = Deployment.configured(
         config_path=config_path,

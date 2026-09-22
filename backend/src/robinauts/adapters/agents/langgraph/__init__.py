@@ -1,2 +1,48 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
+
+"""The LangGraph engine, and the only place LangGraph and LangChain are named.
+
+One of the two agent adapters (``docs/layout.md``). Nothing else in the
+platform imports the framework, the two adapters do not import each other, and
+both are held to one contract suite (``backend/tests/contracts/agents.py``).
+
+Importing this imports LangGraph, so ``robinauts.adapters`` deliberately does
+not: the composition root names this sub-package in the one line that builds
+the engine, which is the line the discard test says must be the only casualty
+of deleting it.
+"""
+
+from robinauts.adapters.agents.langgraph.engine import (
+    ANSWER_NODE,
+    ANTHROPIC_ENDPOINT,
+    ANTHROPIC_KEY_HEADER,
+    CLIENT_VARIABLES_REMOVED,
+    DEFAULT_ANTHROPIC_OUTPUT_TOKENS,
+    MAX_RETRIES,
+    NO_TOOLS,
+    TOOL_BLOCKS,
+    TRACING_VARIABLES_REMOVED,
+    ChatModelFactory,
+    LangGraphAgent,
+    chat_model,
+    clear_client_overrides,
+    force_tracing_off,
+)
+
+__all__ = [
+    "ANSWER_NODE",
+    "ANTHROPIC_ENDPOINT",
+    "ANTHROPIC_KEY_HEADER",
+    "CLIENT_VARIABLES_REMOVED",
+    "DEFAULT_ANTHROPIC_OUTPUT_TOKENS",
+    "MAX_RETRIES",
+    "NO_TOOLS",
+    "TOOL_BLOCKS",
+    "TRACING_VARIABLES_REMOVED",
+    "ChatModelFactory",
+    "LangGraphAgent",
+    "chat_model",
+    "clear_client_overrides",
+    "force_tracing_off",
+]
