@@ -813,14 +813,30 @@ class PostgresConversationStore(ConversationStore):
         await connection.execute(_MOVE_CONVERSATION, message.conversation_id, now, message.id)
         await self._store_event(connection, event, event_document)
 
-    async def events_of(self, run_id: uuid.UUID, *, after: int = 0) -> tuple[Document, ...]:
+    async def events_of(
+        self, run_id: uuid.UUID, *, after: int = 0, upto: int | None = None
+    ) -> tuple[Document, ...]:
         if isinstance(after, bool) or not isinstance(after, int) or after < 0:
             raise InvalidValueError(f"a position to read past is a whole number, not {after!r}")
-        rows = await self._pool.fetch(
-            "SELECT document FROM run_events WHERE run_id = $1 AND seq > $2 ORDER BY seq",
-            run_id,
-            after,
-        )
+        if upto is not None and (isinstance(upto, bool) or not isinstance(upto, int) or upto < 0):
+            raise InvalidValueError(f"a position to read up to is a whole number, not {upto!r}")
+        # Two statements rather than one with a ``$3 IS NULL OR`` in it: the
+        # planner sees a plain range on the primary key either way, and the
+        # unbounded read is what almost every caller makes.
+        if upto is None:
+            rows = await self._pool.fetch(
+                "SELECT document FROM run_events WHERE run_id = $1 AND seq > $2 ORDER BY seq",
+                run_id,
+                after,
+            )
+        else:
+            rows = await self._pool.fetch(
+                "SELECT document FROM run_events"
+                " WHERE run_id = $1 AND seq > $2 AND seq <= $3 ORDER BY seq",
+                run_id,
+                after,
+                upto,
+            )
         return tuple(_read(row["document"]) for row in rows)
 
     async def last_position(self, run_id: uuid.UUID) -> int:

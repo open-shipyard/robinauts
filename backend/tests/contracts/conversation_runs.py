@@ -636,6 +636,38 @@ class ConversationRunsContract(ConversationStoreContract):
                 await store.events_of(RUN, after=-1)
 
     @asyncio_test
+    async def test_events_can_be_read_up_to_a_position_as_well_as_past_one(self) -> None:
+        """Both ends, because whoever replays the beginning of a stream wants one.
+
+        A re-attached stream is built on the events **before** the position it
+        carries on from (``application.Watch.before``), and reading the whole
+        run to throw the end of it away is a read that grows with the answer.
+        """
+        async with self.opened() as store:
+            await _begun(store)
+            for seq in range(FIRST_POSITION + 1, FIRST_POSITION + 4):
+                await _appended(store, delta(RUN, seq, text=f"delta {seq}"))
+
+            upto = await store.events_of(RUN, upto=FIRST_POSITION + 1)
+            between = await store.events_of(RUN, after=FIRST_POSITION, upto=FIRST_POSITION + 2)
+
+            assert [document["seq"] for document in upto] == [
+                FIRST_POSITION,
+                FIRST_POSITION + 1,
+            ]
+            assert [document["seq"] for document in between] == [
+                FIRST_POSITION + 1,
+                FIRST_POSITION + 2,
+            ]
+            # Past the end is everything; below the beginning is nothing, and
+            # neither is a refusal -- both are slices that ask for what they ask.
+            assert await store.events_of(RUN, upto=99) == await store.events_of(RUN)
+            assert await store.events_of(RUN, upto=0) == ()
+            assert await store.events_of(RUN, after=3, upto=2) == ()
+            with pytest.raises(InvalidValueError):
+                await store.events_of(RUN, upto=-1)
+
+    @asyncio_test
     async def test_an_event_of_a_run_that_is_not_there_is_refused(self) -> None:
         async with self.opened() as store:
             with pytest.raises(RunNotFoundError):

@@ -111,7 +111,8 @@ from typing import Annotated, Any
 
 from fastapi import Depends, Request
 from starlette.datastructures import MutableHeaders
-from starlette.requests import cookie_parser
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.requests import ClientDisconnect, cookie_parser
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from robinauts.api.cookies import session_cookie
@@ -121,9 +122,12 @@ from robinauts.domain import (
     CrossSiteRequestError,
     InvalidValueError,
     LocalMode,
+    PayloadTooLargeError,
     RobinautsError,
     SignInConfig,
     UnsupportedMediaTypeError,
+    chain,
+    where,
 )
 
 _log = logging.getLogger(__name__)
@@ -148,6 +152,55 @@ DECIDING_HEADERS = ("sec-fetch-site", "content-type", "origin")
 
 COOKIE_HEADER = "cookie"
 """Read in the same pass, so that a session is found by the same folded names."""
+
+LENGTH_HEADER = "content-length"
+"""How much body a write says it is sending; read in the same pass as the rest.
+
+Not in ``DECIDING_HEADERS``, which are the three a write's *provenance* is
+judged by. This one is judged for its size alone, and a write that carries two
+of it is a client and a proxy disagreeing about where the body ends -- which is
+refused here rather than read as either of them.
+"""
+
+MAX_BODY_BYTES = 1 * 1024 * 1024
+"""How much of a request body this deployment will read. One mebibyte.
+
+**It is not the bound on what a record may hold.** A message in the
+conversation format runs to sixty-four million characters
+(``domain.MAX_MESSAGE_CHARS``), because an answer a model was paid for is not
+cut to fit; what a *request* may spend is another question, and the answer is
+much smaller. Without this, one signed-in caller could have the deployment
+buffer and parse sixty-four megabytes -- twice, since a body is read again to
+check for a repeated field (``read_once``).
+
+A megabyte is far above anything a person types and far above every body this
+API takes: the largest is a turn, and a turn that needs more than this is a
+file, which is a channel this version does not have
+(``docs/working-notes/poc-scope.md``). It is the operator's number to raise
+(``docs/specs/operations.md``); it lives here because it is the one place both
+halves of reading a body pass through.
+"""
+
+MAX_LENGTH_DIGITS = len(str(MAX_BODY_BYTES))
+"""How long a ``Content-Length`` this deployment reads can be, in characters.
+
+Leading zeros off. Checked before the header is read as a number, because
+CPython refuses to convert a decimal of a few thousand digits and raises a
+``ValueError`` that would be a 500 over a header somebody chose the length of.
+"""
+
+TOO_LARGE_DETAIL = f"a request body is at most {MAX_BODY_BYTES} bytes"
+"""What a body over the bound is told. The bound, and nothing of the request."""
+
+_UNWINDING: tuple[type[BaseException], ...] = (ClientDisconnect, StarletteHTTPException)
+"""What a body cut short is **expected** to raise on its way out.
+
+Starlette turns a body that stops into ``ClientDisconnect``, and the framework
+turns that into an ``HTTPException`` where it reads a body of its own. Both are
+the machinery unwinding and are logged at DEBUG; anything else that comes out
+of a request whose body was cut short is a fault of ours and is said at WARNING
+rather than left to vanish behind the 413.
+"""
 
 HOST_HEADER = "host"
 """Who the request was addressed to; judged in the local development mode.
@@ -195,7 +248,7 @@ def request_headers(scope: Scope) -> dict[str, list[str]]:
     of one name rather than two headers nobody compared.
     """
     found: dict[str, list[str]] = {
-        name: [] for name in (*DECIDING_HEADERS, COOKIE_HEADER, HOST_HEADER)
+        name: [] for name in (*DECIDING_HEADERS, COOKIE_HEADER, HOST_HEADER, LENGTH_HEADER)
     }
     for raw_name, raw_value in scope.get("headers", ()):
         name = raw_name.decode("latin-1").strip().lower()
@@ -261,6 +314,31 @@ def refused(
             UnsupportedMediaTypeError(MEDIA_TYPE_DETAIL),
             f"{where} was sent as {shown(media_type)}, not {JSON_MEDIA_TYPE}",
         )
+    elsewhere = _from_another_site(sent, site, where, config, local)
+    if elsewhere is not None:
+        return elsewhere
+    # **Last, and before a byte of the body is read.** Last because a request
+    # another site's page sent is refused for **what it is**, whatever it
+    # happens to carry: a cross-site write that also declared a hundred
+    # megabytes is not a client of ours that sent too much. Before the body,
+    # because this is what the request said it was sending -- one that says
+    # nothing is counted as it is handed over (``_Bounded``).
+    return _too_large(sent, where)
+
+
+def _from_another_site(
+    sent: dict[str, list[str]],
+    site: str,
+    where: str,
+    config: SignInConfig | None,
+    local: LocalMode | None,
+) -> Refusal | None:
+    """Why this credentialed write is not from a page of ours, or ``None``.
+
+    Check 3 (this module's docstring), lifted out of ``refused`` so that the
+    order of what comes after it is a line of code rather than a return inside
+    three branches.
+    """
     if local is not None:
         # Every request here is authenticated -- as the local user, with no
         # cookie to leave out -- so every write is judged as a credentialed
@@ -287,6 +365,44 @@ def refused(
         f" {shown(origin) if origin is not None else '<none>'},"
         f" not {config.public_url}",
     )
+
+
+def _too_large(sent: dict[str, list[str]], where: str) -> Refusal | None:
+    """Why the body this write declares may not be read, or ``None`` if it may.
+
+    It judges the **declaration** and not the body: the point is to answer
+    before anything is read, so that a request saying it carries a hundred
+    megabytes costs the deployment a refusal rather than a hundred megabytes.
+    What a request really sends is counted as it is handed over
+    (``_Bounded``), which is what covers a body sent without a length at all.
+
+    Two of the header is a client and a proxy disagreeing about where the body
+    ends, which is refused rather than read as either of them; one that is not
+    a plain number is left alone, because a framing an ASGI server could not
+    read never reaches a route.
+    """
+    declared = sent[LENGTH_HEADER]
+    if len(declared) > 1:
+        return Refusal(
+            InvalidValueError(REPEATED_HEADER_DETAIL),
+            f"{where} carries {len(declared)} {LENGTH_HEADER} headers",
+        )
+    if not declared:
+        return None
+    said = declared[0].strip()
+    if not (said.isascii() and said.isdigit()):
+        return None
+    # The zeros are taken off **before** the length is looked at and before
+    # anything is converted, so that a thousand of them in front of a small
+    # number is neither refused as enormous nor handed to ``int``.
+    counted = said.lstrip("0") or "0"
+    if len(counted) > MAX_LENGTH_DIGITS or int(counted) > MAX_BODY_BYTES:
+        return Refusal(
+            PayloadTooLargeError(TOO_LARGE_DETAIL),
+            f"{where} declared a body of {shown(said, most=32)} bytes,"
+            f" over the {MAX_BODY_BYTES} this reads",
+        )
+    return None
 
 
 def _off_this_machine(
@@ -405,12 +521,105 @@ def _session_held(sent: dict[str, list[str]], config: SignInConfig) -> bool:
     return any(cookie_parser(header).get(name) for header in sent[COOKIE_HEADER])
 
 
+class _Bounded:
+    """A write's ``receive`` and ``send``, with the body counted as it arrives.
+
+    **The bound in front of the framework.** A body that declares its length is
+    refused before a byte of it is read (``_too_large``); one sent without a
+    length declares nothing, and the framework reads and parses the whole of it
+    before it solves a single dependency -- before the route's own
+    ``read_once`` and before the guard that decides whether the caller is
+    anybody at all. So the bytes are counted **here**, where they are handed
+    over, and the chunk that would take a body past the bound is never handed
+    over: what the application is given is the client having gone away, which
+    every layer above unwinds cleanly and none of them invents an answer from.
+
+    **The answer is this middleware's**, which is why ``send`` is wrapped too:
+    whatever the application made of a body that stopped in the middle -- a
+    400 about a body it could not parse, a 401 about a caller it never got as
+    far as resolving -- is not the truth about this request, so it is dropped
+    and the 413 is sent instead. Nothing has been sent while a body is being
+    read, so there is always an answer left to give.
+
+    Only for a write. A ``GET`` carries no body worth counting, and its
+    ``receive`` is how a streaming response hears that the client went away,
+    which is not a thing to wrap (``robinauts.api.stream_routes``).
+    """
+
+    def __init__(self, receive: Receive, send: Send) -> None:
+        self._receive = receive
+        self._send = send
+        self._read = 0
+        self.over = False
+        """Whether more body arrived than this deployment reads."""
+        self.answered = False
+        """Whether a response has begun, and so whether there is one to give.
+
+        A body is read before a response starts, so this is ``False`` in every
+        case the bound is met in. It is here for the one that is not -- a route
+        that goes on reading while it streams -- where what is already going
+        out is left alone: half a response and a 413 after it would be worse
+        than either.
+        """
+        self.unfinished = False
+        """Whether the last thing sent said more of the body was coming.
+
+        A response the application stopped in the middle of has to be closed
+        by somebody (``finish``), or the connection waits for a body that is
+        never coming.
+        """
+
+    async def receive(self) -> Message:
+        if self.over:
+            # **Without waiting.** Once the body has been cut short there is
+            # nothing this connection can say that changes the answer, and a
+            # caller that asks again -- a streaming response polling for a
+            # disconnect, a route reading past the exception -- would otherwise
+            # wait on a client that has said everything it meant to say. That
+            # is a request that hangs until something else times it out.
+            return {"type": "http.disconnect"}
+        message = await self._receive()
+        if message.get("type") != "http.request":
+            return message
+        self._read += len(message.get("body", b"") or b"")
+        if self._read > MAX_BODY_BYTES:
+            self.over = True
+            return {"type": "http.disconnect"}
+        return message
+
+    async def send(self, message: Message) -> None:
+        if self.over and not self.answered:
+            return
+        kind = message.get("type")
+        if kind == "http.response.start":
+            self.answered = True
+        if kind == "http.response.body":
+            self.unfinished = bool(message.get("more_body", False))
+        await self._send(message)
+
+    async def finish(self) -> None:
+        """Close a response the application was in the middle of, if it was one.
+
+        Only reachable where a route reads the body while it is already
+        answering, which nothing here does. It is written all the same, because
+        a response left with ``more_body`` set is a connection that never ends,
+        and "unreachable" is a claim about today's routes.
+        """
+        if not self.unfinished:
+            return
+        self.unfinished = False
+        await self._send({"type": "http.response.body", "body": b"", "more_body": False})
+
+
 class RequestProtection:
     """The checks, in front of the whole application, and nothing else served.
 
     Pure ASGI rather than ``BaseHTTPMiddleware``: it reads the request's
-    headers and cookies out of the scope and never touches ``receive``, so a
-    refused request is answered without a byte of its body being read.
+    headers and cookies out of the scope, so a refused request is answered
+    without a byte of its body being read. What it does to a **write**'s
+    ``receive`` is count (``_Bounded``): a body that goes past what this
+    deployment reads is refused as the chunks arrive, rather than after the
+    framework has buffered and parsed the whole of it.
 
     What it needs of the deployment -- the public URL and whether the cookie
     is ``Secure``, or the local development mode and the address it is served
@@ -445,7 +654,45 @@ class RequestProtection:
             None if local is None else local.mode,
         )
         if problem is None:
-            await self.app(scope, receive, send)
+            if str(scope.get("method", "")) in SAFE_METHODS:
+                await self.app(scope, receive, send)
+                return
+            bounded = _Bounded(receive, send)
+            try:
+                await self.app(scope, bounded.receive, bounded.send)
+            except Exception as raised:
+                # A route that read the body itself meets the client having
+                # gone away and raises; that is this middleware's doing, and
+                # the answer below is what it really was. Anything raised by a
+                # request that was **not** cut short is nobody's business here.
+                if not bounded.over:
+                    raise
+                # **Said, even so.** It is expected to be the framework
+                # unwinding a body that stopped -- ``ClientDisconnect``, or an
+                # ``HTTPException`` built out of it -- and that is a DEBUG for
+                # whoever is looking. Anything else is a fault of ours that
+                # happened to coincide with an oversized body, and it would
+                # otherwise vanish behind the 413.
+                _log.log(
+                    logging.DEBUG if isinstance(raised, _UNWINDING) else logging.WARNING,
+                    "the request whose body was cut short raised: %s | at %s",
+                    chain(raised),
+                    where(raised),
+                )
+            if bounded.over:
+                _log.warning(
+                    "refused: %s %s sent more than the %s bytes this reads%s",
+                    shown(str(scope.get("method", "")), most=16),
+                    shown(scope.get("path", "")),
+                    MAX_BODY_BYTES,
+                    "; its answer had already begun" if bounded.answered else "",
+                )
+                if bounded.answered:
+                    # Half a response is going out and nothing can take it
+                    # back; what is left to do is end it.
+                    await bounded.finish()
+                else:
+                    await refusal(PayloadTooLargeError(TOO_LARGE_DETAIL))(scope, receive, send)
             return
         _log.warning("refused: %s", problem.because)
         await refusal(problem.error)(scope, receive, send)
@@ -498,7 +745,7 @@ async def read_once(request: Request) -> None:
     reading the same bytes may well pick the other. Which one a parser takes
     is not a rule to build on: two of a field means one of them, and two that
     a tool folded together means nothing at all. The query string is held to
-    the same rule (``conversation_routes.given_once``).
+    the same rule (``given_once``, below).
 
     **A dependency, where the rest of this module is middleware.** The checks
     above are about headers and run before a byte of the body is read, which
@@ -519,12 +766,25 @@ async def read_once(request: Request) -> None:
     shrug, because a body this could not read is a body whose repeated fields
     nobody checked.
 
-    **To watch:** there is no bound on how large a body may be, and this reads
-    it a second time, so the work a request can ask for is twice what it was.
-    A size limit is an operator's (``docs/specs/operations.md``) and is not
-    written yet; when it is, it belongs in front of both parses.
+    **The bound on how large a body may be is in front of this, twice.**
+    ``MAX_BODY_BYTES`` is checked on the declared length before a byte is read
+    (``_too_large``) and on the chunks as they are handed over (``_Bounded``),
+    which is what covers a body sent with no length at all; what is left here
+    is a backstop. This module's earlier note asked for exactly that, because
+    this reads the body a second time and the work a request can ask for was
+    otherwise unbounded. The bound is the **wire's** and not the format's: a
+    stored message may hold sixty-four million characters
+    (``domain.MAX_MESSAGE_CHARS``) and no request may carry one.
     """
     body = await request.body()
+    if len(body) > MAX_BODY_BYTES:
+        # **The backstop.** Nothing should reach here over the bound: a
+        # declared length is refused before a byte is read, and what arrives
+        # without one is counted as it is handed over (``_Bounded``). It is
+        # kept because this is the last place the whole body is in hand, and
+        # because a route reached some way that did not come through the
+        # middleware would otherwise have no bound at all.
+        raise PayloadTooLargeError(TOO_LARGE_DETAIL)
     if not body:
         return
     try:
@@ -545,6 +805,27 @@ async def read_once(request: Request) -> None:
 
 StrictJson = Annotated[None, Depends(read_once)]
 """The check above, as a route declares it: ``read_once: StrictJson``."""
+
+
+def given_once(request: Request, *names: str) -> None:
+    """``InvalidValueError`` if any of those query parameters was sent twice.
+
+    FastAPI reads the **last** of a repeated query parameter and says nothing,
+    so ``?limit=1000&limit=2`` is a request that got two answers to one
+    question and was told about neither. Which one a framework picks is not
+    something to build a bound on: a client that sent two means one of them,
+    and a proxy that folded two together means nothing at all. So it is
+    refused, naming the parameter and not what was in it.
+
+    Here beside ``read_once`` because they are one rule asked of the two halves
+    of a request: a query string that says a thing twice and a body that does.
+    It is a call rather than a dependency, since which parameters a route takes
+    is the route's to say.
+    """
+    given = [name for name, _ in request.query_params.multi_items()]
+    for name in names:
+        if given.count(name) > 1:
+            raise InvalidValueError(f"query.{name}: given more than once")
 
 
 def _one_of_each(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:

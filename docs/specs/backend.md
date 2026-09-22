@@ -10,8 +10,9 @@ in [layout.md](../layout.md). This document holds the component choices.
   the composition root. The application never sees a request object.
 - The OpenAPI document is committed as a snapshot, `backend/openapi.json`,
   rewritten by `scripts/update-openapi.sh`; a test keeps it in step with the
-  code. The streaming turn endpoint is outside it ([wire.md](wire.md)), and so
-  are the sign-in redirects, which are browser navigations rather than calls.
+  code. The streaming endpoints are outside it — the two that start a turn and
+  the one that re-attaches to a run, listed in [wire.md](wire.md) — and so are
+  the sign-in redirects, which are browser navigations rather than calls.
 - Swagger and ReDoc are not served: both load their JavaScript from a content
   delivery network, and nothing here is served from a third-party origin
   ([frontend.md](frontend.md)). `/openapi.json` is.

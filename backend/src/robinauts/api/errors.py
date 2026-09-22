@@ -87,6 +87,7 @@ from robinauts.domain import (
     NotAllowedError,
     NotFoundError,
     NotTheOwnerError,
+    PayloadTooLargeError,
     PositionTakenError,
     ProviderUnavailableError,
     RobinautsError,
@@ -223,6 +224,9 @@ STATUS_OF: dict[type[RobinautsError], int] = {
     # What was sent cannot be taken as it is.
     InvalidValueError: 422,
     UnsupportedMediaTypeError: 415,
+    # More than this deployment reads of a body, refused on what the request
+    # said it was sending where it said so (``robinauts.api.protection``).
+    PayloadTooLargeError: 413,
     # Who is asking is not known, or is not let in.
     AuthenticationError: 401,
     CrossSiteRequestError: 403,

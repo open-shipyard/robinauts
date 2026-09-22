@@ -272,10 +272,11 @@ Rows may import columns marked ✓.
 
 Third-party libraries: domain and core use the standard library plus pure
 parsing or validation libraries where needed, as long as the function stays
-free of IO. The web framework (FastAPI) and `ag-ui-protocol`
-are confined to api and infrastructure. The database driver
-(`asyncpg`) is confined to datastore. Agent frameworks are confined to
-their adapter sub-package. HTTP clients are confined to adapters.
+free of IO. The web framework (FastAPI) is confined to api and
+infrastructure; `ag-ui-protocol` is confined to **api alone**, since nothing
+outside it has an AG-UI event to build — the composition root included. The
+database driver (`asyncpg`) is confined to datastore. Agent frameworks are
+confined to their adapter sub-package. HTTP clients are confined to adapters.
 
 ## 4. Responsibilities by concern
 
@@ -323,6 +324,7 @@ cover:
 - `httpx` is imported only under `adapters`
 - FastAPI, Starlette and uvicorn are imported only under `api` and in the
   composition root (`app.py`, `cli.py`)
+- `ag_ui` is imported only under `api`
 - LangGraph and LangChain are imported only under
   `adapters/agents/langgraph`
 - Pydantic AI is imported only under `adapters/agents/pydantic_ai`

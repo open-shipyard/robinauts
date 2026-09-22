@@ -262,11 +262,15 @@ class MemoryConversationStore(ConversationStore):
             for message in sorted(records.values(), key=lambda kept: _position(kept, "created_at"))
         )
 
-    def _event_documents(self, run_id: uuid.UUID, after: int = 0) -> tuple[Document, ...]:
-        """That run's event documents past ``after``. The lock is held."""
+    def _event_documents(
+        self, run_id: uuid.UUID, after: int = 0, upto: int | None = None
+    ) -> tuple[Document, ...]:
+        """That run's event documents past ``after``, to ``upto``. The lock is held."""
         events = self._events.get(run_id, {})
         return tuple(
-            copy.deepcopy(document) for seq, (_, document) in sorted(events.items()) if seq > after
+            copy.deepcopy(document)
+            for seq, (_, document) in sorted(events.items())
+            if seq > after and (upto is None or seq <= upto)
         )
 
     async def conversation_snapshot(self, conversation_id: uuid.UUID) -> Snapshot:
@@ -443,11 +447,15 @@ class MemoryConversationStore(ConversationStore):
             await _a_turn()
             self._put_event(event, event_document)
 
-    async def events_of(self, run_id: uuid.UUID, *, after: int = 0) -> tuple[Document, ...]:
+    async def events_of(
+        self, run_id: uuid.UUID, *, after: int = 0, upto: int | None = None
+    ) -> tuple[Document, ...]:
         if isinstance(after, bool) or not isinstance(after, int) or after < 0:
             raise InvalidValueError(f"a position to read past is a whole number, not {after!r}")
+        if upto is not None and (isinstance(upto, bool) or not isinstance(upto, int) or upto < 0):
+            raise InvalidValueError(f"a position to read up to is a whole number, not {upto!r}")
         async with self._locked():
-            return self._event_documents(run_id, after)
+            return self._event_documents(run_id, after, upto)
 
     async def last_position(self, run_id: uuid.UUID) -> int:
         async with self._locked():

@@ -21,6 +21,7 @@ from robinauts.domain.agents import (
 )
 from robinauts.domain.conversation import (
     FORMAT_VERSION,
+    MAX_MESSAGE_CHARS,
     MAX_PARTS,
     MAX_TITLE_CHARS,
     SUPPORTED_PART_KINDS,
@@ -55,6 +56,7 @@ from robinauts.domain.errors import (
     NotAllowedError,
     NotFoundError,
     NotTheOwnerError,
+    PayloadTooLargeError,
     PositionTakenError,
     ProviderUnavailableError,
     RobinautsError,
@@ -184,6 +186,7 @@ __all__ = [
     "MAX_CONFIG_ID_CHARS",
     "MAX_FRAMES",
     "MAX_LOGGED",
+    "MAX_MESSAGE_CHARS",
     "MAX_PARTS",
     "MAX_PART_CHARS",
     "MAX_PENDING_LOGINS",
@@ -231,6 +234,7 @@ __all__ = [
     "NotFoundError",
     "NotTheOwnerError",
     "PartKind",
+    "PayloadTooLargeError",
     "PendingLogin",
     "Permission",
     "PositionTakenError",

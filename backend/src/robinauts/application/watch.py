@@ -151,6 +151,71 @@ class Watch:
         self._store = store
         self._signals = signals
 
+    async def run(self, user: User, run_id: uuid.UUID) -> Run:
+        """That run, if its conversation is this person's; ``RunNotFoundError`` if not.
+
+        The ownership check of ``events``, asked **before** a stream exists.
+        A streaming endpoint owes a refusal as a status and a body, and a
+        generator can only refuse once bytes are already going out
+        (``robinauts.api.stream_routes``); so whoever is about to open a stream
+        asks this first, and is answered 404 -- the same answer for a run that
+        is not there and one that is somebody else's -- with nothing sent.
+
+        It also answers **which conversation** the run is of, which the events
+        of a re-attached stream do not all carry: a slice that begins after the
+        run started holds no ``RunStarted``, and the wire names the
+        conversation on every stream.
+
+        ``events`` checks again for itself, because nothing may depend on a
+        caller having asked: two reads of one run is what that costs, once per
+        stream and never per event.
+        """
+        checked_uuid(run_id, "a run's id")
+        checked_uuid(user.id, "a user's id")
+        return await self._owned(user, run_id)
+
+    async def before(self, user: User, run_id: uuid.UUID, *, upto: int) -> tuple[RunEvent, ...]:
+        """That run's stored events **up to and including** ``upto``, in order.
+
+        The other half of re-attaching, and the one a stream needs before it
+        sends anything: what a watcher receives is everything *after* a
+        position, and whoever turns those events into something a client
+        renders may have to know what came before them -- a wire whose events
+        are bracketed cannot derive the closing bracket of a bracket it never
+        saw open (``robinauts.api.agui``).
+
+        Ownership is checked exactly as ``run`` checks it, because nothing may
+        depend on a caller having asked first: a run that is not there and one
+        that is somebody else's are the same ``RunNotFoundError``.
+
+        **The bound is the store's**, not a filter over everything it has:
+        ``events_of`` takes ``upto`` and reads no row past it, so replaying the
+        beginning of a long stream costs the beginning and not the whole of it.
+
+        **What re-attaching costs** is three ownership checks -- the route's,
+        this one's and the watcher's -- and two reads of the run's rows. Each
+        is once per stream and never per event, and none of them may be left
+        out on the grounds that another has been made.
+
+        **And the prefix is the length of the run, in rows and in memory**,
+        every time somebody re-attaches: a turn that produced five thousand
+        events is five thousand rows read and decoded to answer where its
+        thinking stood. Nothing here comes near that -- a re-attach happens
+        when a tab is reopened, and a turn is a turn -- and if it ever
+        mattered, the read to make is from the **last ``MessageStarted`` at or
+        before the position**: everything before that message is about a
+        message that is complete, and nothing in it can change what the
+        brackets of the one being produced are.
+        """
+        checked_uuid(run_id, "a run's id")
+        checked_uuid(user.id, "a user's id")
+        if isinstance(upto, bool) or not isinstance(upto, int) or upto < 0:
+            raise InvalidValueError(
+                f"a position to read up to is a whole number, not {describe(upto)}"
+            )
+        await self._owned(user, run_id)
+        return tuple(await self._stored(run_id, 0, upto=upto))
+
     async def events(
         self, user: User, run_id: uuid.UUID, *, after: int = 0
     ) -> AsyncIterator[RunEvent]:
@@ -315,9 +380,15 @@ class Watch:
             raise RunNotFoundError(f"there is no run {run_id}") from missing
         return run
 
-    async def _stored(self, run_id: uuid.UUID, position: int) -> list[RunEvent]:
-        """This run's stored events past ``position``, as records."""
-        documents = await self._store.events_of(run_id, after=position)
+    async def _stored(
+        self, run_id: uuid.UUID, position: int, *, upto: int | None = None
+    ) -> list[RunEvent]:
+        """This run's stored events past ``position``, as records.
+
+        ``upto`` is the other end of the slice, which the store bounds the read
+        with rather than this throwing rows away (``ports.ConversationStore``).
+        """
+        documents = await self._store.events_of(run_id, after=position, upto=upto)
         return [run_event_from_stored(document) for document in documents]
 
 

@@ -50,8 +50,8 @@ from robinauts.api.access import CurrentUser, local_access, public, signing_in
 from robinauts.api.cookies import clear_cookie, login_cookie, session_cookie, set_cookie
 from robinauts.api.errors import error_body
 from robinauts.api.logs import shown
+from robinauts.api.refusals import NOT_JSON, NOT_OURS, TOO_LARGE, refusals
 from robinauts.api.schemas import (
-    ErrorResponse,
     ProviderSummary,
     SessionResponse,
     UserSummary,
@@ -212,10 +212,12 @@ async def finish_sign_in(
     "/logout",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[public()],
-    responses={
-        status.HTTP_403_FORBIDDEN: {"model": ErrorResponse},
-        status.HTTP_415_UNSUPPORTED_MEDIA_TYPE: {"model": ErrorResponse},
-    },
+    # The three the request protection answers before this route is reached,
+    # and the ``default`` every other route carries: a write is judged for
+    # where it came from, what it says it is and how much of it there is
+    # (``robinauts.api.refusals``), and this one is a write like any other even
+    # though it reads no body.
+    responses=refusals(NOT_OURS, TOO_LARGE, NOT_JSON),
 )
 async def sign_out(request: Request) -> Response:
     """End the session, if there is one, and clear its cookie.

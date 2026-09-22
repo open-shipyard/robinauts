@@ -20,10 +20,23 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import get_args, get_origin
 
-from robinauts.api import ANYTHING_ELSE, RenameRequest, SelectLeafRequest, openapi_document
+from robinauts.api import (
+    ANYTHING_ELSE,
+    NewChatRequest,
+    RenameRequest,
+    SelectLeafRequest,
+    TurnRequest,
+    openapi_document,
+)
 
-REQUESTS = (RenameRequest, SelectLeafRequest)
-"""Every body a route of the API reads. Written out, like ``ANSWERS``."""
+REQUESTS = (RenameRequest, SelectLeafRequest, NewChatRequest, TurnRequest)
+"""Every body a route of the API reads. Written out, like ``ANSWERS``.
+
+The last two are the streaming routes', which are outside the document
+(``docs/specs/wire.md``) -- and the rule about what a refusal may name is about
+what pydantic is given, not about what OpenAPI describes, so they are held to
+it like the rest.
+"""
 
 ANSWERS = (
     "AgentListResponse",

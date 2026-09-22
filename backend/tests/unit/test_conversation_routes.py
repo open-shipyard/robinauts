@@ -934,6 +934,8 @@ def test_every_route_with_a_body_reads_it_once() -> None:
     ] == [
         "/api/conversations/{conversation_id}",
         "/api/conversations/{conversation_id}/leaf",
+        "/api/turns",
+        "/api/conversations/{conversation_id}/turns",
     ]
 
 

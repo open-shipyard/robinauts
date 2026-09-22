@@ -41,6 +41,101 @@ delivery channel uses ([channels.md](channels.md)).
   and the wire is the same whatever the engine.
 - Tool calls, when they come, already have AG-UI events.
 
+## The endpoints
+
+The profile above, as it is served. These three are **outside the OpenAPI
+document** ([backend.md](backend.md)) — a streaming endpoint described in it
+would have a generated client believe it could read the response as JSON — so
+they are documented here, which is what "documented with the API" means for
+them. All three need a session; the two writes are held to the same origin
+checks as every other write.
+
+| method and path | body | answers |
+|---|---|---|
+| `POST /api/turns` | `{"agent_id": str, "text": str}` | the stream of the run answering the first question of a **new** conversation |
+| `POST /api/conversations/{id}/turns` | `{"text": str, "parent_id": uuid\|null}` **or** `{"regenerate": uuid}` | the stream of the run that turn began |
+| `GET /api/runs/{run_id}/events?after=<position>` | — | the stream of that run from `after`; `Last-Event-ID` says the same thing, and is what is read when `after` is absent |
+
+- A body that is neither shape of a turn, or both at once, is refused (422);
+  so is a field the body does not know. `parent_id` is the message the new one
+  hangs under — nothing for a conversation's first question, the parent of the
+  message being replaced for an edit.
+- A conversation with a run going refuses a second turn (409). A run that is
+  not there and one in somebody else's conversation answer the same 404, and
+  **before the stream begins**: a refusal is a status.
+- Every response carries `Content-Type: text/event-stream`,
+  `Cache-Control: no-store`, `X-Accel-Buffering: no`, and
+  `X-Robinauts-Run-Id` and `X-Robinauts-Conversation-Id`, so that a client
+  which received the headers and nothing else can re-attach.
+- **`Last-Event-ID` is always read**, even when `after` is given: the two are
+  two ways of saying one thing, and saying two different ones is refused (422)
+  rather than settled by preferring one of them. An empty one is a client that
+  has seen nothing.
+- **An `id: <position>` is the platform's own numbering of the run's events**,
+  and it is what makes `Last-Event-ID` re-attaching native. One wire event can
+  be **derived** from another — the brackets around thinking are — and the
+  platform numbered none of those: the id goes on the **last** wire event
+  derived from each of the run's events, and an event without one is never
+  something to re-attach after. So an id means "everything derived from the
+  run's events up to this position has been sent", and a client that
+  re-attaches at the last id it saw is replayed no event it has had in full,
+  loses none it has not, and has the brackets of the one it is in the middle
+  of derived again.
+- A comment line (`: keep-alive`) goes out while nothing is arriving, so that
+  nothing in front of the deployment closes a quiet stream.
+- The events are AG-UI's: `RUN_STARTED`, `TEXT_MESSAGE_START` /
+  `TEXT_MESSAGE_CONTENT` / `TEXT_MESSAGE_END`, the `REASONING_MESSAGE_*`
+  events for thinking — under an id derived from the answer's, and never
+  stored ([conversations.md](conversations.md)) — and `RUN_FINISHED` or
+  `RUN_ERROR`. A completed message is a bare `TEXT_MESSAGE_END`: the client
+  built it from the deltas, and one that did not receive every delta reloads
+  the conversation, which is what the store is for.
+- **Thinking is bracketed, and the brackets survive a re-attach.** Each
+  stretch of thinking inside an answer is a reasoning message of its own,
+  under an id derived from the answer's and from the position it opened at, so
+  a turn that thinks twice does not reopen a message it has ended. A stream
+  that carries on from a position is given the run's events up to that
+  position first, so it derives the brackets exactly as an unbroken one would:
+  re-attaching in the middle of a stretch closes that stretch rather than
+  leaving the client's thinking block open for ever.
+- **What re-attaching may repeat is the bracket around the cut and the
+  ending**, and only those: a `*_START` for a message the client already holds
+  open, a `*_END` for one it does not, and — re-attaching at or past the last
+  position — the terminal event of a run it has already seen end. **A client
+  reads all three as no-ops.** Everything else is sent once: no delta is
+  repeated and none is lost.
+- **A position a run that is still going has not reached is refused** (422):
+  there is nothing after it, and a stream that waited would give up on a run
+  that is answering perfectly well ([runs.md](runs.md)). A run that has
+  **ended** is not refused past its end — there is nothing to wait for, and
+  how it ended is the answer.
+- **Every stream ends with an event saying the run is over**, because a
+  stream that merely closed is one an `EventSource` would open again.
+  Re-attaching at or past the last position of a run that has ended sends
+  nothing — there is nothing after `after` ([runs.md](runs.md)) — and is
+  answered with **how that run really ended**, read from its record: the same
+  `RUN_FINISHED` or `RUN_ERROR` a client would have been sent had it been
+  watching. A finished answer is never reported as an error.
+- **A cancellation is not a failure.** A run somebody stopped is
+  `RUN_FINISHED` with AG-UI's `cancelled` outcome — "stopped before it
+  completed, by whoever was running it, and did not fail" — and not a
+  `RUN_ERROR`, which a stock client shows as something having gone wrong.
+- `RUN_ERROR` carries a `code`: the run's state where it ended in an error
+  (`failed`, or `interrupted` — the deployment stopped with the run in it,
+  which is not AG-UI's *interrupt* outcome), `quiet` where watching a run that
+  stored nothing was given up on ([runs.md](runs.md)), `gone` where the run is
+  **no longer there at all** — its conversation deleted under the watcher —
+  and `internal` for a fault of ours. Its message is **a fixed sentence** —
+  never the run's stored error, which is written for an operator.
+- **A body is bounded** at one mebibyte, refused with 413 on the declared
+  length before a byte of it is read, and on the bytes themselves as they
+  arrive where a body carried no length — before the request reaches anything
+  that would parse it or ask who is sending it. That is the bound on a
+  *request*, not on a record:
+  the conversation format holds a message far longer, and a turn that needs
+  more than a mebibyte is a file, which is a channel this version has not got
+  ([channels.md](channels.md)).
+
 ## Without streaming
 
 - A client that cannot stream starts a run and obtains the result once the

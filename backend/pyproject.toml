@@ -18,7 +18,12 @@ authors = [{ name = "The Robinauts Authors" }]
 # There is a backstop that needs no such knowledge -- a list of routes under a
 # name nothing reads stops the deployment -- so a bump cannot quietly open a
 # door either way; the range is what makes somebody look.
-dependencies = ["asyncpg>=0.30", "fastapi>=0.141,<0.142", "httpx>=0.28"]
+dependencies = [
+    "ag-ui-protocol>=1.0,<2",
+    "asyncpg>=0.30",
+    "fastapi>=0.141,<0.142",
+    "httpx>=0.28",
+]
 
 [dependency-groups]
 dev = [
@@ -254,6 +259,29 @@ source_modules = [
     "robinauts.datastore",
 ]
 forbidden_modules = ["fastapi", "starlette", "uvicorn"]
+
+# AG-UI is the wire's vocabulary and nothing else's (docs/specs/wire.md): the
+# application yields the platform's own turn events and `api` maps them, so a
+# second wire -- or a client that cannot stream -- is another mapping rather
+# than a change to anything below. Confined more tightly than the web
+# framework, which the composition root also imports: nothing outside `api`
+# has an AG-UI event to build, `app.py` included, so `app` and `cli` are
+# sources here.
+[[tool.importlinter.contracts]]
+name = "ag_ui only under api"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "robinauts.domain",
+    "robinauts.core",
+    "robinauts.ports",
+    "robinauts.application",
+    "robinauts.adapters",
+    "robinauts.datastore",
+    "robinauts.app",
+    "robinauts.cli",
+]
+forbidden_modules = ["ag_ui"]
 
 # The agent frameworks are swappable: each is confined to its own adapter.
 [[tool.importlinter.contracts]]

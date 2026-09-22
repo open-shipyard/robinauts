@@ -63,6 +63,16 @@ own and refuses one above it. The rules and the upgrade path are in
 MAX_PARTS = 64
 """How many parts one message may hold."""
 
+MAX_MESSAGE_CHARS = MAX_PARTS * MAX_PART_CHARS
+"""The longest one message's text may be: every part of it, full.
+
+Derived rather than chosen, so that it cannot drift from the two bounds it is
+made of. It is what ``text_parts`` refuses past, and it is the bound the wire
+states for a message somebody writes (``robinauts.api.schemas``): a client
+that knows it can say so in its own form instead of finding out by being
+refused.
+"""
+
 MAX_TITLE_CHARS = 120
 """The longest a conversation's title may be; it is shown in a list."""
 
@@ -193,9 +203,9 @@ def text_parts(text: str) -> tuple[TextPart, ...]:
     """
     if not isinstance(text, str):
         raise InvalidValueError(f"content is made of text, not {describe(text)}")
-    if len(text) > MAX_PARTS * MAX_PART_CHARS:
+    if len(text) > MAX_MESSAGE_CHARS:
         raise InvalidValueError(
-            f"one message holds at most {MAX_PARTS * MAX_PART_CHARS} characters, not {len(text)}"
+            f"one message holds at most {MAX_MESSAGE_CHARS} characters, not {len(text)}"
         )
     if not text:
         return (TextPart(""),)

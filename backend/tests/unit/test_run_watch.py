@@ -106,9 +106,11 @@ class Counted(MemoryConversationStore):
         super().__init__()
         self.reads = 0
 
-    async def events_of(self, run_id: uuid.UUID, *, after: int = 0) -> tuple[Document, ...]:
+    async def events_of(
+        self, run_id: uuid.UUID, *, after: int = 0, upto: int | None = None
+    ) -> tuple[Document, ...]:
         self.reads += 1
-        return await super().events_of(run_id, after=after)
+        return await super().events_of(run_id, after=after, upto=upto)
 
 
 class Deaf(MemoryRunSignals):

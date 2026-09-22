@@ -589,13 +589,25 @@ class ConversationStore(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def events_of(self, run_id: uuid.UUID, *, after: int = 0) -> tuple[Document, ...]:
+    async def events_of(
+        self, run_id: uuid.UUID, *, after: int = 0, upto: int | None = None
+    ) -> tuple[Document, ...]:
         """That run's event documents past ``after``, in order of position.
 
         ``after=0`` is all of them, a position past the end is an empty tuple,
         and a negative one is ``InvalidValueError``. It is the query a watcher
         re-attaches with, and the one opening a conversation with a run in
         flight reads to find where to attach.
+
+        ``upto`` bounds the other end: the events **up to and including** that
+        position, and ``None`` is "to the end of the run". It is what a caller
+        that needs the beginning of a stream asks with -- the wire's own
+        bracketing has to be replayed before a re-attached stream can carry it
+        on (``application.Watch.before``) -- and it is a bound of the *query*
+        rather than a filter afterwards, so a store answers it with a
+        ``seq <= upto`` and reads no row the caller will throw away. A bound
+        below ``after`` is an empty tuple, not a refusal: it asks for a slice
+        with nothing in it.
 
         The documents are handed back as they were given; what a caller does
         with them does not reach what is stored.

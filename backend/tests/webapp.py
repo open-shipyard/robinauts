@@ -32,7 +32,7 @@ from fakes import (
     ScriptedIdentityProvider,
 )
 from robinauts.api import create_api
-from robinauts.application import Conversations, LocalAccess, SignIn, Turns
+from robinauts.application import Conversations, LocalAccess, SignIn, Turns, Watch
 from robinauts.core import secret_hash
 from robinauts.domain import (
     MAX_PENDING_LOGINS,
@@ -223,6 +223,7 @@ async def serving(
     local: LocalAccess | None = None,
     conversations: Conversations | None = None,
     turns: Turns | None = None,
+    watch: Watch | None = None,
     base_url: str = PUBLIC_URL,
 ) -> AsyncIterator[httpx.AsyncClient]:
     """A client on the real application, wired to ``sign_in`` or to ``local``.
@@ -230,13 +231,28 @@ async def serving(
     Redirects are not followed: what the tests are about is the ``Location``
     and the ``Set-Cookie`` of each one.
 
-    ``conversations`` and ``turns`` are the services the conversation routes
-    call, handed in the way the composition root hands in the ones it opened
-    (``tests/turns.py`` builds them over the fakes). Left out where a test is
-    about the auth routes, which is also how a route that asked for one before
-    start-up is tested.
+    ``conversations``, ``turns`` and ``watch`` are the services the
+    conversation and streaming routes call, handed in the way the composition
+    root hands in the ones it opened (``tests/turns.py`` builds them over the
+    fakes). Left out where a test is about the auth routes, which is also how a
+    route that asked for one before start-up is tested.
     """
-    app = create_api(sign_in, local=local, conversations=conversations, turns=turns)
+    app = create_api(sign_in, local=local, conversations=conversations, turns=turns, watch=watch)
+    async with client_on(app, base_url=base_url) as client:
+        yield client
+
+
+@asynccontextmanager
+async def client_on(app: Any, *, base_url: str = PUBLIC_URL) -> AsyncIterator[httpx.AsyncClient]:
+    """A client on an application a test built itself.
+
+    ``serving`` is this and ``create_api`` together, which is all most tests
+    want. A test that also drives the application **as a server does** -- which
+    is what following a stream means, since ``httpx``'s ASGI transport runs an
+    application to its end before it answers -- wants the application itself as
+    well, and builds it rather than reaching into a client for it
+    (``tests/sse.py``).
+    """
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url=base_url,

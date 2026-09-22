@@ -64,7 +64,7 @@ from fastapi.routing import APIRoute
 from starlette.routing import BaseRoute, Mount, Router
 
 from robinauts.api.cookies import session_cookie
-from robinauts.application import Conversations, LocalAccess, SignIn, Turns
+from robinauts.application import Conversations, LocalAccess, SignIn, Turns, Watch
 from robinauts.domain import (
     AuthenticationError,
     ConfigError,
@@ -157,6 +157,14 @@ def turning(request: Request) -> Turns:
     Read the same way, from the same state, and for the same reasons.
     """
     return _wired(getattr(request.app.state, "turns", None), "turns")
+
+
+def watching(request: Request) -> Watch:
+    """The deployment's watcher: a run's events, to whoever may see them.
+
+    Read the same way, from the same state, and for the same reasons.
+    """
+    return _wired(getattr(request.app.state, "watch", None), "watch")
 
 
 def _wired[Service](found: Service | None, name: str) -> Service:

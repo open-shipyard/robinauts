@@ -44,6 +44,14 @@ NOT_THERE = 404
 STILL_ANSWERING = 409
 """A conversation with a run going, which is not deleted while it is."""
 
+TOO_LARGE = 413
+"""A body larger than this deployment reads (``robinauts.api.protection``).
+
+Its own entry rather than the fallback: it is a client's mistake, it names a
+bound a client can hold itself to, and a generated client that knew about it
+can say so instead of retrying a request that cannot succeed.
+"""
+
 NOT_JSON = 415
 """A write sent as something other than JSON."""
 
@@ -83,11 +91,14 @@ READING = refusals(NO_SESSION, NOT_OURS, UNREADABLE)
 OPENING = refusals(NO_SESSION, NOT_OURS, NOT_THERE, UNREADABLE)
 """The same, for a read that names a conversation."""
 
-WRITING = refusals(NO_SESSION, NOT_OURS, NOT_THERE, NOT_JSON, UNREADABLE)
-"""What a write can refuse with: the two the request protection answers before
-a route is reached (``NOT_OURS``, ``NOT_JSON``) beside the route's own."""
+WRITING = refusals(NO_SESSION, NOT_OURS, NOT_THERE, TOO_LARGE, NOT_JSON, UNREADABLE)
+"""What a write can refuse with: the three the request protection answers
+before a route is reached (``NOT_OURS``, ``TOO_LARGE``, ``NOT_JSON``) beside
+the route's own."""
 
-DELETING = refusals(NO_SESSION, NOT_OURS, NOT_THERE, STILL_ANSWERING, NOT_JSON, UNREADABLE)
+DELETING = refusals(
+    NO_SESSION, NOT_OURS, NOT_THERE, STILL_ANSWERING, TOO_LARGE, NOT_JSON, UNREADABLE
+)
 """A write, and the one refusal only deleting has: a conversation still
 answering (``STILL_ANSWERING``)."""
 

@@ -34,9 +34,13 @@ from urllib.parse import urlsplit
 
 import httpx
 import pytest
+from ag_ui.core import EventType
 
 from aio import asyncio_test
+from conversations import agent_definition
+from fakes import ScriptedAgent, says
 from postgres import DATABASE_URL, TemporarySchema, requires_postgres
+from robinauts.api import CONVERSATION_ID_HEADER, SSE_MEDIA_TYPE
 from robinauts.app import create_app
 from robinauts.core import message_to_data
 from robinauts.datastore import (
@@ -55,6 +59,7 @@ from robinauts.domain import (
     SchemaError,
     TextPart,
 )
+from sse import events
 from standin import StandInProvider, redirect_from
 from webapp import running
 
@@ -70,6 +75,9 @@ LOCAL_WRITE = {"content-type": "application/json", "origin": LOCAL_URL}
 """What a write carries in that mode: JSON, from the origin it was addressed to."""
 
 ASKED = "What is a robinaut?"
+
+ANSWERED = "Someone who plays fair."
+"""What the scripted engine of the streaming test answers."""
 
 T0 = datetime(2026, 9, 21, 9, 0, tzinfo=UTC)
 """When the conversation of the test below was written."""
@@ -269,10 +277,9 @@ async def test_a_conversation_is_listed_opened_renamed_and_deleted_over_http() -
     as, the keyset the panel is paged with, and a delete that really removes
     the row.
 
-    The conversation is put in the store directly, because writing in one is
-    starting a turn and that route does not exist yet
-    (``docs/specs/wire.md``): the interface's first conversation arrives with
-    the streaming half of the wire.
+    The conversation is put in the store directly, so that this test is about
+    the plain JSON half of the wire alone: starting a turn writes one too, and
+    it is the subject of the test below.
     """
     async with schema() as temporary:
         app = create_app(
@@ -341,6 +348,61 @@ async def test_a_conversation_is_listed_opened_renamed_and_deleted_over_http() -
     assert gone.status_code == 404
     # The delete took the conversation and the message under it.
     assert (rows, messages) == (0, 0)
+
+
+@asyncio_test
+async def test_a_turn_is_streamed_and_what_it_produced_is_in_the_conversation() -> None:
+    """The streaming half of the wire, end to end on the real store.
+
+    The mapping and the routes are proved over the fakes
+    (``tests/unit/test_agui.py``, ``test_stream_routes.py``); what only this
+    can show is the whole of it together: an agent configured at start-up, a
+    run executed in the background by the deployment's own executor, every
+    event of it written to PostgreSQL as jsonb and read back, and the answer
+    in the conversation afterwards -- which is what a person who closed the tab
+    would come back to.
+
+    The engine is the scripted one: no provider is reached, and what a real
+    engine puts in its place is the agent port (``docs/layout.md``).
+    """
+    definition = agent_definition()
+    async with schema() as temporary:
+        app = create_app(
+            local_development_host="127.0.0.1",
+            database_url=in_schema(temporary.name),
+            secret_for={}.get,
+            agents={definition.id: definition},
+            engines={definition.engine: ScriptedAgent(*says(ANSWERED))},
+        )
+
+        async with running(app):
+            async with local_browser(app) as client:
+                streamed = await client.post(
+                    "/api/turns",
+                    json={"agent_id": definition.id, "text": ASKED},
+                    headers=LOCAL_WRITE,
+                )
+                conversation_id = streamed.headers[CONVERSATION_ID_HEADER]
+                opened = await client.get(f"/api/conversations/{conversation_id}")
+
+            positions = await temporary.pool.fetchval("SELECT count(*) FROM run_events")
+
+    assert streamed.status_code == 200
+    assert streamed.headers["content-type"].startswith(SSE_MEDIA_TYPE)
+    sent = events(streamed.text)
+    assert [block.type for block in sent] == [
+        EventType.RUN_STARTED.value,
+        EventType.TEXT_MESSAGE_START.value,
+        EventType.TEXT_MESSAGE_CONTENT.value,
+        EventType.TEXT_MESSAGE_END.value,
+        EventType.RUN_FINISHED.value,
+    ]
+    # Every event the platform stored was sent, under its own position.
+    assert [block.id for block in sent] == [str(seq) for seq in range(1, positions + 1)]
+    # And the answer is in the conversation, not only in the stream.
+    said = [[part["text"] for part in message["parts"]] for message in opened.json()["messages"]]
+    assert said == [[ASKED], [ANSWERED]]
+    assert opened.json()["run_id"] is None
 
 
 def local_browser(app: object) -> httpx.AsyncClient:

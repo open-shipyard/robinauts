@@ -44,7 +44,8 @@ from robinauts.api.protection import (
     SecurityHeaders,
 )
 from robinauts.api.schemas import HealthResponse
-from robinauts.application import Conversations, LocalAccess, SignIn, Turns
+from robinauts.api.stream_routes import stream_router
+from robinauts.application import Conversations, LocalAccess, SignIn, Turns, Watch
 from robinauts.domain import ConfigError
 
 TITLE = "Robinauts"
@@ -84,6 +85,7 @@ def create_api(
     local: LocalAccess | None = None,
     conversations: Conversations | None = None,
     turns: Turns | None = None,
+    watch: Watch | None = None,
     lifespan: Opening | None = None,
 ) -> FastAPI:
     """The application serving the api, over the services it is given.
@@ -99,12 +101,13 @@ def create_api(
     be (``docs/specs/sign-in.md``). It is read the same way, from
     ``app.state.local``, and asking for both is a ``ConfigError``.
 
-    ``conversations`` and ``turns`` are the services the conversation routes
-    call, read off ``app.state`` the same way and for the same reason: a
-    deployment opens them in its lifespan, and a test hands in ones built over
-    fakes. Unlike a sign-in, ``None`` is never a deployment's answer -- every
-    deployment has conversations -- so a route that finds none says the
-    lifespan has not run (``robinauts.api.access.NOT_WIRED``).
+    ``conversations``, ``turns`` and ``watch`` are the services the
+    conversation and streaming routes call, read off ``app.state`` the same way
+    and for the same reason: a deployment opens them in its lifespan, and a
+    test hands in ones built over fakes. Unlike a sign-in, ``None`` is never a
+    deployment's answer -- every deployment has conversations -- so a route
+    that finds none says the lifespan has not run
+    (``robinauts.api.access.NOT_WIRED``).
 
     ``ConfigError`` -- at build time, and again at start-up -- if anything the
     application serves declares no permission, or if a router keeps routes
@@ -146,6 +149,7 @@ def create_api(
     app.state.local = local
     app.state.conversations = conversations
     app.state.turns = turns
+    app.state.watch = watch
     install_handlers(app, headers=dict(SECURITY_HEADERS))
     # The last added is the outermost, so the headers go on everything that
     # comes back -- the protection's own refusals included -- and the
@@ -155,6 +159,7 @@ def create_api(
     app.include_router(auth_router)
     app.include_router(conversation_router)
     app.include_router(agent_router)
+    app.include_router(stream_router)
 
     @app.get("/health", tags=["health"], dependencies=[public()])
     async def health() -> HealthResponse:

@@ -1132,6 +1132,112 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   deletes a conversation over HTTP against the real PostgreSQL in the local
   development mode.
 
+- The **AG-UI stream**, which is the other half of the wire and the last of
+  the backend (`docs/specs/wire.md`, where the three endpoints are now written
+  down as a table, since they are outside the OpenAPI document). The fourth
+  runtime dependency is `ag-ui-protocol` 1.0.0 (MIT, and it brings only
+  `pydantic`, which FastAPI already did, so no row of `DEPENDENCIES.md` was
+  needed): its event types and its `EventEncoder` are what go out, and an
+  import-linter contract keeps `ag_ui` under **`api` alone** -- more tightly
+  than FastAPI, which the composition root also imports, because nothing
+  outside `api` has an AG-UI event to build. `api/agui.py` is the **one
+  mapping**, `AguiMapper`, a class rather than a function because AG-UI
+  brackets thinking and the platform publishes bare `ReasoningDelta`s: the
+  brackets are derived from the sequence, and the reasoning message is given an
+  id **derived** from the answer's (`reasoning_id`), so that it is the same on
+  a re-attach and can never be mistaken for the answer by a client that keys
+  messages by id. `MessageCompleted` crosses as a bare `TEXT_MESSAGE_END` --
+  the client has the deltas, and one that did not receive them all reloads the
+  conversation -- an empty delta is skipped (AG-UI 1.0.0 would accept one, and
+  it says nothing), and nothing of the platform's record crosses that the
+  mapping does not name: no `raw_event`, no `metadata`, and a run that ended
+  badly is **one fixed sentence per state** with the state as the `code`, never
+  the stored error. `api/stream_routes.py` serves `POST /api/turns` (a turn
+  that begins a conversation; `agent_id` is required, because `Turns.begin`
+  takes either an agent or a conversation and the route chooses nothing),
+  `POST /api/conversations/{id}/turns` (a message with its `parent_id`, or
+  `regenerate` -- exactly one of the two, both or neither being one fixed
+  sentence) and `GET /api/runs/{run_id}/events?after=`, where `Last-Event-ID`
+  says the same thing and is read when the query is absent, the two disagreeing
+  being a refusal rather than something settled by preference. **A refusal is a
+  status, so it comes before the stream**: the new `Watch.run(user, run_id)` is
+  the ownership check asked before a byte goes out -- the same 404 for a run
+  that is not there and one that is somebody else's -- and it is also where the
+  conversation comes from, since a re-attached slice holds no `RunStarted` to
+  read it off and every event names the thread. An `id: <position>` goes on the
+  **last** wire event derived from each of the run's events -- the thinking
+  brackets are derived here and the platform numbered none of them -- so an id
+  means "everything derived up to this position has been sent" and a client
+  re-attaching at one loses no delta and sees none twice; the response carries
+  `X-Robinauts-Run-Id` and `X-Robinauts-Conversation-Id`, so a client that
+  received only the headers can still re-attach. **Every stream ends with an
+  event saying the run is over** -- one that merely closed is one an
+  `EventSource` opens again. A slice that held no ending -- re-attaching at or
+  past the last position, where there is nothing after `after` -- **reads the
+  run again** and sends how it really ended, through the same mapping
+  (`AguiMapper.closed`), so a finished answer is never reported as a failure;
+  besides that there are `RUN_ERROR` codes `quiet` (the watcher gave up, and
+  the 504 it would have been is long past), `gone` (the run is not there any
+  more, its conversation deleted under the watcher) and `internal`, which says
+  no more than a 500 body does while the whole chain goes to the log -- and
+  which is also what a run that is somehow still active at the end of its own
+  stream gets, since that cannot happen. Heartbeats are an SSE comment every
+  `HEARTBEAT_SECONDS` while nothing arrives: the watcher is read by a **task**
+  and the response waits on that task with a timeout, because a wait cut short
+  by `asyncio.wait_for` would be a cancellation delivered inside the watcher's
+  generator -- the end of the stream rather than a heartbeat. A client that
+  goes away closes the generator and nothing about the run changes.
+  `create_api(watch=)` and `app.state.watch` join the other two services, and
+  `access.watching` reads it like `conversing`. `domain.MAX_MESSAGE_CHARS` is
+  new -- the bound `text_parts` already applied, named -- so the request body
+  states it as `RenameRequest` states a title's.
+
+  Three things the wire decides that are worth finding again. **Thinking is a
+  message per stretch**, under an id made of the answer's id and the position
+  the stretch opened at, so a turn that thinks twice inside one answer does not
+  reopen a message it has ended; and a stream that carries on from a position
+  is **seeded** with the run's events up to it (`Watch.before`,
+  `AguiMapper.seed` -- the mapping run with what it answers thrown away), so it
+  derives the same brackets an unbroken stream would and closes the thinking a
+  client holds open (through `events_of(upto=)`, which the port, both stores
+  and the contract suite gained, so replaying the beginning of a stream costs
+  the beginning and not the whole of it). What re-attaching may repeat is that
+  one bracket and the ending, which `wire.md` says a client reads as no-ops;
+  what it may **not** ask for is a position a run that is still going has not
+  reached, which is a 422 (`POSITION_AHEAD`) rather than a stream that waits
+  out the silence and then says in the log that a healthy run went quiet.
+  **A cancellation is no failure**:
+  AG-UI 1.0 has `RUN_FINISHED` with a `cancelled` outcome for a run somebody
+  stopped, and sending `RUN_ERROR` would have a stock client show a failure to
+  whoever pressed stop; `failed` and `interrupted` stay errors. And **a request
+  body is bounded** at `api.MAX_BODY_BYTES` (1 MiB), as
+  `domain.PayloadTooLargeError` (413), in three places: the declared
+  `Content-Length`, before a byte is read; **the chunks as they are handed
+  over**, because a body sent without a length is buffered and parsed by the
+  framework before a single dependency is solved -- before `read_once` and
+  before the guard that decides whether the caller is anybody at all, so an
+  anonymous POST could otherwise spend megabytes to be told it needs a session;
+  and `read_once` itself, which is now the backstop. The middleware wraps
+  `receive` *and* `send` for a write: the chunk that would go over is never
+  handed on, and whatever the application made of a body that stopped in the
+  middle is dropped in favour of the 413. That is the bound the earlier note
+  under `read_once` asked for, and a bound on a *request* is not the format's
+  bound on a record.
+
+  The tests are `tests/unit/test_agui.py` (every event kind, the brackets, the
+  stretches, empty deltas, the endings, the roles AG-UI has a word for, and
+  that the closed set `domain.TurnEvent` names is exactly what is mapped),
+  `tests/unit/test_stream_routes.py` (a whole turn parsed back, the id
+  discipline, dropping after **every** block and re-attaching -- the whole
+  event sequence must come back to what an unbroken stream said -- the 404
+  identity before any stream, 409, the two forms, cross-site, no session, a
+  quiet run, a heartbeat and a client that goes away while the run finishes),
+  the body cap in `tests/unit/test_api_protection.py`, and one case in
+  `tests/integration/test_create_app.py` against the real PostgreSQL.
+  `tests/sse.py` is the parser and a small ASGI driver: `httpx`'s transport
+  runs an application to its end before it answers, which cannot show a stream
+  that is still going.
+
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -1898,3 +2004,64 @@ Important design decisions made / open questions:
   refusal the list route labels `query.cursor`.
 - A blank title is refused by the application; the length bound is in the
   document.
+
+### Step 14 — agui-stream   (feature/poc-14-agui-stream)
+
+Summary: the AG-UI stream over server-sent events, emitted by `api`.
+`ag-ui-protocol` 1.0.0 (MIT) is the one new dependency, confined to `api`
+by an import-linter contract. `api/agui.py`: one mapper from the platform's
+turn events to AG-UI 1.0 — `RUN_STARTED`, `TEXT_MESSAGE_START/CONTENT/END`,
+`REASONING_MESSAGE_*` for thinking (one reasoning message per stretch, id
+derived from the message and the position so it is stable across a
+re-attach), `RUN_FINISHED` (with the cancelled outcome for a cancelled
+run), `RUN_ERROR` with a fixed sentence per state and never the stored
+error. `api/stream_routes.py`: `POST /api/turns` (new conversation),
+`POST /api/conversations/{id}/turns` (a message under a parent, or a
+regeneration — exactly one form), `GET /api/runs/{id}/events?after=` with
+`Last-Event-ID`; SSE `id:` is the platform position on the last wire event
+derived from each stored event; heartbeats; ownership settled before any
+byte; every stream ends with a terminal event (`quiet`, `gone`, `internal`
+or how the run really ended); a re-attach seeds the mapper from the stored
+prefix (`Watch.before`, `events_of(upto=)`) so an open thinking block is
+closed. A request-body cap (1 MiB, 413) now sits in the protection
+middleware in front of the framework's read. The streaming endpoints are
+outside the OpenAPI snapshot and documented in `wire.md`.
+
+Review: 4 rounds (two full, two focused).
+- High: 2
+  - the synthetic reasoning bracket events shared an `id:` with a real
+    event, so a re-attach at that position silently lost a delta — fixed:
+    only the last wire event derived from a stored event carries the
+    position;
+  - a re-attach right after the last reasoning delta never closed the
+    client's thinking block (a fresh mapper knew nothing) — fixed: the
+    mapper is seeded from the stored prefix.
+- Medium: 8 (8/0) — among them: a huge `Last-Event-ID` was a 500; a
+  deletion between the two ownership checks was logged as a fault;
+  cancelled was sent as an error; no body cap, then the cap only after the
+  framework had buffered a chunked body; the bounded receive could block
+  after the client had finished sending.
+- Low: 23 (23/0)
+
+Checks: `scripts/check-all.sh` without a database (2314 passed, 191
+skipped) and with one required (2499 passed, 6 skipped); the changed
+modules 10× under `python -X dev -W error`. Reviewers drove the re-attach
+guarantee at every cut point over finished/cancelled/failed/interrupted
+runs with both re-attach forms, and the body cap at the ASGI level.
+Not done / to watch: about 2,900 lines with tests, well over the aim —
+the mapping, the routes and the body cap were three concerns. `HEAD` on
+GET routes still answers 405. A re-attach reads the run's whole prefix
+(O(run length)); fine for now, the bounded read from the last
+`MessageStarted` is the improvement. No `REASONING_START/END` span (AG-UI
+makes it optional). Three ownership checks per re-attach.
+Important design decisions made / open questions:
+- The wire is a profile of AG-UI: the server loads history; the request
+  names the conversation and a message under a parent, or a regeneration.
+- `id:` marks "everything derived up to this position has been sent";
+  events without an id are derived or terminal, never a place to re-attach.
+- Documented client no-ops: a `*_START` for an open id, a `*_END` for an
+  id not open, a repeated terminal event.
+- `interrupted` (the process went away) stays `RUN_ERROR`; it is not
+  AG-UI's interrupt outcome.
+- A position past what an active run has stored is 422; past the end of
+  an ended run answers the run's outcome.

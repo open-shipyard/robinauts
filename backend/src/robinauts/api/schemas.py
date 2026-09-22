@@ -25,6 +25,14 @@ spelt wrong, or one from a newer client, is a refusal naming it rather than a
 write that quietly did something else. What goes out is not held to that -- a
 client reads the fields it knows and reads past the rest, which is how a field
 is added without a new version of the wire.
+
+**Two of these are not in the document**: the bodies of the streaming
+endpoints (``NewChatRequest``, ``TurnRequest``), whose routes are outside
+OpenAPI and are described in ``docs/specs/wire.md`` instead
+(``docs/specs/backend.md``). They are written here with the others all the
+same, because what a request body may be is one subject and because the rules
+this module states -- the bounds that are the record's own, and a field nobody
+knows being a refusal -- are exactly as true of them.
 """
 
 from __future__ import annotations
@@ -37,6 +45,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from robinauts.application import OpenedConversation
 from robinauts.domain import (
+    MAX_CONFIG_ID_CHARS,
+    MAX_MESSAGE_CHARS,
     MAX_TITLE_CHARS,
     AgentDefinition,
     Channel,
@@ -434,3 +444,54 @@ class SelectLeafRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message_id: uuid.UUID
+
+
+class NewChatRequest(BaseModel):
+    """A turn that **begins** a conversation: the agent, and the first question.
+
+    ``agent_id`` is required, and the route decides nothing about it: the
+    application takes either the agent to begin a conversation with or the
+    conversation a turn is in, never both and never neither
+    (``application.Turns.begin``), so the request names the agent rather than
+    having one chosen for it. The picker is drawn from ``GET /api/agents``, and
+    a deployment with one agent sends that one
+    (``docs/specs/agents.md``).
+
+    Both bounds are the record's own -- ``domain.MAX_CONFIG_ID_CHARS`` for an
+    agent's id, ``domain.MAX_MESSAGE_CHARS`` for a message (every part of one,
+    full) -- so a client can hold itself to them, and neither field is a length
+    somebody else chooses. What a length cannot say -- the shape of a
+    configured id, and that a message has something in it once what no store
+    could hold has been taken out of it -- is decided below, and what it says
+    is the rule.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str = Field(min_length=1, max_length=MAX_CONFIG_ID_CHARS)
+    text: str = Field(min_length=1, max_length=MAX_MESSAGE_CHARS)
+
+
+class TurnRequest(BaseModel):
+    """A turn in a conversation that exists: a new message, or one produced again.
+
+    **Exactly one of the two forms** (``docs/specs/wire.md``): ``text``, with
+    the ``parent_id`` it hangs under -- nothing for a conversation's first
+    question, and the parent of the message being replaced for an edit -- or
+    ``regenerate``, the assistant message whose turn is to be produced again,
+    which appends no message at all because the question is already there.
+    Both, or neither, is refused with one fixed sentence
+    (``robinauts.api.stream_routes.ONE_FORM``); the check is the route's rather
+    than a discriminated union's, so that no tag of the sender's reaches a
+    refusal's ``location`` (``robinauts.api.errors``).
+
+    No ``agent_id``: a conversation is begun with an agent and stays with it
+    (``docs/specs/conversations.md``), and the application refuses an agent and
+    a conversation named together.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    text: str | None = Field(default=None, min_length=1, max_length=MAX_MESSAGE_CHARS)
+    parent_id: uuid.UUID | None = None
+    regenerate: uuid.UUID | None = None

@@ -211,6 +211,20 @@ class CrossSiteRequestError(RobinautsError):
     """
 
 
+class PayloadTooLargeError(RobinautsError):
+    """A request body larger than this deployment reads.
+
+    A bound on **what is read**, which is not the bound on what a record may
+    hold: the conversation format carries a message of sixty-four million
+    characters, and a wire that accepted one would let anybody signed in make
+    the deployment buffer and parse that much twice over
+    (``robinauts.api.protection``). What the two numbers mean is different --
+    one is what a store keeps, the other is what a request may spend -- and an
+    operator moves the second without the first moving
+    (``docs/specs/operations.md``).
+    """
+
+
 class UnsupportedMediaTypeError(RobinautsError):
     """A write sent as something other than JSON.
 

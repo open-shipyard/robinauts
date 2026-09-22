@@ -84,7 +84,7 @@ import uuid
 from fastapi import APIRouter, Query, Request, Response, status
 
 from robinauts.api.access import SignedIn, conversing, turning
-from robinauts.api.protection import StrictJson
+from robinauts.api.protection import StrictJson, given_once
 from robinauts.api.refusals import DELETING, OPENING, READING, WRITING
 from robinauts.api.schemas import (
     ConversationListResponse,
@@ -104,22 +104,6 @@ PAGING = ("limit", "cursor")
 ``given_once`` is asked about. One name for the route and the test that holds
 the two together (``test_every_query_parameter_is_given_once``), so a third
 one added later is not quietly left unchecked."""
-
-
-def given_once(request: Request, *names: str) -> None:
-    """``InvalidValueError`` if any of those query parameters was sent twice.
-
-    FastAPI reads the **last** of a repeated query parameter and says nothing,
-    so ``?limit=1000&limit=2`` is a request that got two answers to one
-    question and was told about neither. Which one a framework picks is not
-    something to build a bound on: a client that sent two means one of them,
-    and a proxy that folded two together means nothing at all. So it is
-    refused, naming the parameter and not what was in it.
-    """
-    given = [name for name, _ in request.query_params.multi_items()]
-    for name in names:
-        if given.count(name) > 1:
-            raise InvalidValueError(f"query.{name}: given more than once")
 
 
 @conversation_router.get("/conversations", responses=READING)
