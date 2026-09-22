@@ -393,6 +393,19 @@ class Turns:
         """Whether the process is shutting down; see ``stopping``."""
 
     @property
+    def agents(self) -> tuple[AgentDefinition, ...]:
+        """The agents this deployment is wired with, in configuration order.
+
+        What a picker is drawn from (``docs/specs/agents.md``): a caller that
+        needs the list asks for it rather than reaching into the mapping this
+        service keeps, which is copied and stays this service's. Each
+        definition holds the operator's **system prompt**, so whoever shows
+        these sends the fields it means to send and not the record
+        (``robinauts.api.schemas.AgentSummary``).
+        """
+        return tuple(self._agents.values())
+
+    @property
     def executing(self) -> frozenset[uuid.UUID]:
         """The runs this process is executing or has claimed to execute.
 
@@ -1052,11 +1065,24 @@ class Turns:
 
     # --- ending one --------------------------------------------------------
 
-    async def cancel(self, user: User, run_id: uuid.UUID) -> Run:
+    async def cancel(
+        self, user: User, run_id: uuid.UUID, *, conversation_id: uuid.UUID | None = None
+    ) -> Run:
         """Stop the run its author asked to stop; the run as it now is.
 
         Ownership is the conversation's, so a run in somebody else's
         conversation answers exactly like one that is not there.
+
+        ``conversation_id`` is the conversation the caller says the run is in,
+        and is given when the caller was told both -- a URL that names a
+        conversation and a run of it (``robinauts.api.conversation_routes``).
+        A run of **another** conversation is then answered exactly like a run
+        that does not exist: the pair a caller named is either a pair or it is
+        nothing, and a mismatch that was quietly ignored would let a run of
+        one's own conversation be cancelled through the id of somebody else's,
+        or confirm that a run id exists somewhere. It is checked here rather
+        than in a route, because it is the same rule as ownership and lives
+        beside it.
 
         A run this process is executing is cancelled by cancelling its task,
         and the task writes the end a moment later: what comes back still says
@@ -1067,9 +1093,18 @@ class Turns:
         """
         checked_uuid(run_id, "a run's id")
         checked_uuid(user.id, "a user's id")
+        if conversation_id is not None:
+            checked_uuid(conversation_id, "a conversation's id")
         run = await self._store.run_by_id(run_id)
         if run is None:
             raise RunNotFoundError(f"there is no run {run_id}")
+        if conversation_id is not None and run.conversation_id != conversation_id:
+            # The detail says which it was, for the log; what crosses is the
+            # one body everything that is not there answers with.
+            raise RunNotFoundError(
+                f"run {run_id} is a run of conversation {run.conversation_id},"
+                f" not of {conversation_id}"
+            )
         try:
             # Through its conversation, by the one rule there is.
             owner_of(

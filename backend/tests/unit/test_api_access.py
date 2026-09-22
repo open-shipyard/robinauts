@@ -75,6 +75,13 @@ DECLARED = {
     ("GET", "/auth/callback/{provider}"): Permission.PUBLIC,
     ("POST", "/auth/logout"): Permission.PUBLIC,
     ("GET", "/health"): Permission.PUBLIC,
+    ("GET", "/api/conversations"): Permission.SIGNED_IN,
+    ("GET", "/api/conversations/{conversation_id}"): Permission.SIGNED_IN,
+    ("PATCH", "/api/conversations/{conversation_id}"): Permission.SIGNED_IN,
+    ("DELETE", "/api/conversations/{conversation_id}"): Permission.SIGNED_IN,
+    ("PUT", "/api/conversations/{conversation_id}/leaf"): Permission.SIGNED_IN,
+    ("POST", "/api/conversations/{conversation_id}/runs/{run_id}/cancel"): Permission.SIGNED_IN,
+    ("GET", "/api/agents"): Permission.SIGNED_IN,
 }
 """Every route of this build, and the permission it asks for.
 

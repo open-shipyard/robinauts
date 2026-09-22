@@ -40,7 +40,13 @@ them exists because something once did:
   reach here, and one that does is still not going to reflect its input back;
 - **a request that could not be read names the field and the rule**, never
   the value. Pydantic's error carries the ``input`` it refused, which is the
-  very thing somebody submitted.
+  very thing somebody submitted -- and its ``msg`` often quotes it too
+  ("invalid character: found `Z` at 1"), so **no message of pydantic's is
+  passed on**: each of its error types has a sentence of ours
+  (``UNREADABLE_RULES``), and a type nothing here has read about gets the one
+  fallback sentence rather than its own words. The **name of a field nobody
+  knows is the request's too** -- a body may be sent with a key that is a
+  token -- so those are counted and not named (``unknown_fields``).
 
 The status table is exhaustive on purpose, and a test says so: a new error
 class in ``robinauts.domain`` that nobody gave a status to fails the suite
@@ -59,6 +65,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+# The one walk of what an application serves lives in ``access``, which reads
+# every list a router keeps routes in and goes through everything that holds
+# more of them. A second walk here would be a second thing to keep in step
+# with the framework, and the two would disagree the day one of them learnt
+# about something the other had not.
+from robinauts.api.access import api_routes
 from robinauts.api.logs import shown
 from robinauts.domain import (
     MAX_LOGGED,
@@ -67,6 +79,7 @@ from robinauts.domain import (
     ConversationNotFoundError,
     CrossSiteRequestError,
     IllegalTransitionError,
+    InvalidCursorError,
     InvalidIdTokenError,
     InvalidMessageTreeError,
     InvalidValueError,
@@ -121,6 +134,9 @@ limits).
 UNREADABLE_DETAIL = "the request could not be read"
 """What a request nobody could parse is told, when there is nothing safe to add."""
 
+METHOD_NOT_ALLOWED = 405
+"""The one refusal of Starlette's whose header this module builds itself."""
+
 MAX_DETAIL_CHARS = 300
 """How long a detail built out of a request may be. It is a sentence, not a dump."""
 
@@ -132,6 +148,58 @@ _LOGGED = MAX_LOGGED
 
 MAX_REPORTED_FIELDS = 5
 """How many fields a "could not be read" answer names before it stops."""
+
+MAX_LOCATION_CHARS = 40
+"""How much of one piece of a field's location a detail carries.
+
+The location is ours -- ``body.title``, ``query.limit``, ``path.run_id`` --
+because the fields are ours; it is bounded all the same, since a list index
+inside one is as long as the list somebody sent.
+"""
+
+UNREADABLE_RULES: Mapping[str, str] = {
+    "missing": "is required",
+    "json_invalid": "is not readable JSON",
+    "model_type": "is not an object",
+    "model_attributes_type": "is not an object",
+    "dict_type": "is not an object",
+    "list_type": "is not a list",
+    "string_type": "is not text",
+    "string_unicode": "is not text",
+    "string_too_short": "is shorter than this field allows",
+    "string_too_long": "is longer than this field allows",
+    "int_type": "is not a whole number",
+    "int_parsing": "is not a whole number",
+    "int_from_float": "is not a whole number",
+    "float_type": "is not a number",
+    "float_parsing": "is not a number",
+    "bool_type": "is not true or false",
+    "bool_parsing": "is not true or false",
+    "greater_than": "is below what this field allows",
+    "greater_than_equal": "is below what this field allows",
+    "less_than": "is above what this field allows",
+    "less_than_equal": "is above what this field allows",
+    "uuid_type": "is not a uuid",
+    "uuid_parsing": "is not a uuid",
+    "datetime_type": "is not a time",
+    "datetime_parsing": "is not a time",
+    "enum": "is not one of the values this field takes",
+    "literal_error": "is not one of the values this field takes",
+}
+"""One sentence of **ours** per kind of thing pydantic refuses.
+
+Keyed on its error ``type``, which is a stable, closed vocabulary of
+pydantic's, unlike its ``msg``, which is prose and quotes what it refused.
+A type that is not here is answered with ``UNREADABLE_RULE``: a build that
+printed an unknown message rather than saying less would be one input away
+from reflecting a request back.
+"""
+
+UNREADABLE_RULE = "is not what this field takes"
+"""What a field refused for a reason nothing here has a sentence for says."""
+
+UNKNOWN_FIELD = "a field nobody knows"
+"""What a body with one unknown key is told. Never which key it was."""
 
 SIGN_IN_DETAIL: Mapping[SignInErrorCode, str] = {
     SignInErrorCode.EXPIRED: "the sign-in took too long, or was already used",
@@ -171,6 +239,9 @@ STATUS_OF: dict[type[RobinautsError], int] = {
     # request asked for something that is not there yet, not something wrong.
     UnsupportedContentError: 422,
     InvalidMessageTreeError: 422,
+    # A listing's cursor that is no cursor of ours: a value like any other,
+    # and its own class so that whoever answers knows which field carried it.
+    InvalidCursorError: 422,
     # A conversation nobody may see and one that never existed answer the
     # same body, not merely the same status (see `error_body`), so that an id
     # cannot be probed for existence.
@@ -282,20 +353,100 @@ def http_error_detail(status: int) -> str:
         return GENERIC_DETAIL if status >= 500 else UNREADABLE_DETAIL
 
 
+def unknown_fields(many: int) -> str:
+    """How an answer says that a body held keys nobody knows: how many, not which.
+
+    A request body is sent with whatever keys the sender likes -- a secret
+    pasted into the wrong tool arrives as a **key** as readily as as a value
+    -- and a model that forbids extras reports each one with the key in its
+    location. So they are counted here: the count is a fact about the request
+    and the names are the request itself.
+    """
+    return UNKNOWN_FIELD if many == 1 else f"{many} fields nobody knows"
+
+
 def unreadable_detail(exc: RequestValidationError) -> str:
     """Which fields could not be read, and why -- never with what.
 
     Pydantic's error carries the ``input`` it refused, which is exactly the
     value somebody submitted: a password in the wrong field, a token pasted
-    where a number goes. What is said here is where the problem is and which
-    rule it broke, bounded, because both are ours and neither is theirs.
+    where a number goes. And its ``msg`` frequently carries a piece of that
+    input as well. So what is said here is built out of two things only: the
+    **location**, which names fields of ours, and one sentence of **ours** per
+    error type (``UNREADABLE_RULES``). Bounded, because a location can hold a
+    list index and a body can be wrong in a thousand places.
     """
-    said = []
-    for problem in exc.errors()[:MAX_REPORTED_FIELDS]:
-        where = ".".join(str(piece)[:40] for piece in problem.get("loc", ()))
-        message = str(problem.get("msg", "invalid"))
-        said.append(f"{where}: {message}" if where else message)
+    said: list[str] = []
+    unknown: dict[str, int] = {}
+    for problem in exc.errors():
+        location = tuple(problem.get("loc", ()))
+        if problem.get("type") == "extra_forbidden":
+            # The last piece of the location is the key somebody sent, which
+            # is the one piece of a location that is theirs and not ours.
+            where = _located(location[:-1])
+            unknown[where] = unknown.get(where, 0) + 1
+            continue
+        if len(said) < MAX_REPORTED_FIELDS:
+            rule = UNREADABLE_RULES.get(str(problem.get("type", "")), UNREADABLE_RULE)
+            where = _located(location)
+            said.append(f"{where}: {rule}" if where else rule)
+    said.extend(f"{where}: {unknown_fields(many)}" for where, many in unknown.items())
     return "; ".join(said)[:MAX_DETAIL_CHARS] or UNREADABLE_DETAIL
+
+
+def _located(location: tuple[Any, ...]) -> str:
+    """Where a problem is, as a detail names it: ``body.title``, ``query.limit``.
+
+    **Only the pieces that are names.** A location is ours where it names a
+    field, and pydantic also puts numbers in one: the index inside a list it
+    refused, and -- for a body that is not JSON at all -- the **character
+    offset** it stopped at, which is a number computed from what was sent
+    (``body.2012``). Those are dropped, so what is left is the field path and
+    nothing measured off the request. A location with nothing but numbers in
+    it becomes ``body``, which is the truth about where the problem is.
+
+    **Its limit, said plainly.** What is kept is text, and that is a rule
+    about the *type* of a piece and not about where it came from. Every name
+    in a location today is one of ours, because every request model here has
+    fixed fields; two things would change that -- a field typed as a
+    **mapping**, whose keys are the sender's, and a **discriminated union**,
+    whose tag pydantic writes into the location. Neither exists, and
+    ``test_no_request_model_puts_a_senders_word_in_a_location`` is what makes
+    whoever writes the first one read this paragraph.
+    """
+    return ".".join(piece[:MAX_LOCATION_CHARS] for piece in location if isinstance(piece, str))
+
+
+def allowed_methods(app: Any, path: str) -> str:
+    """Every method really served at ``path``, sorted, for an ``Allow`` header.
+
+    Starlette answers a 405 out of the **first** route whose path matched, and
+    a path served by more than one route -- which is what
+    ``/api/conversations/{id}`` is, with a GET, a PATCH and a DELETE written as
+    three routes -- therefore gets an ``Allow`` naming one of them. A client
+    that read it would be told that renaming a conversation is not allowed.
+
+    So it is built here instead, from every route whose own regular expression
+    matches the path that was asked for. Empty when nothing matches, and then
+    what Starlette said is kept: a 405 has to come from somewhere, and a walk
+    that found nothing has nothing better to offer -- which is also the answer
+    for a path served by something that is not an ``APIRoute``, a mounted
+    application among them, since what it allows is its own to say.
+
+    The walk is ``access.api_routes``, which is the one this project has: it
+    reads every list a router keeps routes in and goes through an **included
+    router** -- where FastAPI keeps what ``include_router`` added, rather than
+    flattening it into the application's list -- and into a mounted
+    application. A route inside a mount has a path of its own that does not
+    begin where the request's does, so one never matches here, which is right:
+    a mounted application answers its own 405.
+    """
+    served: set[str] = set()
+    for route in api_routes(app.router):
+        regex = getattr(route, "path_regex", None)
+        if regex is not None and regex.match(path):
+            served.update(route.methods or ())
+    return ", ".join(sorted(served))
 
 
 def install_handlers(app: FastAPI, *, headers: Mapping[str, str] | None = None) -> None:
@@ -334,7 +485,15 @@ def install_handlers(app: FastAPI, *, headers: Mapping[str, str] | None = None) 
             "error": http_error_name(exc.status_code),
             "detail": http_error_detail(exc.status_code),
         }
-        return JSONResponse(body, status_code=exc.status_code, headers=exc.headers)
+        sent = dict(exc.headers or {})
+        if exc.status_code == METHOD_NOT_ALLOWED:
+            served = allowed_methods(request.app, request.url.path)
+            if served:
+                # Written back over whatever Starlette put there, whichever
+                # way it spelt the name: one header, and the right one.
+                sent = {name: value for name, value in sent.items() if name.lower() != "allow"}
+                sent["allow"] = served
+        return JSONResponse(body, status_code=exc.status_code, headers=sent)
 
     @app.exception_handler(RequestValidationError)
     async def _unreadable_request(request: Request, exc: RequestValidationError) -> JSONResponse:

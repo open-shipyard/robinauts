@@ -166,6 +166,22 @@ class PositionTakenError(InvalidValueError):
     """
 
 
+class InvalidCursorError(InvalidValueError):
+    """The text offered as a listing's cursor is no cursor of this store's.
+
+    A cursor is a **position** inside the caller's own listing, written by a
+    store and read back by it, and it goes out to a browser and comes back --
+    so one that does not parse is refused as a value like any other, and one
+    that parses and was never issued is simply a position
+    (``docs/specs/conversations.md``).
+
+    Its own class because it is the one refusal of a listing that names a
+    **field**: whoever answers a request knows which parameter carried it
+    (``robinauts.api.conversation_routes``), and a class is how that is known
+    for certain rather than by being the only thing a call could have refused.
+    """
+
+
 class InvalidMessageTreeError(InvalidValueError):
     """A collection of messages that is no conversation.
 

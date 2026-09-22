@@ -632,11 +632,18 @@ def create_app(
         await deployment.open()
         app.state.sign_in = deployment.sign_in
         app.state.local = deployment.local_access
+        # The conversation routes read these off the state at the moment of a
+        # request, exactly as the auth routes read the sign-in, so they are
+        # put there the moment they exist and taken away with everything else.
+        app.state.conversations = deployment.conversations
+        app.state.turns = deployment.turns
         try:
             yield
         finally:
             app.state.sign_in = None
             app.state.local = None
+            app.state.conversations = None
+            app.state.turns = None
             await deployment.aclose()
 
     app = create_api(lifespan=lifespan)

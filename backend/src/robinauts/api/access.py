@@ -56,7 +56,7 @@ that it cannot be forgotten and cannot be reached around
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Iterator
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Request
@@ -64,8 +64,14 @@ from fastapi.routing import APIRoute
 from starlette.routing import BaseRoute, Mount, Router
 
 from robinauts.api.cookies import session_cookie
-from robinauts.application import LocalAccess, SignIn
-from robinauts.domain import AuthenticationError, ConfigError, Permission, User
+from robinauts.application import Conversations, LocalAccess, SignIn, Turns
+from robinauts.domain import (
+    AuthenticationError,
+    ConfigError,
+    Permission,
+    RobinautsError,
+    User,
+)
 
 PERMISSION_ATTRIBUTE = "robinauts_permission"
 """Where a declaration records the permission it asks for, for the walk to read."""
@@ -101,6 +107,17 @@ what is served without one.
 NOT_SIGNED_IN = "this deployment needs a session: sign in at /ui/"
 """What a 401 says. Not whether the cookie was missing, unknown or expired."""
 
+NOT_WIRED = "the deployment has not put its services on the application's state"
+"""What a route finds before start-up, and it is a **programming error**.
+
+Every deployment has conversations and runs: there is no configuration that
+leaves them out, the way a deployment may have no sign-in. So a service that
+is missing means the lifespan has not run -- an application being served
+before it was started -- which is a mistake of ours and not something a
+client can do anything about. It answers like every other 5xx of ours: the
+generic body, and the whole of it in the log (``robinauts.api.errors``).
+"""
+
 
 def signing_in(request: Request) -> SignIn | None:
     """The deployment's sign-in, or ``None`` when none is configured.
@@ -120,6 +137,33 @@ def local_access(request: Request) -> LocalAccess | None:
     """
     local: LocalAccess | None = getattr(request.app.state, "local", None)
     return local
+
+
+def conversing(request: Request) -> Conversations:
+    """The deployment's conversation service; ``RobinautsError`` before start-up.
+
+    Read off the application's state at the moment of the request, exactly as
+    ``signing_in`` reads the sign-in: the composition root builds the services
+    in the lifespan and puts them there, and nothing in ``api`` holds one --
+    which is what lets ``create_api`` be built before a database is open and
+    a test hand in a service over fakes.
+    """
+    return _wired(getattr(request.app.state, "conversations", None), "conversations")
+
+
+def turning(request: Request) -> Turns:
+    """The deployment's run service; ``RobinautsError`` before start-up.
+
+    Read the same way, from the same state, and for the same reasons.
+    """
+    return _wired(getattr(request.app.state, "turns", None), "turns")
+
+
+def _wired[Service](found: Service | None, name: str) -> Service:
+    """``found``, or the refusal ``NOT_WIRED`` describes."""
+    if found is None:
+        raise RobinautsError(f"{NOT_WIRED}: app.state.{name} is None")
+    return found
 
 
 async def current_user(request: Request) -> User | None:
@@ -188,6 +232,33 @@ def unknown_route_lists(router: Any) -> list[str]:
         if any(isinstance(item, BaseRoute) for item in value):
             unknown.append(name)
     return sorted(unknown)
+
+
+def api_routes(router: Any) -> Iterator[APIRoute]:
+    """Every ``APIRoute`` the routes under ``router`` serve, wherever they are kept.
+
+    The same walk ``_undeclared`` makes, for the callers that want the routes
+    rather than a complaint about them: out of every list a router keeps them
+    in (``ROUTE_LISTS``), through an **included router** -- which is where
+    FastAPI keeps what ``include_router`` added rather than flattening it --
+    and into a **mounted application**. One walk, so that what a check reads
+    and what an answer is built from cannot come to disagree; the other caller
+    is ``errors.allowed_methods``, which builds the ``Allow`` of a 405.
+
+    Anything that is not an ``APIRoute`` and holds no routes is passed over
+    here. Reporting it is ``undeclared``'s work, and is what stops a
+    deployment serving it at all.
+    """
+    for route in routes_of(router):
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            yield from api_routes(included)
+        elif isinstance(route, APIRoute):
+            yield route
+        elif isinstance(route, Mount):
+            inside = _router_of(route.app)
+            if inside is not None:
+                yield from api_routes(inside)
 
 
 def undeclared(app: FastAPI, *, allowed: Collection[str] = FRAMEWORK_PATHS) -> list[str]:
@@ -332,3 +403,14 @@ def signed_in() -> Any:
         return user
 
     return _declaring(Permission.SIGNED_IN, permitted)
+
+
+SignedIn = Annotated[User, signed_in()]
+"""A route's person, and the declaration that there must be one, in one name.
+
+``user: SignedIn`` is both halves of what a route needs: the guard resolves
+the session, the declaration is what ``undeclared`` reads, and the route has
+the ``User`` it acts for without asking a second time. Built once, at import,
+because FastAPI reads a dependency from a module-level annotation and because
+one declaration is one thing for the walk to find.
+"""

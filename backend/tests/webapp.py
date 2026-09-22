@@ -32,7 +32,7 @@ from fakes import (
     ScriptedIdentityProvider,
 )
 from robinauts.api import create_api
-from robinauts.application import LocalAccess, SignIn
+from robinauts.application import Conversations, LocalAccess, SignIn, Turns
 from robinauts.core import secret_hash
 from robinauts.domain import (
     MAX_PENDING_LOGINS,
@@ -221,14 +221,22 @@ async def serving(
     sign_in: SignIn | None,
     *,
     local: LocalAccess | None = None,
+    conversations: Conversations | None = None,
+    turns: Turns | None = None,
     base_url: str = PUBLIC_URL,
 ) -> AsyncIterator[httpx.AsyncClient]:
     """A client on the real application, wired to ``sign_in`` or to ``local``.
 
     Redirects are not followed: what the tests are about is the ``Location``
     and the ``Set-Cookie`` of each one.
+
+    ``conversations`` and ``turns`` are the services the conversation routes
+    call, handed in the way the composition root hands in the ones it opened
+    (``tests/turns.py`` builds them over the fakes). Left out where a test is
+    about the auth routes, which is also how a route that asked for one before
+    start-up is tested.
     """
-    app = create_api(sign_in, local=local)
+    app = create_api(sign_in, local=local, conversations=conversations, turns=turns)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
         base_url=base_url,

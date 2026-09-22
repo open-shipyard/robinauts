@@ -113,10 +113,16 @@ class Conversations:
         read: it came from a browser, so one that does not parse is refused as
         a value. One that parses and was never issued is only a position --
         this listing holds the caller's own conversations whatever it says.
+
+        A ``limit`` outside the bound names the field and the rule and **not
+        the number it was given**: this refusal is answered to whoever asked
+        (``robinauts.api.errors``), and a body that repeated what a request
+        carried would be reflecting it back.
         """
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_PAGE:
             raise InvalidValueError(
-                f"a page holds between 1 and {MAX_PAGE} conversations, not {limit!r}"
+                f"limit is a whole number between 1 and {MAX_PAGE},"
+                " which is what a page of conversations holds"
             )
         return await self._store.conversations_of(user.id, limit=limit, cursor=cursor)
 
@@ -137,6 +143,19 @@ class Conversations:
         opening the conversation is shown the wrong thing, and the port is
         what makes it impossible.
 
+        **Ownership is settled before that read, not after it.** The
+        conversation's own row is looked up first, and a conversation that is
+        not this person's stops there: a snapshot reads every message and
+        every event of the run and decodes each document, so checking
+        afterwards would make somebody else's conversation cost more than a
+        conversation that is not there -- the difference is measurable, and
+        measuring it is one of the ways an id is probed for existence. It also
+        means no signed-in caller can make this deployment read a thousand
+        messages belonging to somebody else. The check is made again on the
+        snapshot, which costs nothing and is what answers a conversation
+        deleted between the two reads: the same 404 as one that was never
+        there.
+
         **What went wrong is told too.** When no run is in flight, the most
         recent one is looked at, and a run that failed, was cancelled or was
         interrupted comes back on ``ended_badly``: somebody who reloads a
@@ -150,8 +169,7 @@ class Conversations:
         a short read; if it ever stops being one, the query it would become is
         written out on ``core.resume_point``.
         """
-        checked_uuid(conversation_id, "a conversation's id")
-        checked_uuid(user.id, "a user's id")
+        await self._owned(user, conversation_id)
         snapshot = await self._store.conversation_snapshot(conversation_id)
         conversation = owner_of(user, conversation_id, snapshot.conversation)
         tree = tree_of_stored(
@@ -198,6 +216,13 @@ class Conversations:
     async def rename(self, user: User, conversation_id: uuid.UUID, title: str) -> Conversation:
         """Give it a new title. A renamed title is never overwritten afterwards.
 
+        A title with nothing in it is refused: a conversation whose title is
+        three spaces has a name nobody can read and one that no list can be
+        sorted by, and the record cannot tell it from a title, since spaces are
+        printable and on one line. It is refused the way an agent's title is
+        (``domain.AgentDefinition``), with the rule and not the value -- this
+        message is answered to whoever asked.
+
         What comes back is what the **store wrote**, not the record read a
         moment earlier with a new title put on it: between the two a run may
         have completed a message and moved the conversation on, and an
@@ -205,6 +230,8 @@ class Conversations:
         has already changed.
         """
         kept = checked_line(title, "a conversation's title", MAX_TITLE_CHARS)
+        if not kept.strip():
+            raise InvalidValueError("a conversation's title has something in it")
         conversation = await self._owned(user, conversation_id)
         written = await self._store.rename_conversation(
             conversation.id, kept, now=self._clock.now()
@@ -249,8 +276,14 @@ class Conversations:
         it on the author's behalf -- would hide a running answer behind a
         button that says "delete".
 
-        A conversation already gone when the delete reached it is not an
-        error: what was asked for is what is true.
+        **A conversation that is not there is not deleted, it is missed.** Like
+        every other call here, this one begins by finding the conversation and
+        checking who is asking, so deleting one that is not there -- or that is
+        somebody else's -- raises ``ConversationNotFoundError`` and deleting
+        twice raises it the second time. This is not idempotent, and a route
+        over it is not either. What is tolerated is the **race**: a
+        conversation that went between the check here and the store's own
+        delete is not an error, because what was asked for is then true.
         """
         conversation = await self._owned(user, conversation_id)
         await self._store.delete_conversation(conversation.id, now=self._clock.now())

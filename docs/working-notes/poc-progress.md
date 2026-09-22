@@ -981,6 +981,157 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   client already has, or can load, its final state. `execute` is never awaited by a request, and no route
   creates a task.
 
+- The **conversation routes**, the plain JSON half of the wire
+  (`docs/specs/wire.md`): `api/conversation_routes.py` with
+  `GET /api/conversations` (paged), `GET|PATCH|DELETE
+  /api/conversations/{id}`, `PUT /api/conversations/{id}/leaf` and
+  `POST /api/conversations/{id}/runs/{run_id}/cancel`, and
+  `api/agent_routes.py` with `GET /api/agents` -- its own module and router,
+  because it is the **deployment's** list and holds nothing of anybody's --
+  over `api/refusals.py`, the one table of what a route can refuse with, which
+  both route modules import so that neither depends on the other.
+  Every one of them declares `signed_in()` -- `api.SignedIn` is the person and
+  the declaration in one annotation -- and **not one of them checks
+  ownership**: each passes the `User` to the application, where the one rule
+  lives, so a conversation of somebody else's, one that never existed, a
+  message that is no message of this conversation and a run that is not this
+  conversation's run all answer the same status, the same body and the same
+  headers. A test asks that as an **identity** over every route that takes an
+  id, rather than asserting a status twice. The services are read off
+  `app.state.conversations` / `app.state.turns` at the moment of a request,
+  the way the auth routes read the sign-in, and the lifespan of `create_app`
+  puts them there and takes them away; a route that finds none says
+  `api.NOT_WIRED` and answers as any other mistake of ours does (500, the
+  generic body, the whole of it logged), because **there is no deployment
+  without them** -- unlike a sign-in, which a deployment may configure away.
+  `api/schemas.py` grew what the JSON API sends, each with an `of(...)` like
+  `UserSummary`'s: `ConversationSummary`, `ConversationListResponse`
+  (`items`, `next_cursor`), `MessageView` with `ContentPart` and
+  `ProvenanceView`, `OpenedConversationResponse`, `ResumeView`,
+  `EndedBadlyView`, `RunView`, `AgentSummary` / `AgentListResponse`, and the
+  two request bodies, `RenameRequest` and `SelectLeafRequest`, which **forbid
+  a field they do not know**. Ids cross as text and times through
+  `api.utc`, so one instant has one spelling whatever zone a store's session
+  was in. **Opening a conversation sends the whole tree** -- every message,
+  oldest first, each with its `parent_id` -- read **after** ownership is
+  settled, because a snapshot reads every message and every event and decodes
+  each document: checking afterwards made somebody else's conversation cost
+  measurably more than one that is not there, which is one of the ways an id is
+  probed for existence, and let any signed-in caller make the deployment read a
+  thousand messages of somebody else's; the check is made again on the
+  snapshot, which costs nothing and is what answers a conversation deleted
+  between the two reads. It comes with `leaf_id`, and the branch is
+  the client's walk up the parents: sending it as well would send every
+  message of it twice, and that walk is the one thing left for the frontend to
+  compute. `run_id` and `resume` come with a run in flight, `ended_badly`
+  (run id, state, ended_at) when the last one failed, was cancelled or was
+  interrupted -- and **not its `error`**, which is free text made of whatever
+  a provider or a traceback said, written for an operator and kept to the
+  record and the log like the detail of every other refusal. `MessageView`
+  sends **no reasoning**: this build stores none in a message
+  (`domain.kept_parts`), so the filter has nothing to do today and is what
+  makes that true of the wire rather than of one write path. `GET /api/agents`
+  sends `id`, `title` and `engine` -- no system prompt, no model, no vendor --
+  over the new read-only `Turns.agents`, so nothing reaches into the
+  definitions the service keeps. `Turns.cancel` takes an optional
+  `conversation_id`, which the route passes because a URL names both: a run of
+  another conversation is answered exactly like a run that is not there, and
+  the check is in the application beside ownership rather than in a route.
+  `Conversations.list_for`'s refusal now names the field and the rule and
+  **not the number it was given**, since that message is what a client is
+  answered with; it is a 422, the status `api/errors.py` has always given
+  `InvalidValueError`, and no error class was added. `Conversations.rename`
+  refuses a title with nothing in it (spaces are printable and on one line, so
+  the record cannot), as an agent's title is refused, and `RenameRequest`
+  carries the record's own bound (`domain.MAX_TITLE_CHARS`) so that the
+  **document** says how long a title may be. A query parameter **given twice**
+  is refused rather than read once (`given_once`): FastAPI takes the last of
+  `?limit=1000&limit=2` and says nothing, and which one a framework picks is
+  not something to build a bound on. Deleting is **not idempotent** and both
+  docstrings now say so: a conversation that is not there -- gone, or somebody
+  else's -- is a 404 like everything else that is not there, and only the race
+  between the ownership check and the store's own delete is tolerated.
+  Two things the routes made worth fixing in `api/errors.py`, which is shared
+  by every route there will ever be: **a detail built from a request now
+  repeats nothing at all of it** -- pydantic's `msg` quotes what it refused
+  ("invalid character: found `Z` at 1"), so each of its error **types** has a
+  sentence of ours (`UNREADABLE_RULES`, with one fallback for a type nothing
+  has read about), and the **name** of a field nobody knows is the request's
+  too, so extras are counted and not named (`unknown_fields`: "body: 2 fields
+  nobody knows"); and the `Allow` of a **405** is now built by
+  `allowed_methods`, from every route whose own regular expression matches the
+  path asked for, because Starlette answers out of the first route that
+  matched and would tell a client that `PATCH /api/conversations/{id}` -- a
+  route this build serves -- is not allowed. The walk goes through an included
+  router, since that is where FastAPI keeps what `include_router` added, and
+  it reuses `api.api_routes` -- the **one** walk of what an application serves,
+  which reads every list a router keeps routes in, goes through an included
+  router and into a mount, and is what `undeclared` and the tests use too, so
+  two walks cannot come to disagree. A **location** in one of those details
+  keeps only the pieces that are names: pydantic puts the character offset it
+  stopped at in one, so an unreadable body used to answer `body.2012`, a
+  number measured off the request. The limit of that rule -- a mapping field
+  or a discriminated union would put a sender's own word in a location -- is
+  written on `_located` and held by a test over every request model.
+  **The enums on the wire declare what is really sent**: `SentKind`
+  (`text` alone -- `reasoning` is the one value `MessageView.of` guarantees is
+  absent), `SentRole` (`domain.SUPPORTED_ROLES`, so no `tool`) and
+  `SentBadEnd` (`domain.FAULTED_RUN_STATES`), each held to its domain set by a
+  test, so no generated client has a branch for a value it can never be sent.
+  **The document says what a client can rely on**: the page bound is in it
+  (`limit` is `Query(ge=1, le=MAX_PAGE)`, the store's own number reaching `api`
+  through `application.MAX_PAGE`, since `api` may not import `ports`), so is
+  the title's (`domain.MAX_TITLE_CHARS`); every field of every answer this step
+  added is **required and nullable** rather than optional, so a generated
+  client types it `T | null` instead of "may be absent"; the 400, 405 and 500
+  no route decides are described once as the `default` answer
+  (`refusals.ANYTHING_ELSE`); and the application **does not redirect a
+  trailing slash** (`redirect_slashes=False`), since a redirect on an API is a
+  call a client repeats with whatever its HTTP library does to the method and
+  the body. HEAD is not served by these routes and the docstring says so: the
+  step that serves the built interface decides it for the static side.
+  **A field given twice is refused, in the query string and in the body.**
+  `given_once` reads `request.query_params.multi_items()`;
+  `protection.read_once` (declared as `StrictJson` on every route that takes a
+  body, with a test that says none was forgotten) re-reads the body FastAPI
+  has already cached and parses it with an `object_pairs_hook`, so a repeated
+  key **at any depth** is `body: a field given more than once` -- naming no
+  key, since a key is the request's own text. `json.loads` keeps the last of a
+  repeated key and says nothing, which is a write that asked two things and
+  was answered on one of them. Its refusal is caught as a `JSONDecodeError`
+  and **not** as a `ValueError`, because `InvalidValueError` is one and the
+  wider catch swallowed it; and a `RecursionError` from that second parse is a
+  refusal of its own (`BODY_TOO_DEEP`), because the check runs further down
+  the stack than the framework's parse did -- there is a band of nesting a few
+  levels wide where one succeeds and the other runs out of stack, and a body
+  whose repeated fields nobody could check is not a body to accept. **To
+  watch, and written into that docstring:** nothing bounds how large a body
+  may be, and it is now read twice; a size limit is an operator's
+  (`docs/specs/operations.md`) and belongs in front of both parses. New
+  `domain.InvalidCursorError` (422, under `InvalidValueError`), raised by both
+  stores' cursor parsing, so the route catches **that** and not every refused
+  value when it names `query.cursor`. `backend/openapi.json` is
+  regenerated: every route also **names the statuses it can refuse with**, in
+  `ErrorResponse` shape, because FastAPI would otherwise describe a 422 in its
+  own shape and a generated client would fail to read the body it really gets
+  (`test_the_document_says_how_every_refusal_is_shaped`). The streaming
+  endpoint is still outside the document, as `wire.md` says. The tests are
+  `tests/unit/test_conversation_routes.py` over the fakes and `tests/turns.py`
+  -- every route, the paging, a cursor and a limit refused without being
+  repeated, a title no conversation could hold, a delete refused while a run
+  is going, a cancel of work the executor really is carrying and of a run only
+  the store knows, the writes behind the origin protection and the media-type
+  check, a 405 that names every method the path really serves, a parameter
+  given twice, a field given twice in a body and inside one, a body that is no
+  JSON and one nested deeper than anything can read, a title that is not text
+  at all, a cursor issued in somebody else's listing, a stranger's
+  conversation refused without being read at all, and the routes
+  before start-up -- plus the new route rows in
+  `tests/unit/test_api_access.py`'s declaration table and one test in
+  `tests/integration/test_create_app.py` that lists, opens, renames and
+  deletes a conversation over HTTP against the real PostgreSQL in the local
+  development mode.
+
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -1689,3 +1840,61 @@ Important design decisions made / open questions:
   up on a silent run after itself.
 - `RunQuietError` is a 504 with its own body, logged once at WARNING: it is
   a run that stored nothing, not an internal error.
+
+### Step 13 — conversations-api   (feature/poc-13-conversations-api)
+
+Summary: the plain JSON routes, described by OpenAPI. `api/
+conversation_routes.py`: list (paged, `limit` bounded in the document,
+opaque cursor), open (the whole tree with `parent_id`s and `leaf_id`,
+`run_id` + `resume` while a run is in flight, `ended_badly` when the last
+one went wrong), rename, select branch, delete, cancel a run;
+`api/agent_routes.py`: the configured agents (id, title, engine — never
+the prompt or the model). Every route goes through the application for
+ownership, and everything that is not there or not the caller's answers
+one identical body, status and headers. `api/refusals.py` holds the
+declared statuses, with a `default` entry for 400/405/500 in the same
+shape. `errors.py` renders every pydantic refusal as `<location>: <a
+sentence of ours>` — never pydantic's message, never a key, offset or
+character from the request — and builds a correct `Allow` for a 405 over
+included routers. `protection.read_once` refuses a JSON body that gives a
+field twice at any depth; `given_once` does the same for the query string.
+Response fields that are always sent are required-nullable; wire enums
+declare only the values that are sent. Snapshot regenerated. Beginning a
+turn and the stream are step 14.
+
+Review: 3 rounds (two full, one focused), no high finding in any.
+- High: 0
+- Medium: 4 (4/0) — the delete docstring contradicted its 404; unknown
+  body-field names were reflected into 422s; opening a stranger's
+  conversation read the whole tree before the 404 (a timing oracle); a
+  body nested near the C recursion limit turned the strict re-parse into a
+  500.
+- Low: 21 (20/1) — HEAD is not served by the API routes (405); left for
+  the frontend-serving step.
+
+Checks: `scripts/check-all.sh` without a database (2222 passed, 189
+skipped) and with one required (2405 passed, 6 skipped); the changed
+modules 10× under `python -X dev -W error`. Reviewers sent ~90 crafted
+requests (nested/duplicated/huge/unicode/surrogate/NUL bodies, bad uuids,
+foreign cursors, cross-site writes) with no reflection and no state
+change.
+Not done / to watch: about 2,500 lines of diff, ~1,300 of them the
+generated snapshot; the route tests alone are 1,257 lines (45 tests). No
+request-body size limit yet, and a write body is now parsed twice — the
+bound belongs to the operations limits, in front of both parses. `HEAD` on
+GET routes answers 405. `redirect_slashes=False` is application-wide, so
+the frontend step serves `/ui` explicitly. The implementer's scripted edit
+once truncated the test module (a lone surrogate in `write_text`); it was
+rebuilt in full.
+Important design decisions made / open questions:
+- Bad paging values are 422 (the existing `InvalidValueError` mapping),
+  not 400.
+- The open response is the whole tree plus `leaf_id`; the client walks
+  parents for the branch. `ended_badly` carries no error text (that is
+  the operator's, in the log).
+- `Turns.cancel` takes the conversation id and treats a mismatch as
+  not-found, beside ownership.
+- `InvalidCursorError` in `domain`, raised by both stores, is the only
+  refusal the list route labels `query.cursor`.
+- A blank title is refused by the application; the length bound is in the
+  document.

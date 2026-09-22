@@ -54,6 +54,7 @@ from robinauts.domain import (
     Conversation,
     ConversationNotFoundError,
     IllegalTransitionError,
+    InvalidCursorError,
     InvalidValueError,
     Message,
     MessageCompleted,
@@ -690,7 +691,7 @@ def _spelt(conversation: Conversation) -> str:
 
 
 def _cursor(cursor: str | None) -> tuple[datetime, bytes] | None:
-    """A cursor as a position; ``InvalidValueError`` if it does not parse.
+    """A cursor as a position; ``InvalidCursorError`` if it does not parse.
 
     It comes back from a browser, so it is parsed the way anything from
     outside is: every failure is one refusal, and nothing about it reaches a
@@ -700,15 +701,15 @@ def _cursor(cursor: str | None) -> tuple[datetime, bytes] | None:
     if cursor is None:
         return None
     if not isinstance(cursor, str):
-        raise InvalidValueError(f"a cursor is text, not {cursor!r}")
+        raise InvalidCursorError(f"a cursor is text, not {cursor!r}")
     when, _, which = cursor.partition("|")
     try:
         at = datetime.fromisoformat(when)
         found = uuid.UUID(which)
     except ValueError as cause:
-        raise InvalidValueError("that is not a cursor this store wrote") from cause
+        raise InvalidCursorError("that is not a cursor this store wrote") from cause
     if at.tzinfo is None:
-        raise InvalidValueError("that is not a cursor this store wrote")
+        raise InvalidCursorError("that is not a cursor this store wrote")
     return (at, found.bytes)
 
 

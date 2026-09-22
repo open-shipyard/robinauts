@@ -28,6 +28,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -37,6 +38,7 @@ import pytest
 from aio import asyncio_test
 from postgres import DATABASE_URL, TemporarySchema, requires_postgres
 from robinauts.app import create_app
+from robinauts.core import message_to_data
 from robinauts.datastore import (
     SCHEMA_VERSION,
     PostgresConversationStore,
@@ -47,7 +49,11 @@ from robinauts.domain import (
     LOCAL_PROVIDER,
     LOCAL_SUBJECT,
     LOCAL_USER_NAME,
+    Conversation,
+    Message,
+    Role,
     SchemaError,
+    TextPart,
 )
 from standin import StandInProvider, redirect_from
 from webapp import running
@@ -56,6 +62,17 @@ pytestmark = requires_postgres
 
 PUBLIC_URL = "https://robinauts.example.com"
 SECRET_VARIABLE = "ROBINAUTS_STAND_IN_SECRET"
+
+LOCAL_URL = "http://127.0.0.1:8000"
+"""Where the local development mode is served here, port and all."""
+
+LOCAL_WRITE = {"content-type": "application/json", "origin": LOCAL_URL}
+"""What a write carries in that mode: JSON, from the origin it was addressed to."""
+
+ASKED = "What is a robinaut?"
+
+T0 = datetime(2026, 9, 21, 9, 0, tzinfo=UTC)
+"""When the conversation of the test below was written."""
 
 CONFIGURATION = """
 public_url = "{public_url}"
@@ -241,11 +258,96 @@ async def test_the_conversation_store_is_opened_on_the_same_pool() -> None:
         assert app.state.deployment.pool is None
 
 
+@asyncio_test
+async def test_a_conversation_is_listed_opened_renamed_and_deleted_over_http() -> None:
+    """The conversation routes, on the real store, through the real application.
+
+    The routes are proved over the fakes in
+    ``tests/unit/test_conversation_routes.py``; what is only worth anything
+    here is that the whole of it holds together -- the guard resolving the one
+    local user, the services the lifespan opened, the jsonb a message is kept
+    as, the keyset the panel is paged with, and a delete that really removes
+    the row.
+
+    The conversation is put in the store directly, because writing in one is
+    starting a turn and that route does not exist yet
+    (``docs/specs/wire.md``): the interface's first conversation arrives with
+    the streaming half of the wire.
+    """
+    async with schema() as temporary:
+        app = create_app(
+            local_development_host="127.0.0.1",
+            database_url=in_schema(temporary.name),
+            secret_for={}.get,
+        )
+
+        async with running(app):
+            async with local_browser(app) as client:
+                whoever = await client.get("/auth/session")
+                owner = uuid.UUID(whoever.json()["user"]["id"])
+                kept = Conversation(
+                    id=uuid.uuid4(),
+                    owner_id=owner,
+                    agent="assistant",
+                    created_at=T0,
+                    updated_at=T0,
+                    title=ASKED,
+                )
+                asked = Message(
+                    id=uuid.uuid4(),
+                    conversation_id=kept.id,
+                    parent_id=None,
+                    role=Role.USER,
+                    parts=(TextPart(ASKED),),
+                    created_at=T0,
+                )
+                store = app.state.deployment.conversation_store
+                await store.add_conversation(kept)
+                await store.append_message(asked, message_to_data(asked), now=T0)
+
+                listed = await client.get("/api/conversations", params={"limit": 1})
+                opened = await client.get(f"/api/conversations/{kept.id}")
+                agents = await client.get("/api/agents")
+                renamed = await client.patch(
+                    f"/api/conversations/{kept.id}",
+                    json={"title": "Robinauts"},
+                    headers=LOCAL_WRITE,
+                )
+                deleted = await client.delete(f"/api/conversations/{kept.id}", headers=LOCAL_WRITE)
+                gone = await client.get(f"/api/conversations/{kept.id}")
+
+            rows = await temporary.pool.fetchval("SELECT count(*) FROM conversations")
+            messages = await temporary.pool.fetchval("SELECT count(*) FROM messages")
+
+    assert [item["id"] for item in listed.json()["items"]] == [str(kept.id)]
+    assert listed.json()["next_cursor"] is None
+    assert opened.json()["leaf_id"] == str(asked.id)
+    assert opened.json()["messages"] == [
+        {
+            "id": str(asked.id),
+            "parent_id": None,
+            "role": "user",
+            "channel": "web",
+            "created_at": "2026-09-21T09:00:00Z",
+            "parts": [{"kind": "text", "text": ASKED}],
+            "provenance": None,
+        }
+    ]
+    # No agent is configured in this deployment, and the picker is told so
+    # rather than left to guess.
+    assert agents.json() == {"items": []}
+    assert renamed.json()["title"] == "Robinauts"
+    assert deleted.status_code == 204
+    assert gone.status_code == 404
+    # The delete took the conversation and the message under it.
+    assert (rows, messages) == (0, 0)
+
+
 def local_browser(app: object) -> httpx.AsyncClient:
     """A browser on the loopback address the mode is served on, port and all."""
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app),
-        base_url="http://127.0.0.1:8000",
+        base_url=LOCAL_URL,
         follow_redirects=False,
         trust_env=False,
     )

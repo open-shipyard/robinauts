@@ -17,6 +17,7 @@ import logging
 import httpx
 import pytest
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 
 from aio import asyncio_test
@@ -29,9 +30,12 @@ from robinauts.api import (
     QUIET_RUN_DETAIL,
     SIGN_IN_DETAIL,
     STATUS_OF,
+    UNREADABLE_RULE,
+    UNREADABLE_RULES,
     create_api,
     public,
     status_of,
+    unreadable_detail,
 )
 from robinauts.domain import (
     AuthenticationError,
@@ -337,6 +341,32 @@ async def test_a_body_that_could_not_be_read_names_the_field_and_not_the_value()
     assert "how_many" in body["detail"]
     assert SECRET_IN_A_BUG not in answered.text
     assert len(body["detail"]) <= MAX_DETAIL_CHARS
+
+
+def test_a_refusal_pydantic_has_no_sentence_here_for_still_says_nothing_of_it() -> None:
+    """The fallback, which is the whole point of not passing ``msg`` on.
+
+    Pydantic grows error types, and a build that printed the message of one it
+    had never read about would be one input away from reflecting a request
+    back -- its messages quote what they refused. So an unknown type says
+    where the problem is and the one sentence that is always true.
+    """
+    invented = RequestValidationError(
+        [
+            {
+                "type": "a_type_from_a_later_pydantic",
+                "loc": ("body", "title"),
+                "msg": f"Input should be something else, not {SECRET_IN_A_BUG}",
+                "input": SECRET_IN_A_BUG,
+            }
+        ]
+    )
+
+    said = unreadable_detail(invented)
+
+    assert said == f"body.title: {UNREADABLE_RULE}"
+    assert SECRET_IN_A_BUG not in said
+    assert UNREADABLE_RULE not in UNREADABLE_RULES.values()
 
 
 @asyncio_test

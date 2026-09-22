@@ -33,6 +33,12 @@ second parser -- which is how ``Sec-Fetch-Site: same-origin`` followed by
 ``Sec-Fetch-Site: cross-site`` becomes an accepted cross-site write. There is
 no reading of two that is safe, so two is refused.
 
+Beside the three, and the one thing here that is **not** middleware:
+``read_once``, which refuses a body that gives the same field twice, or that
+is nested deeper than it can be read. It needs the body, which the framework
+has already read by the time a dependency runs, and it is declared on every
+route that takes one.
+
 The names are lower-cased **here**, in one pass over the scope's own list, and
 the cookies are read out of that same pass. ASGI says a server should hand
 header names over in lower case and does not make it so, and the framework's
@@ -97,9 +103,13 @@ It leaves every other kind of scope exactly as it found it.
 
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Annotated, Any
 
+from fastapi import Depends, Request
 from starlette.datastructures import MutableHeaders
 from starlette.requests import cookie_parser
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -456,6 +466,99 @@ class RequestProtection:
         if first.get("type") != "websocket.connect":
             return
         await send({"type": "websocket.close", "code": WEBSOCKET_POLICY_VIOLATION})
+
+
+BODY_TOO_DEEP = "body: is nested too deep"
+"""What a body nothing here could finish reading is refused with.
+
+``json`` walks a document as deep as the document is nested, and the stack it
+walks it on is **shorter** by the time a dependency runs than it was when the
+framework parsed the same bytes -- a route's dependencies are solved several
+frames down from where the body was read. So there is a narrow band of
+nesting, a few levels wide, where the framework's parse succeeds and this
+one runs out of stack. What comes of that is not "the body is fine": it is a
+body whose repeated fields nobody checked, and it is refused -- saying that,
+and nothing about how deep it was or what was in it.
+"""
+
+BODY_TWICE = "body: a field given more than once"
+"""What a body with a repeated key is refused with. Never which key it was.
+
+A key is the request's own text (``robinauts.api.errors``), so it is not
+repeated back any more than a value is.
+"""
+
+
+async def read_once(request: Request) -> None:
+    """Refuse a JSON body that gives the same field twice, at any depth.
+
+    ``json.loads`` keeps the **last** of a repeated key and says nothing, so
+    ``{"title": "Safe", "title": "Evil"}`` is a write that asked two things
+    and was answered on one of them -- and a reviewer, a log or a proxy
+    reading the same bytes may well pick the other. Which one a parser takes
+    is not a rule to build on: two of a field means one of them, and two that
+    a tool folded together means nothing at all. The query string is held to
+    the same rule (``conversation_routes.given_once``).
+
+    **A dependency, where the rest of this module is middleware.** The checks
+    above are about headers and run before a byte of the body is read, which
+    is what makes them impossible to forget. This one *is* about the body, and
+    by the time it runs FastAPI has already read and cached the bytes
+    (``Request.body``), so reading them again costs nothing and parses exactly
+    what the route will be given. It is written on every route that takes a
+    body, and ``test_every_route_with_a_body_reads_it_once`` is what says none
+    was forgotten.
+
+    A body that is not JSON at all is **ordinarily** not this check's to
+    answer: the framework parses the bytes before it solves a dependency, so
+    it has already refused one (``errors.UNREADABLE_RULES``), and the request
+    protection above has already required the type. Ordinarily, because this
+    parse runs further down the stack than that one: a body nested within a
+    few levels of the interpreter's limit gets through there and runs out of
+    stack here. That is ``BODY_TOO_DEEP``, and it is a refusal rather than a
+    shrug, because a body this could not read is a body whose repeated fields
+    nobody checked.
+
+    **To watch:** there is no bound on how large a body may be, and this reads
+    it a second time, so the work a request can ask for is twice what it was.
+    A size limit is an operator's (``docs/specs/operations.md``) and is not
+    written yet; when it is, it belongs in front of both parses.
+    """
+    body = await request.body()
+    if not body:
+        return
+    try:
+        json.loads(body, object_pairs_hook=_one_of_each)
+    except json.JSONDecodeError:
+        # Not readable JSON, which is somebody else's refusal: see above.
+        # Caught by its own class and **not** as a ``ValueError``, which
+        # ``InvalidValueError`` also is: the refusal below would be swallowed
+        # by the wider one, and a body that gave a field twice would go
+        # through as whatever the last of it said.
+        return
+    except RecursionError:
+        # Deeper than the stack left here, and the message says only that.
+        # Unhandled it would be a 500 with a traceback in the log, for a
+        # request that is nobody's mistake but its sender's.
+        raise InvalidValueError(BODY_TOO_DEEP) from None
+
+
+StrictJson = Annotated[None, Depends(read_once)]
+"""The check above, as a route declares it: ``read_once: StrictJson``."""
+
+
+def _one_of_each(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:
+    """``pairs`` as an object; ``InvalidValueError`` if a key is in it twice.
+
+    ``json.loads`` calls this for **every** object of the document, so a
+    repeated key anywhere in it is refused, and not only at the top.
+    """
+    seen: set[str] = set()
+    for key, _ in pairs:
+        if key in seen:
+            raise InvalidValueError(BODY_TWICE)
+        seen.add(key)
+    return dict(pairs)
 
 
 class SecurityHeaders:

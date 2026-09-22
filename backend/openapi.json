@@ -1,6 +1,193 @@
 {
   "components": {
     "schemas": {
+      "AgentListResponse": {
+        "description": "Every agent this deployment is configured with, in configuration order.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "AgentListResponse",
+        "type": "object"
+      },
+      "AgentSummary": {
+        "description": "One agent, as the picker on an empty chat offers it.\n\nThree fields, and deliberately no more: **no system prompt** -- it is the\noperator's, it is not a message and it never leaves the process\n(``docs/specs/conversations.md``) -- and no vendor, endpoint or key. The\nmodel is not here either: which model an agent runs is the operator's\nchoice and shows on the answers it produced (``ProvenanceView``), where it\nis a fact about what happened rather than something to pick by.",
+        "properties": {
+          "engine": {
+            "$ref": "#/components/schemas/Engine"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "engine"
+        ],
+        "title": "AgentSummary",
+        "type": "object"
+      },
+      "Channel": {
+        "description": "Where a message came from (``docs/specs/channels.md``).\n\nA conversation is not tied to one: each message records its own, so a\nconversation begun in the web UI and continued from somewhere else says\nwhich was which. Other channels join this enum with the bridge that\nserves them; a stored ``web`` never changes meaning.",
+        "enum": [
+          "web"
+        ],
+        "title": "Channel",
+        "type": "string"
+      },
+      "ContentPart": {
+        "description": "One piece of a message's content, named by its kind.\n\n``kind`` is the discriminator the stored format uses\n(``docs/specs/conversations.md``), so a client reads the kinds it knows and\ncan be given another without the shape moving. Text is the only kind this\nbuild sends (``SentKind``); ``text`` is the whole of it.",
+        "properties": {
+          "kind": {
+            "const": "text",
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "title": "ContentPart",
+        "type": "object"
+      },
+      "ConversationListResponse": {
+        "description": "One page of the caller's conversations, and how to ask for the next.\n\n``next_cursor`` is ``null`` on the last page. It is opaque: a position\ninside this person's own listing, written by the store and read by it, and\nnothing a client should take apart (``docs/specs/conversations.md``).",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "ConversationListResponse",
+        "type": "object"
+      },
+      "ConversationSummary": {
+        "description": "A conversation as the panel lists it and as a write answers with it.\n\nNo owner: it is the person asking, on every route there is\n(``docs/specs/privacy.md``). ``active_leaf_id`` is the position its author\nis at, which is what ``PUT /api/conversations/{id}/leaf`` moves.",
+        "properties": {
+          "active_leaf_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Leaf Id"
+          },
+          "agent": {
+            "title": "Agent",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "agent",
+          "created_at",
+          "updated_at",
+          "active_leaf_id"
+        ],
+        "title": "ConversationSummary",
+        "type": "object"
+      },
+      "EndedBadlyView": {
+        "description": "The last run of the conversation, when it failed, was cancelled or was interrupted.\n\nSo that a reload after an answer went wrong says so, instead of showing a\nturn that simply stops (``docs/specs/runs.md``).\n\n``state`` is the whole of the reason, and it is the only one the platform\nrecords as a **kind**: what else a run holds is ``error``, free text made\nout of whatever a provider or a traceback said, written for an operator.\nIt stays on the record and in the log, like the detail of every other\nrefusal (``robinauts.api.errors``).",
+        "properties": {
+          "ended_at": {
+            "format": "date-time",
+            "title": "Ended At",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "cancelled",
+              "failed",
+              "interrupted"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "state",
+          "ended_at"
+        ],
+        "title": "EndedBadlyView",
+        "type": "object"
+      },
+      "Engine": {
+        "description": "The agent frameworks a turn can be run by (``docs/specs/agents.md``).\n\nA property of the agent, recorded on every message, so that a conversation\nsays which engine produced which answer after the agent has been changed.\nThe values are the ones the configuration is written with.",
+        "enum": [
+          "langgraph",
+          "pydantic-ai"
+        ],
+        "title": "Engine",
+        "type": "string"
+      },
       "ErrorResponse": {
         "description": "Every refusal, in one shape (``robinauts.api.errors``).",
         "properties": {
@@ -34,6 +221,170 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "MessageView": {
+        "description": "One message of a conversation, with what places it in the tree.\n\n``parent_id`` is what makes this a tree and not a list: it is ``None`` for\na root, and a client walks it upwards to have a branch. **Reasoning is not\nhere**: see ``of``.",
+        "properties": {
+          "channel": {
+            "$ref": "#/components/schemas/Channel"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/ContentPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProvenanceView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "enum": [
+              "assistant",
+              "user"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "parent_id",
+          "role",
+          "channel",
+          "created_at",
+          "parts",
+          "provenance"
+        ],
+        "title": "MessageView",
+        "type": "object"
+      },
+      "OpenedConversationResponse": {
+        "description": "A conversation opened: one moment of it, with everything drawing it needs.\n\n``messages`` is **every message of the tree**, oldest first with ties\nbroken by id, so the branches beside the one being shown are there to\nswitch to without a second request. Each carries its ``parent_id``, and\n``leaf_id`` is the message the conversation opens on\n(``docs/specs/conversations.md``): the branch is the walk from that id up\nthe parents, which the client does and the server does not send twice.\n\n``run_id`` and ``resume`` are there when a run is in flight, and\n``ended_badly`` instead when the last one ended badly. Never both: what\nmatters about a run that is going is the run.",
+        "properties": {
+          "conversation": {
+            "$ref": "#/components/schemas/ConversationSummary"
+          },
+          "ended_badly": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EndedBadlyView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "leaf_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leaf Id"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/MessageView"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "resume": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResumeView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          }
+        },
+        "required": [
+          "conversation",
+          "messages",
+          "leaf_id",
+          "run_id",
+          "resume",
+          "ended_badly"
+        ],
+        "title": "OpenedConversationResponse",
+        "type": "object"
+      },
+      "ProvenanceView": {
+        "description": "What an answer records: the agent, the engine, the model and the run.\n\nOn an assistant message and on no other (``domain.Message``). The model is\nthe platform's own id for it -- what the configuration calls it -- and no\nvendor, endpoint or key is anywhere near the wire.",
+        "properties": {
+          "agent": {
+            "title": "Agent",
+            "type": "string"
+          },
+          "engine": {
+            "$ref": "#/components/schemas/Engine"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent",
+          "engine",
+          "model",
+          "run_id"
+        ],
+        "title": "ProvenanceView",
+        "type": "object"
+      },
       "ProviderSummary": {
         "description": "One provider to offer a sign-in button for. No secret, no endpoint.",
         "properties": {
@@ -51,6 +402,124 @@
           "title"
         ],
         "title": "ProviderSummary",
+        "type": "object"
+      },
+      "RenameRequest": {
+        "additionalProperties": false,
+        "description": "A new title for a conversation. A renamed title is never overwritten.\n\nThe bound is the record's own (``domain.MAX_TITLE_CHARS``), said here so\nthat it is **in the document**: a client that knows how long a title may\nbe can say so in its own form, instead of finding out by being refused.\nWhat the length cannot say -- one line, printable, and something other\nthan spaces -- is the application's, and is refused there\n(``application.Conversations.rename``).",
+        "properties": {
+          "title": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "RenameRequest",
+        "type": "object"
+      },
+      "ResumeView": {
+        "description": "Where to attach to the run in flight, and what its next message follows.\n\n``after`` is the position to carry on from and ``follows`` is the id the\nnext message announced after it will hang under -- the two things a\nwatcher of that stream is checked with, handed over together so that\nneither is guessed (``docs/specs/runs.md``).",
+        "properties": {
+          "after": {
+            "title": "After",
+            "type": "integer"
+          },
+          "follows": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Follows"
+          }
+        },
+        "required": [
+          "after",
+          "follows"
+        ],
+        "title": "ResumeView",
+        "type": "object"
+      },
+      "RunState": {
+        "description": "Where a run is (``docs/specs/runs.md``).",
+        "enum": [
+          "running",
+          "waiting",
+          "finished",
+          "failed",
+          "cancelled",
+          "interrupted"
+        ],
+        "title": "RunState",
+        "type": "string"
+      },
+      "RunView": {
+        "description": "A run as a client sees it: where it got to, and when.\n\n``ended_at`` is what the record calls ``finished_at``: a run that failed,\nwas cancelled or was interrupted did not finish, and every ended run has\none. ``started_at`` is ``null`` until a process took the run up, and\n``ended_at`` until it ended. What went wrong is not here, for the reason\ngiven on ``EndedBadlyView``.",
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "started_at",
+          "ended_at"
+        ],
+        "title": "RunView",
+        "type": "object"
+      },
+      "SelectLeafRequest": {
+        "additionalProperties": false,
+        "description": "The message its author is now on; any message of the conversation.\n\nNot only the end of a branch: what is recorded is a position, and opening\nthe conversation resolves it to the branch below it\n(``docs/specs/conversations.md``).",
+        "properties": {
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id"
+        ],
+        "title": "SelectLeafRequest",
         "type": "object"
       },
       "SessionResponse": {
@@ -152,6 +621,640 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/agents": {
+      "get": {
+        "description": "The agents this deployment is configured with, for the picker.\n\nThe id to start a conversation with, the title to show, and the engine it\nruns on. **Not the system prompt**, which is the operator's and is not a\nmessage, and nothing about a vendor or a key (``docs/specs/agents.md``).\n\nDeclared rather than injected: the list is the deployment's and is the\nsame for everybody signed in, so the route needs the declaration and not\nthe person.\n\nThey are fixed at start-up in this version: the configuration is read once\nby the composition root, so an agent added or removed shows here after a\nrestart.",
+        "operationId": "list_agents_api_agents_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "any other refusal, in the same shape: 400, 405, 500"
+          }
+        },
+        "summary": "List Agents",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
+    "/api/conversations": {
+      "get": {
+        "description": "The caller's conversations, most recently updated first, one page at a time.\n\n``limit`` is how many are wanted, and its bound is **in the document**:\nbetween 1 and ``application.MAX_PAGE``, which is what a store will page.\nA client can therefore hold itself to it instead of finding out by being\nrefused, and one outside it -- or not a whole number at all, an empty\n``?limit=`` included -- is refused naming the field and the rule and never\nthe number.\n\n``cursor`` is what the page before this one handed back as\n``next_cursor``, and is left out for the first page; an **empty** one is\nread as left out, since a client that sends no cursor and one that sends\nnothing in it are asking the same thing. One that does not parse is\nrefused as a value, naming the field.\n\nEither parameter **given twice** is refused rather than quietly read once\n(``given_once``).\n\nThe order is total: ties on ``updated_at`` are broken by id, so two\nconversations written in the same millisecond cannot swap places between\ntwo pages. What that does and does not promise is in this module's\ndocstring.",
+        "operationId": "list_conversations_api_conversations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "any other refusal, in the same shape: 400, 405, 500"
+          }
+        },
+        "summary": "List Conversations",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/conversations/{conversation_id}": {
+      "delete": {
+        "description": "Delete a conversation for good, with its messages, its runs and their events.\n\nThere is no trash in this version\n(``docs/working-notes/poc-scope.md``).\n\n**Not idempotent.** A conversation that is not there -- never was, already\ndeleted, or somebody else's -- is 404, like everything else that is not\nthere, because the application finds the conversation and checks who is\nasking before it deletes anything. So deleting twice is 204 and then 404,\nand a client that means \"make sure this is gone\" reads both as success.\n\n**A conversation with a run going is not deleted**: it is refused with 409\n(``RunAlreadyActiveError``), and its author cancels the run first. The\nstore decides that in the transaction that would have deleted, so there is\nno window for a run to begin in (``docs/specs/conversations.md``).",
+        "operationId": "delete_conversation_api_conversations__conversation_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "any other refusal, in the same shape: 400, 405, 500"
+          }
+        },
+        "summary": "Delete Conversation",
+        "tags": [
+          "conversations"
+        ]
+      },
+      "get": {
+        "description": "One conversation, read at **one moment**: its messages and its run.\n\n``messages`` is the whole tree, oldest first with ties broken by id, and\n``leaf_id`` is the message it opens on -- the branch its author was last\non (``docs/specs/conversations.md``). The branch being shown is the walk\nfrom ``leaf_id`` up the ``parent_id``s, which the client does: sending it\nas well would send every message of it twice. The other branches are there\nto switch between without another request.\n\nWhen a run is in flight, ``run_id`` and ``resume`` say which run and where\nto attach to its stream, so that a client which has just loaded every\ncomplete message is replayed exactly the message still being produced and\nnone it already has (``docs/specs/runs.md``). When no run is in flight and\nthe last one failed, was cancelled or was interrupted, ``ended_badly``\nsays so, so that a reload after an answer went wrong is told rather than\nshown a turn that stops in the middle.\n\nThe three come from one read of the store, because two reads would\ndisagree with each other and the gap between them is exactly where an\nanswer is.",
+        "operationId": "open_conversation_api_conversations__conversation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenedConversationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "any other refusal, in the same shape: 400, 405, 500"
+          }
+        },
+        "summary": "Open Conversation",
+        "tags": [
+          "conversations"
+        ]
+      },
+      "patch": {
+        "description": "Give a conversation a new title; the conversation as it then is.\n\nA renamed title is never overwritten afterwards\n(``docs/specs/conversations.md``). How long a title may be is in the\ndocument (``schemas.RenameRequest``); what a length cannot say -- one\nline, printable, and something other than spaces -- is the application's,\nand what it says is the rule. Which field it is about is this route's to\nname, since the title is the one value it passes.",
+        "operationId": "rename_conversation_api_conversations__conversation_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "any other refusal, in the same shape: 400, 405, 500"
+          }
+        },
+        "summary": "Rename Conversation",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/conversations/{conversation_id}/leaf": {
+      "put": {
+        "description": "Move the author to another branch; the conversation as it then is.\n\n``message_id`` is **any** message of the conversation, not only the end of\na branch: what is recorded is the position its author is at, and opening\nthe conversation resolves it to the branch below it. One that is no\nmessage of this conversation answers like anything else that is not there.\n\nIt deliberately does **not** date the conversation: moving between\nbranches writes nothing, so it must not push a conversation to the top of\na panel ordered by when things were last written. Only the author moves\nbetween branches, and every other reader sees the branch the author is on\n(``docs/specs/conversations.md``).",
+        "operationId": "select_branch_api_conversations__conversation_id__leaf_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectLeafRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "any other refusal, in the same shape: 400, 405, 500"
+          }
+        },
+        "summary": "Select Branch",
+        "tags": [
+          "conversations"
+        ]
+      }
+    },
+    "/api/conversations/{conversation_id}/runs/{run_id}/cancel": {
+      "post": {
+        "description": "Stop the run answering in that conversation; the run as it then is.\n\n**Asking is not the same as having happened.** A run this process is\nexecuting is cancelled by cancelling its work, and the end is written a\nmoment later under a shield, so what comes back may still say ``running``;\na client learns that it ended from the run's own stream, or by opening the\nconversation again. A run no process here is executing -- after a restart\n-- is ended in the store instead, and comes back ``cancelled``. A run that\nhas already ended is not an error (``docs/specs/runs.md``).\n\nThe URL names both the conversation and the run, and the application\nchecks that the run is that conversation's: a run of another conversation\nanswers exactly like a run that does not exist, as one of somebody else's\ndoes.",
+        "operationId": "cancel_run_api_conversations__conversation_id__runs__run_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "any other refusal, in the same shape: 400, 405, 500"
+          }
+        },
+        "summary": "Cancel Run",
+        "tags": [
+          "conversations",
+          "runs"
+        ]
+      }
+    },
     "/auth/logout": {
       "post": {
         "description": "End the session, if there is one, and clear its cookie.\n\nIdempotent: signing out twice, or without ever having signed in, is 204\nboth times. The cookie is cleared either way, so a browser holding one\nthat no longer names a session stops sending it.",

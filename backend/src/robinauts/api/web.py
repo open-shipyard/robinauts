@@ -34,7 +34,9 @@ from typing import Any
 from fastapi import FastAPI
 
 from robinauts.api.access import check_declarations, public
+from robinauts.api.agent_routes import agent_router
 from robinauts.api.auth_routes import auth_router
+from robinauts.api.conversation_routes import conversation_router
 from robinauts.api.errors import install_handlers
 from robinauts.api.protection import (
     SECURITY_HEADERS,
@@ -42,7 +44,7 @@ from robinauts.api.protection import (
     SecurityHeaders,
 )
 from robinauts.api.schemas import HealthResponse
-from robinauts.application import LocalAccess, SignIn
+from robinauts.application import Conversations, LocalAccess, SignIn, Turns
 from robinauts.domain import ConfigError
 
 TITLE = "Robinauts"
@@ -80,6 +82,8 @@ def create_api(
     sign_in: SignIn | None = None,
     *,
     local: LocalAccess | None = None,
+    conversations: Conversations | None = None,
+    turns: Turns | None = None,
     lifespan: Opening | None = None,
 ) -> FastAPI:
     """The application serving the api, over the services it is given.
@@ -94,6 +98,13 @@ def create_api(
     ``local`` is the local development mode, the other thing a deployment may
     be (``docs/specs/sign-in.md``). It is read the same way, from
     ``app.state.local``, and asking for both is a ``ConfigError``.
+
+    ``conversations`` and ``turns`` are the services the conversation routes
+    call, read off ``app.state`` the same way and for the same reason: a
+    deployment opens them in its lifespan, and a test hands in ones built over
+    fakes. Unlike a sign-in, ``None`` is never a deployment's answer -- every
+    deployment has conversations -- so a route that finds none says the
+    lifespan has not run (``robinauts.api.access.NOT_WIRED``).
 
     ``ConfigError`` -- at build time, and again at start-up -- if anything the
     application serves declares no permission, or if a router keeps routes
@@ -121,9 +132,20 @@ def create_api(
         redoc_url=None,
         openapi_url=OPENAPI_URL,
         lifespan=opening,
+        # **No redirect for a trailing slash.** Starlette's default answers
+        # `/api/conversations/` with a 307 to `/api/conversations`, which is a
+        # surprise on an API: a generated client follows it with whatever its
+        # HTTP library does to the method and the body on a redirect, and a
+        # path that is not a route is better answered as what it is. Nothing
+        # here is reached by a path with a slash it does not have; the step
+        # that serves the built interface decides this for the static side,
+        # where a directory really is asked for both ways.
+        redirect_slashes=False,
     )
     app.state.sign_in = sign_in
     app.state.local = local
+    app.state.conversations = conversations
+    app.state.turns = turns
     install_handlers(app, headers=dict(SECURITY_HEADERS))
     # The last added is the outermost, so the headers go on everything that
     # comes back -- the protection's own refusals included -- and the
@@ -131,6 +153,8 @@ def create_api(
     app.add_middleware(RequestProtection)
     app.add_middleware(SecurityHeaders)
     app.include_router(auth_router)
+    app.include_router(conversation_router)
+    app.include_router(agent_router)
 
     @app.get("/health", tags=["health"], dependencies=[public()])
     async def health() -> HealthResponse:
