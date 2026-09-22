@@ -133,6 +133,25 @@ class IllegalTransitionError(RobinautsError):
     """A run cannot go from the state it is in to the one asked for."""
 
 
+class RunQuietError(RobinautsError):
+    """A run said nothing for so long that watching it was given up on.
+
+    Not a failure of the run and not a fault of the request: the run is still
+    active as far as the store is concerned, and nothing has been stored under
+    it for longer than a whole turn may take. That is what a run whose end
+    could not be written looks like, and what one whose process was killed
+    looks like (``docs/specs/runs.md``, known limits), and a watcher that
+    waited on either for ever would hold a request open for ever.
+
+    **It is raised only by the giving up**, and by nothing else: a watcher
+    whose stream simply ends has sent everything there is -- the run's
+    ``RunEnded``, or everything stored after the position it asked for of a
+    run that is over or is no longer there. So "the stream ended" and "the
+    stream was given up on" are told apart by what was raised rather than by
+    what was missing.
+    """
+
+
 class PositionTakenError(InvalidValueError):
     """An event was offered a position of its run that is not the next one.
 

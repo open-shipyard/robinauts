@@ -26,6 +26,7 @@ from robinauts.api import (
     MAX_DETAIL_CHARS,
     NOT_FOUND_DETAIL,
     NOT_FOUND_ERROR,
+    QUIET_RUN_DETAIL,
     SIGN_IN_DETAIL,
     STATUS_OF,
     create_api,
@@ -41,6 +42,7 @@ from robinauts.domain import (
     NotTheOwnerError,
     RobinautsError,
     RunNotFoundError,
+    RunQuietError,
     SchemaError,
     SignInError,
     SignInErrorCode,
@@ -161,6 +163,11 @@ def leaking_app() -> FastAPI:
         except InvalidValueError as cause:
             raise StoredDataError("a stored message cannot be read by this build") from cause
 
+    @app.get("/given-up-on", dependencies=[public()])
+    async def given_up_on() -> dict[str, str]:
+        """A watcher that stopped following a run that was storing nothing."""
+        raise RunQuietError(f"run {SECRET_IN_A_BUG} stored nothing for 600.0s")
+
     @app.get("/sign-in-failed", dependencies=[public()])
     async def sign_in_failed() -> dict[str, str]:
         raise SignInError(
@@ -204,6 +211,30 @@ async def test_a_500_says_nothing_about_what_went_wrong(
     assert "Traceback" not in answered.text
     # And all of it is in the log, which is where an operator reads it.
     assert SECRET_IN_A_BUG in caplog.text
+
+
+@asyncio_test
+async def test_a_watcher_that_gave_up_says_so_and_is_not_an_internal_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The one 5xx with something to say, and the one that is not logged as a bug.
+
+    Nothing about the request was wrong and the run is not over: a person told
+    "internal error" would think the deployment broken and start the turn
+    again. ``application.Watch`` has already said at WARNING which run it was,
+    so this is not reported a second time as a fault of ours.
+    """
+    with caplog.at_level(logging.DEBUG):
+        async with quiet(leaking_app()) as client:
+            answered = await client.get("/given-up-on")
+
+    assert answered.status_code == 504
+    assert answered.json() == {"error": "RunQuietError", "detail": QUIET_RUN_DETAIL}
+    # The run's id is in the log and never in the answer, like every other
+    # particular of one of ours.
+    assert SECRET_IN_A_BUG not in answered.text
+    said = [record for record in caplog.records if SECRET_IN_A_BUG in record.getMessage()]
+    assert [record.levelno for record in said] == [logging.WARNING]
 
 
 @asyncio_test

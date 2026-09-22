@@ -779,14 +779,14 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   404 in `api/errors.py`'s exhaustive table). The tests are
   `tests/unit/test_turn_start.py`, `test_turn_lifecycle.py` and
   `test_fake_agent.py`, over the wiring in `tests/turns.py`.
-  **For the next steps:** the executor (12) `claim`s a run, creates the task
-  for `Turns.execute` (and `let_go`s it if it could not), calls
-  `sweep_interrupted()` at start-up and drains at shutdown; the
-  registry of executing tasks moves behind that port and `cancel` asks it. The
+  **Since then:** the executor of step 12 is further down -- it `claim`s a run
+  and hands the work of `Turns.execute` to the `RunExecutor` port, the registry
+  of live work is the executor's, `cancel` asks it, and the start-up sweep is
+  the lifespan's. The
   PostgreSQL store (11) meets `start_run`, `complete_message`, `end_run` and
   `append_event` exactly as the fake does, and the refusals of an ended run and
   of a taken position are what stops a run, so they are not optional. The api
-  (13/14) hands `start` / `regenerate` a `User` and gets the `Run` back at
+  (13/14) hands `begin` / `begin_again` a `User` and gets the `Run` back at
   once, streams from `resume_point` and the events after it, and calls
   `cancel`; `execute` is never awaited by a request.
 - The **conversation store on PostgreSQL**, over the same pool and the same
@@ -853,6 +853,134 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   that appending five thousand events to one run stays flat per event, and
   one whole streamed turn of `application.Turns` against this store with the
   stored tree and the stored stream read back.
+- The **run executor**, the **signals** a watcher waits on, and the
+  application's **watcher** -- so a turn now runs in the background and can be
+  followed. Two ports: `ports/run_executor.py` (`RunExecutor`: `submit(run_id,
+  work)`, which takes a **coroutine factory** so that a refused submission
+  leaves no coroutine nobody ran, `cancel(run_id) -> bool`, `running()`,
+  `aclose(timeout=)`) -- about **scheduling only**, deciding nothing about
+  runs -- and `ports/run_signals.py` (`RunSignals`: `announce(run_id, seq,
+  ended=)` and `changed(run_id, after, timeout=) -> bool`), which carries **no
+  data at all**: a watcher woken by it reads the store, every wait is bounded
+  by the caller, and a signal that is lost costs a wait and never an event,
+  which is what lets PostgreSQL `LISTEN`/`NOTIFY` replace it later without the
+  application changing. The adapters are `adapters/run_executor.py`
+  (`AsyncioRunExecutor`: tasks on the loop that serves requests, a registry
+  holding a **strong reference** to each, every exception caught where it is
+  run and written to the log once through `domain.chain` / `where`,
+  done-callbacks that clean the registry and retrieve anything that escaped,
+  and an `aclose(timeout=)` that is **one deadline for the whole stop**: the
+  wait for the cancelled work and every never-began report spend what is left
+  of it, and each report runs in a task of its own and is told the deadline
+  (`ports.RunReport`), because what a report writes is shielded and a shielded
+  write can only be left, never interrupted -- one that has not come back when
+  the deadline passes is left running, with a line in the log. The bound is
+  validated like every other, and `app.SHUTDOWN_SECONDS` is **added up** from
+  `application.ENDING_BUDGET_SECONDS` (the attempts and backoffs of one
+  ending) plus slack, so the number a process stops by cannot drift below what
+  one ending needs) and `adapters/run_signals.py`
+  (`MemoryRunSignals`: a position and an "ended" per run, futures for its
+  watchers, and a **bounded memory** -- what was said about a run outlives it,
+  so that a watcher asking about a position it already holds is answered
+  rather than made to sit out the bound, but never more than
+  `REMEMBERED_RUNS` (10,000) runs or `REMEMBERED_SECONDS` (60) past the last
+  word about one; a run nothing is remembered about falls back to the poll.
+  The records **somebody is waiting on** are kept in a dictionary of their
+  own, apart from the recency order the sweep reads, so that an announcement
+  costs the same whether the process has one watcher or five thousand: the
+  sweep reads the head of the forgettable order and nothing else, and both
+  bounds are about that order alone). `application/turns.py` gains the two ports and the API-facing
+  `begin` / `begin_again` -- `start` / `regenerate`, then `claim`, then
+  `executor.submit(run.id, ...)` -- so **nothing outside the application
+  creates a task**, while `execute` stays a coroutine a test awaits; every
+  stored event is announced by `_Stream` the moment after it is written (a
+  signal that fails is a log line, never a failed write); `cancel` asks the
+  executor, and only for work that has **begun** here, because cancelling work
+  that has not yet started would write no ending -- everything else still ends
+  the run in the store; and `stopping()` says that the **process** is going, so
+  that the runs its shutdown cancels end `interrupted` rather than `cancelled`.
+  A turn the executor refuses (it is closed) is ended `interrupted` at once
+  rather than left for the sweep, and so is one whose work was cancelled **in
+  the instant before its first step** -- the executor takes a `never_began`
+  alongside the work and runs it while the process still holds its stores,
+  which is the one thing a shutdown could otherwise lose. That report
+  (`Turns._never_began`) is given the shutdown's deadline and respects it:
+  `_to_the_end` takes an optional deadline, and when it passes the shielded
+  ending is **left running** rather than killed -- a done callback says in the
+  log whether it landed, and if it did not, the next start-up sweep ends the
+  run. `application/watch.py` is `Watch.events(user,
+  run_id, after=)`: ownership through the run's conversation ("not yours" is
+  "not there"), the stored events after `after` in order, then a bounded wait
+  on the signals and another read -- and it **ends after the `RunEnded`**, or
+  after replaying what is there when the run has already ended, or when the
+  run is **no longer there at all** (its conversation was deleted: a run that
+  is gone is over, and nothing is reported). **Every turn of its loop sends
+  something or waits**: the run record is re-read after every wait, and a
+  wake-up that yielded nothing is not believed a second time in a row, so a
+  signal that answers at once -- which is what the memory above makes common
+  -- can never become a loop that starves the run it is watching. And it does
+  not wait for ever: after `quiet_seconds` (the deployment's turn timeout)
+  with nothing stored under a run that is **still active**, it raises
+  `domain.RunQuietError` (504 in `api/errors.py`'s table, with a body of its
+  own -- `QUIET_RUN_DETAIL` -- and one WARNING rather than the generic
+  internal-error body a 5xx of ours answers with) rather than ending the way a
+  stream that has said everything ends. Signals that keep raising are said
+  **once** per watcher at WARNING and at DEBUG after that, and a `Watch` whose
+  wait is longer than the silence it gives up after is refused, so the root
+  passes `min(DEFAULT_WAIT_SECONDS, turn_seconds)`. A lost signal makes the
+  stream slower and never wrong, and closing the generator is all a watcher
+  that went away has to do. `app.py` builds the executor, the signals
+  and the three services and exposes them (`deployment.conversations` is now
+  the **service**; the store it is built on is `deployment.conversation_store`,
+  which is what that attribute and the `conversation_store=` argument are now
+  called); `agents` and `engines` are injected with empty defaults until the
+  step that reads them from the configuration. It holds **one**
+  `turn_seconds` (`create_app` / `Deployment.configured` /
+  `Deployment(turn_seconds=)`, default `application.DEFAULT_TURN_SECONDS`) and
+  gives it to `Turns(turn_seconds=)` and to `Watch(quiet_seconds=)`: the same
+  question from the two sides, so a deployment that lengthens a turn lengthens
+  the wait for one instead of finding out that the two numbers were copies. The lifespan **sweeps once**
+  after the stores are open, logging how many runs a process that went away
+  left going -- a sweep that fails is logged and does not stop the deployment
+  -- and shutdown is, in order: say the process is stopping, drop the services,
+  cancel the work under a bound (`adapters.DEFAULT_SHUTDOWN_SECONDS`, the one
+  number there is), report whatever never began, close the pool. Nothing is
+  drained (`poc-scope.md`). The tests are
+  `tests/unit/test_run_executor.py`, `test_run_signals.py`,
+  `test_run_watch.py` (a turn in the background with watchers at 0, mid-answer
+  from `resume_point`, inside an answer and after the end, each checked with
+  `core.check_event_order` in slice mode; a watcher that goes away; signals
+  that are all dropped; cancel; a process that stops), the new part of
+  `test_app_composition.py` (the start-up sweep, the services, a shutdown that
+  interrupts, a turn whose work never began) and
+  `tests/integration/test_postgres_run_executor.py` against the real store.
+  `backend/pyproject.toml` now runs pytest with `filterwarnings = ["error"]`:
+  any warning is a failure. It deliberately says in a comment what that does
+  **not** reach -- "coroutine was never awaited" is raised inside the garbage
+  collector and reaches the warnings summary and no further, and "task
+  exception was never retrieved" is a line the loop logs rather than a warning
+  -- which is why the executor retrieves every exception itself and its tests
+  install an exception handler on the loop and assert it saw nothing.
+  **For the routes and SSE (13/14):** everything they call is on the
+  deployment. Start a turn with `turns.begin(user, agent_id=... | conversation_id=...,
+  text=..., parent_id=...)` and regenerate with `turns.begin_again(user,
+  conversation_id=..., message_id=...)` -- both answer a `StartedTurn` (the
+  run, the conversation, the question) the moment the run exists, and neither
+  waits for a word of the answer; stop one with `turns.cancel(user, run_id)`,
+  which answers the run as it then is (`running` is a normal answer: asking is
+  not having happened); open a conversation with `conversations.open(user,
+  conversation_id)`, which hands back the tree, the leaf, the run in flight and
+  its `resume` (`after` and `follows`); and follow it with `watch.events(user,
+  run_id, after=resume.after)`, an async iterator of `RunEvent`s that ends
+  after the run's `RunEnded` -- close it when the client goes away. **A `RunQuietError`
+  from the watcher** is it having given up on a run that stored nothing for
+  `quiet_seconds`, and the route owes the client something it can see (an
+  error event on the wire) rather than a connection that simply closes. **A
+  normal end without a `RunEnded`** is not that: the run is over -- it ended
+  before the position asked from, or it is no longer there at all -- and the
+  client already has, or can load, its final state. `execute` is never awaited by a request, and no route
+  creates a task.
+
 - Open source groundwork at the root: `NOTICE`, `AUTHORS`,
   `CONTRIBUTING.md` (DCO, AI-assisted contributions, where code may come
   from), `DEPENDENCIES.md` (licence categories, the named restricted and
@@ -1502,3 +1630,62 @@ Important design decisions made / open questions:
   held.
 - An open deployment always has both stores, or fails to open.
 
+
+### Step 12 — run-executor   (feature/poc-12-run-executor)
+
+Summary: a turn now runs in the background and can be followed. Two ports:
+`RunExecutor` (`submit` with a coroutine factory and a `never_began` report,
+`cancel`, `running`, `aclose(timeout=)` as one deadline for the whole stop)
+and `RunSignals` (`announce`, bounded `changed`; carries no data, so a lost
+signal costs a wait and never an event). Adapters `AsyncioRunExecutor`
+(tasks on the serving loop, strong registry, every exception logged once
+through `domain.chain`/`where`) and `MemoryRunSignals` (bounded memory:
+`REMEMBERED_RUNS` 10,000 / `REMEMBERED_SECONDS` 60, watched records kept
+apart from the sweep). `Turns` gains `begin`/`begin_again`, `cancel` through
+the executor, `stopping()` so a shutdown ends runs `interrupted`, and the
+never-began ending that respects the shutdown's deadline. `application/
+watch.py`: `Watch.events` replays the store, waits bounded on the signals,
+re-reads the run after every wait and raises `RunQuietError` (504, own body)
+on a silent active run. `app.Deployment` wires them, sweeps at start-up and
+stops in order (stopping → executor → pool), with `SHUTDOWN_SECONDS` added
+up from `application.ENDING_BUDGET_SECONDS` plus slack.
+
+Review: 3 rounds (two full, one focused). The implementer died three times
+on an Anthropic outage between rounds two and three; a fresh implementer
+finished from the tree state (a deviation from "continue the same
+implementer", recorded here).
+- High: 4
+  - `aclose`'s deadline did not bound the never-began reports: the ending
+    shields its write and swallows the cancel, so a stop took N × 30 s —
+    fixed: the report is told the deadline, a write still going is left to
+    land with a log line, measured 8 slow runs → `aclose(0.2)` in 0.20 s.
+  - A watcher could miss the run's ending between the replay and the first
+    wait (round one) — fixed: the run is re-read after every wait.
+  - The signals' memory was unbounded across many runs (round one) —
+    fixed: count and age bounds on the forgettable set.
+  - Cancelling work that had not begun wrote no ending and left the run
+    active until a restart (round two) — fixed: the `never_began` report.
+- Medium: 7 (7/0)
+- Low: 14 (14/0)
+
+Checks: `scripts/check-all.sh` without a database (2172 passed, 188
+skipped) and with one required (2354 passed, 6 skipped); this step's
+modules 20× under `python -X dev -W error` in random order, no warnings, no
+flakes. Reviewers drove 40×400 randomised interleavings of watchers and
+announcements, and measured the sweep at 5,000 parked watchers (1.66 µs per
+announce, a factor of 1.09 over none).
+Not done / to watch: about 2,900 lines with tests, well over the aim — the
+watcher (`watch.py`) could have been its own step. `MemoryRunSignals` is
+per process; a second process polls (the `LISTEN`/`NOTIFY` adapter is for
+later). The adapter's own `DEFAULT_SHUTDOWN_SECONDS` (30) is not what the
+deployment uses.
+Important design decisions made / open questions:
+- The shutdown's bound wins over an ending's: a shielded write is never
+  interrupted, but nobody waits for it past the deadline; the start-up sweep
+  is the fallback for what did not land.
+- Signals carry positions only; the store is the one source of events.
+- `wait_seconds <= quiet_seconds` is enforced, and the root passes
+  `min(DEFAULT_WAIT_SECONDS, turn_seconds)`, so a short turn timeout gives
+  up on a silent run after itself.
+- `RunQuietError` is a 504 with its own body, logged once at WARNING: it is
+  a run that stored nothing, not an internal error.

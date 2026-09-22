@@ -115,6 +115,21 @@ There so far:
   the **document** core wrote, with the record beside it for the store's own
   columns. It is where "at most one active run per conversation" is held, and
   where an event at a position that is not the next one is refused.
+- `RunExecutor`: execute the work of a run in the background and cancel
+  it. It is handed a run's id and something to run, and it decides nothing
+  about runs: which run may be executed, what a cancellation means and what
+  is written when work stops are the application's. Version 1 is asyncio
+  tasks in the backend process; a later `robinauts worker` claiming runs
+  from the database would be another implementation, and the application
+  would not know.
+- `RunSignals`: how a watcher learns that a run has stored something new,
+  without asking the database over and over. It carries **no data** —
+  "this run now reaches this position", and the watcher reads the store —
+  every wait under it is bounded, and a signal that is lost costs a wait and
+  never an event. What was said is remembered for a bounded while, the end of
+  a run included, so that a watcher asking about a position it already holds
+  is answered rather than made to wait. One process today; PostgreSQL
+  `LISTEN`/`NOTIFY` later, with nothing above the port changing.
 - `IdSource`: a fresh id for something about to be stored. The records of a
   turn name each other, so they are built before any of them is stored. It is
   the platform's other source of randomness, and deliberately not the same
@@ -131,9 +146,6 @@ There so far:
 
 Still to come:
 
-- `RunExecutor`: execute a run in the background, subscribe to its events
-  from a given position, cancel it. Version 1: asyncio tasks in the
-  backend process.
 - `UsageStore`: record and query token usage per model and conversation.
 
 **Configuration has no port**, deliberately. An adapter function reads the
@@ -278,7 +290,9 @@ their adapter sub-package. HTTP clients are confined to adapters.
 | reading our own rows: messages and events from their documents | core's `*_stored` readers, called by application |
 | fitting a history into a context window | core, called by application |
 | the turn and run lifecycle (ADR 0002, specs/runs.md) | application |
-| executing runs in the background, delivering their events | adapters (run executor) |
+| executing runs in the background | adapters (run executor) |
+| saying that a run has stored something new | adapters (run signals) |
+| delivering a run's events to whoever may see them | application (the watcher), over the store and the signals |
 | run records and events at rest | datastore |
 | platform format <-> framework format | adapters (each agent adapter) |
 | talking to model providers, API keys in use | adapters (agent adapters) |

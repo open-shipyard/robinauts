@@ -77,6 +77,7 @@ from conversations import (
 )
 from fakes import CountingIdSource, FakeClock, ScriptedAgent, says
 from postgres import DATABASE_URL, TemporarySchema, requires_postgres, temporary_schema
+from robinauts.adapters import AsyncioRunExecutor, MemoryRunSignals
 from robinauts.application import Turns
 from robinauts.core import (
     check_event_order,
@@ -703,6 +704,8 @@ async def test_a_whole_turn_runs_against_this_store() -> None:
             ids=CountingIdSource(),
             agents={definition.id: definition},
             engines={definition.engine: ScriptedAgent(*says("Someone who plays fair."))},
+            executor=AsyncioRunExecutor(),
+            signals=MemoryRunSignals(),
         )
 
         begun = await turns.start(author, agent_id=AGENT, text="What is a robinaut?")

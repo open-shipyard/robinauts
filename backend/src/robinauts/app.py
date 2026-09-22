@@ -36,6 +36,24 @@ is *not* handed in is built here, and only what is built here is closed here
 client is closed whichever way it arrived, because the process holds it for
 its life and a client nobody closes is a warning at shutdown.
 
+**What the process holds includes work.** Runs execute on the loop that serves
+requests (``docs/specs/backend.md``, "Background work"), so the lifespan opens
+the executor that carries them and the signals their watchers wait on, wires
+the three services the routes call -- ``conversations``, ``turns``, ``watch``
+-- and, once the stores are open, **sweeps once**: a run still active when this
+process starts was left by one that went away, and it is ended ``interrupted``
+with the event that says so. Shutdown is the same in reverse and in this order:
+say that the process is stopping, so that the runs its own shutdown cancels are
+recorded as interrupted and not as cancelled; cancel them and wait, bounded;
+then close the stores, because the last thing a cancelled run does is write its
+end into one.
+
+**There is one turn timeout**, and the deployment holds it: ``turn_seconds``
+goes to the run lifecycle, which fails a turn that takes longer, and to the
+watchers, which give up on a run that has stored nothing for as long. They are
+the same question asked from the two sides, so a deployment that lengthens one
+lengthens the other rather than discovering that the numbers were copies.
+
 The environment is read through one ``SecretLookup`` (``adapters.environment``
 by default), the same callable the client secrets are read with: a test
 scripts what the environment holds by passing a mapping's ``get``, and sets no
@@ -46,14 +64,17 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
 
 from robinauts.adapters import (
+    AsyncioRunExecutor,
     HttpIdentityProvider,
+    MemoryRunSignals,
+    OsIdSource,
     OsSecretSource,
     SecretLookup,
     SystemClock,
@@ -62,7 +83,16 @@ from robinauts.adapters import (
     read_toml,
 )
 from robinauts.api import create_api
-from robinauts.application import LocalAccess, SignIn
+from robinauts.application import (
+    DEFAULT_TURN_SECONDS,
+    DEFAULT_WAIT_SECONDS,
+    ENDING_BUDGET_SECONDS,
+    Conversations,
+    LocalAccess,
+    SignIn,
+    Turns,
+    Watch,
+)
 from robinauts.core import parse_sign_in_config
 from robinauts.datastore import (
     PostgresConversationStore,
@@ -73,13 +103,16 @@ from robinauts.datastore import (
 from robinauts.domain import (
     LOCAL_PROVIDER,
     LOCAL_SUBJECT,
+    AgentDefinition,
     ConfigError,
+    Engine,
     InvalidValueError,
     LocalMode,
     SignInConfig,
     is_loopback_bind_host,
 )
 from robinauts.ports import (
+    Agent,
     Clock,
     ConversationStore,
     CredentialStore,
@@ -128,6 +161,29 @@ request's ``Host`` header is judged by: a name of another shape -- even
 ``dev.localhost`` -- is resolved by whatever this machine resolves names with,
 and a bind address is not a thing to leave to a resolver."""
 
+SHUTDOWN_SLACK_SECONDS = 5.0
+"""How much longer than one run's ending a shutdown waits, for everything else.
+
+The wait is for tasks that were cancelled together: each has its own ending to
+write, and they write them at the same time, so the bound is one ending's
+worth and not one per run. This is what is added for the rest of a stop --
+letting an engine go, the last event of each stream, the reports of work that
+never began.
+"""
+
+SHUTDOWN_SECONDS = ENDING_BUDGET_SECONDS + SHUTDOWN_SLACK_SECONDS
+"""How long this deployment's shutdown may take, in seconds.
+
+**Derived, not chosen.** A cancelled run writes its ending under a shield,
+every attempt bounded and tried a few times, and the application is what says
+how long all of that may be (``application.ENDING_BUDGET_SECONDS``). A
+shutdown bound shorter than that would abandon writes that were about to land
+-- runs left ``running`` for the next start-up sweep to find, for no reason
+but two numbers that had drifted apart. The adapter cannot read the
+application's numbers (``docs/layout.md``), so the composition root adds them
+up and hands the result to ``aclose``, which is what it is for.
+"""
+
 LOCAL_MODE_WARNING = (
     "SIGN-IN IS OFF. This is the local development mode: it serves %s and nothing else, and"
     " every request runs as the one local user %s:%s. It is not a way to deploy"
@@ -153,11 +209,14 @@ class Deployment:
         local_development_host: str | None = None,
         database_url: str | None = None,
         credentials: CredentialStore | None = None,
-        conversations: ConversationStore | None = None,
+        conversation_store: ConversationStore | None = None,
         provider: IdentityProvider | None = None,
         clock: Clock | None = None,
         secrets: SecretSource | None = None,
         secret_for: SecretLookup = environment,
+        agents: Mapping[str, AgentDefinition] | None = None,
+        engines: Mapping[Engine, Agent] | None = None,
+        turn_seconds: float = DEFAULT_TURN_SECONDS,
     ) -> None:
         if (config is None) == (local_development_host is None):
             raise ConfigError([BOTH_MODES] if config is not None else [NO_MODE])
@@ -174,19 +233,41 @@ class Deployment:
         anything is opened and long before anything is served.
         """
         self.database_url = database_url
+        self.turn_seconds = turn_seconds
+        """How long one turn of this deployment may take, in seconds.
+
+        **One number, given to both sides of the same question**: the run
+        lifecycle fails a turn that takes longer than this
+        (``Turns(turn_seconds=...)``), and a watcher gives up on a run that has
+        stored nothing for as long as it (``Watch(quiet_seconds=...)``). Two
+        of them would be a deployment that lengthened a turn and then gave up
+        on watching one while it was still allowed to answer, or the other way
+        about -- so a deployment that lengthens one lengthens the other. It is
+        checked where it is used, by the services that are built with it.
+        """
         self.sign_in: SignIn | None = None
         """The application's sign-in, between ``open`` and ``aclose``."""
         self.local_access: LocalAccess | None = None
         """The local development mode's one user, between ``open`` and ``aclose``."""
-        self.conversations: ConversationStore | None = None
+        self.conversation_store: ConversationStore | None = None
         """Conversations, messages, runs and their events, between ``open`` and ``aclose``.
 
         Built here on the same pool as the credential store, because it is the
-        same database. Nothing is wired on top of it yet: the services that
-        use it -- the conversations service, the run lifecycle, the executor
-        -- and the routes that reach them arrive with their own steps. It is
-        exposed so that a deployment, and a test, can see what the process
-        holds.
+        same database. It is exposed so that a deployment, and a test, can see
+        what the process holds; what is built **on** it is below.
+        """
+        self.conversations: Conversations | None = None
+        """Listing, opening, renaming and deleting conversations."""
+        self.turns: Turns | None = None
+        """The run lifecycle: beginning a turn, executing it, cancelling it."""
+        self.watch: Watch | None = None
+        """A run's events, from a position, for whoever may see them.
+
+        The three services are what the routes of the next step call, and they
+        are here because this is the only place that may build them
+        (``docs/layout.md``): ``turns.begin`` / ``begin_again`` to start a
+        turn, ``turns.cancel`` to stop one, ``conversations.open`` to be told
+        where to attach, and ``watch.events`` to follow it from there.
         """
         self.pool: Any = None
         """The connection pool this opened, if it opened one; ``None`` after.
@@ -198,11 +279,32 @@ class Deployment:
         command and a test can see what the process is holding.
         """
         self._credentials = credentials
-        self._conversations = conversations
+        self._conversation_store = conversation_store
         self._provider = provider
         self._clock = clock or SystemClock()
         self._secrets = secrets or OsSecretSource()
         self._secret_for = secret_for
+        self._agents = dict(agents or {})
+        """The agents this deployment offers, as the operator defined them.
+
+        **Injected, and empty until a later step**: reading them out of the
+        configuration file is its own piece of work (``docs/specs/agents.md``),
+        and nothing is served on top of them yet. A deployment with none can do
+        everything but answer a turn, which is what the routes of the steps
+        after this one will begin to need.
+        """
+        self._engines = dict(engines or {})
+        """The engine of each kind this deployment runs, likewise injected.
+
+        This is the one place the choice of agent framework is made
+        (``docs/layout.md``, "infrastructure"), and it is made by whoever
+        builds the deployment until the step that constructs the two adapters
+        here."""
+        self._executor = AsyncioRunExecutor()
+        """Where a run's work happens: tasks on the loop that serves requests."""
+        self._signals = MemoryRunSignals()
+        """How a watcher hears that a run has stored something new."""
+        self._ids = OsIdSource()
         self._closing: list[Callable[[], Awaitable[object]]] = []
         self._opened = False
 
@@ -215,10 +317,13 @@ class Deployment:
         database_url: str | None = None,
         secret_for: SecretLookup = environment,
         credentials: CredentialStore | None = None,
-        conversations: ConversationStore | None = None,
+        conversation_store: ConversationStore | None = None,
         provider: IdentityProvider | None = None,
         clock: Clock | None = None,
         secrets: SecretSource | None = None,
+        agents: Mapping[str, AgentDefinition] | None = None,
+        engines: Mapping[Engine, Agent] | None = None,
+        turn_seconds: float = DEFAULT_TURN_SECONDS,
     ) -> Deployment:
         """Read the configuration and refuse, once, with everything wrong with it.
 
@@ -242,7 +347,7 @@ class Deployment:
         problems: list[str] = []
         path = config_path if config_path is not None else secret_for(AUTH_CONFIG_VARIABLE)
         url = database_url if database_url is not None else secret_for(DATABASE_URL_VARIABLE)
-        if (credentials is None or conversations is None) and not url:
+        if (credentials is None or conversation_store is None) and not url:
             problems.append(NO_DATABASE)
         config: SignInConfig | None = None
         if local_development_host is not None:
@@ -272,11 +377,14 @@ class Deployment:
             local_development_host=local_development_host,
             database_url=url,
             credentials=credentials,
-            conversations=conversations,
+            conversation_store=conversation_store,
             provider=provider,
             clock=clock,
             secrets=secrets,
             secret_for=secret_for,
+            agents=agents,
+            engines=engines,
+            turn_seconds=turn_seconds,
         )
 
     async def open(self) -> SignIn | None:
@@ -308,13 +416,13 @@ class Deployment:
         self._opened = True
         try:
             credentials = self._credentials
-            self.conversations = self._conversations
+            self.conversation_store = self._conversation_store
             # **A deployment that is open has both stores.** Either is
             # injectable and neither is optional: one of them missing would be
             # a process that starts, serves, and fails on the first request
             # that needs it. So a pool is opened whenever either is still
             # missing, and whatever is still missing is built on it.
-            if credentials is None or self.conversations is None:
+            if credentials is None or self.conversation_store is None:
                 if not self.database_url:  # pragma: no cover -- `configured` refuses first
                     raise ConfigError([NO_DATABASE])
                 self.pool = await open_pool(self.database_url)
@@ -326,8 +434,35 @@ class Deployment:
                 await check_schema(self.pool)
                 if credentials is None:
                     credentials = PostgresCredentialStore(self.pool)
-                if self.conversations is None:
-                    self.conversations = PostgresConversationStore(self.pool)
+                if self.conversation_store is None:
+                    self.conversation_store = PostgresConversationStore(self.pool)
+            # The services, in both modes: the local development mode changes
+            # who is asking and nothing about conversations or runs.
+            self.conversations = Conversations(store=self.conversation_store, clock=self._clock)
+            self.turns = Turns(
+                store=self.conversation_store,
+                clock=self._clock,
+                ids=self._ids,
+                agents=self._agents,
+                engines=self._engines,
+                executor=self._executor,
+                signals=self._signals,
+                turn_seconds=self.turn_seconds,
+            )
+            self.watch = Watch(
+                store=self.conversation_store,
+                signals=self._signals,
+                # Never longer than the silence it gives up after, which a
+                # deployment with a short turn timeout would otherwise be
+                # (``application.DEFAULT_WAIT_SECONDS``).
+                wait_seconds=min(DEFAULT_WAIT_SECONDS, self.turn_seconds),
+                quiet_seconds=self.turn_seconds,
+            )
+            # From here the process may hold work, so it has something to give
+            # back before the pool goes: the closers are popped in reverse, and
+            # this one was appended after the pool's.
+            self._closing.append(self._closed_executor)
+            await self._swept()
             if self.local_mode is not None:
                 # No identity provider is built: there is nobody to talk to,
                 # and an HTTP client nothing uses is a client to close.
@@ -355,6 +490,50 @@ class Deployment:
             await self.aclose()
             raise
 
+    async def _swept(self) -> None:
+        """End the runs a process that went away left going. Once, at start-up.
+
+        The POC is one process (``docs/working-notes/poc-scope.md``), so a run
+        that is still ``running`` when this one starts is a run whose process
+        is gone: it is marked ``interrupted``, with the event that ends it, so
+        that its conversation is not blocked behind it and a watcher of it is
+        told it is over (``docs/specs/runs.md``).
+
+        **It does not stop the deployment.** The schema has just been checked,
+        so a sweep that fails is a store that went away between two calls, and
+        a process that refused to start over housekeeping would be a
+        deployment down for a reason nobody asked about. It is logged, and the
+        next start-up sweeps again.
+        """
+        assert self.turns is not None  # built a few lines above
+        try:
+            swept = await self.turns.sweep_interrupted()
+        except Exception:
+            _log.exception(
+                "the start-up sweep could not end the runs left by a process that went"
+                " away; they stay active until a later start-up sweeps them"
+            )
+            return
+        _log.info(
+            "the start-up sweep ended %d run(s) left going by a process that went away",
+            len(swept),
+        )
+
+    async def _closed_executor(self) -> None:
+        """Stop the work this process is carrying, under a bound.
+
+        Every run still going is cancelled and writes that it was
+        ``interrupted`` -- ``Turns.stopping`` has already said that this is a
+        process going away rather than somebody cancelling. Nothing is
+        drained, and what has not stopped when the bound (``SHUTDOWN_SECONDS``,
+        added up from the application's own ending budget so that there is one
+        number and not two that drift) passes is abandoned
+        (``docs/working-notes/poc-scope.md``). Work the close gave up on
+        before it ever began is reported to the application here too, while
+        the stores are still open, and inside that same bound.
+        """
+        await self._executor.aclose(timeout=SHUTDOWN_SECONDS)
+
     async def _closed_pool(self) -> None:
         """Close the pool and forget it, so that nothing reaches a shut one."""
         pool, self.pool = self.pool, None
@@ -372,12 +551,24 @@ class Deployment:
         nothing left to do. A lifespan that unwinds twice -- and a test that
         closes what a ``finally`` has closed -- is then not a second close of
         anything.
+
+        **In order**: this process says it is stopping, so that every run its
+        shutdown cancels is recorded as ``interrupted`` rather than
+        ``cancelled``; then nothing can be reached to start anything new; then
+        the work in flight is cancelled and waited for, under a bound; and
+        only then are the stores let go of -- because the last thing a
+        cancelled run does is write its end into one.
         """
+        if self.turns is not None:
+            self.turns.stopping()
         self.sign_in = None
         self.local_access = None
+        self.conversations = None
+        self.turns = None
+        self.watch = None
         # The stores hold nothing of their own -- the pool is what is closed,
         # below -- so letting go of them is forgetting them.
-        self.conversations = None
+        self.conversation_store = None
         while self._closing:
             close = self._closing.pop()
             try:
@@ -393,10 +584,13 @@ def create_app(
     database_url: str | None = None,
     secret_for: SecretLookup = environment,
     credentials: CredentialStore | None = None,
-    conversations: ConversationStore | None = None,
+    conversation_store: ConversationStore | None = None,
     provider: IdentityProvider | None = None,
     clock: Clock | None = None,
     secrets: SecretSource | None = None,
+    agents: Mapping[str, AgentDefinition] | None = None,
+    engines: Mapping[Engine, Agent] | None = None,
+    turn_seconds: float = DEFAULT_TURN_SECONDS,
 ) -> FastAPI:
     """The whole deployment as one ASGI application.
 
@@ -424,10 +618,13 @@ def create_app(
         database_url=database_url,
         secret_for=secret_for,
         credentials=credentials,
-        conversations=conversations,
+        conversation_store=conversation_store,
         provider=provider,
         clock=clock,
         secrets=secrets,
+        agents=agents,
+        engines=engines,
+        turn_seconds=turn_seconds,
     )
 
     @asynccontextmanager

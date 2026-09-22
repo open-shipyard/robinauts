@@ -10,12 +10,20 @@ would cost as many restarts as there are mistakes. Opening is where a process
 takes hold of something, and the promise is that the lifespan gives all of it
 back.
 
+What a process holds now includes **work**: the runs it is answering. So the
+last part of this module is about the two moments that belong to a process
+rather than to a request -- the start-up sweep, which ends the runs a process
+that went away left going, and the shutdown, which stops the runs this one was
+answering and records them as ``interrupted`` rather than as cancelled.
+
 No database and no environment variable here: the collaborators are handed in,
 which is what ``Deployment`` takes them for.
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -23,20 +31,45 @@ import httpx
 import pytest
 
 from aio import asyncio_test
+from conversations import (
+    AGENT,
+    CONVERSATION,
+    agent_definition,
+    at,
+    conversation,
+    question,
+    run,
+)
 from fakes import (
     FakeClock,
+    Gate,
     MemoryConversationStore,
     MemoryCredentialStore,
+    ScriptedAgent,
     ScriptedIdentityProvider,
+    says,
 )
 from robinauts.adapters import HttpIdentityProvider, SecretLookup
 from robinauts.app import (
     AUTH_CONFIG_VARIABLE,
     DATABASE_URL_VARIABLE,
+    SHUTDOWN_SECONDS,
     Deployment,
     create_app,
 )
-from robinauts.domain import ConfigError, InvalidValueError
+from robinauts.application import DEFAULT_TURN_SECONDS, ENDING_BUDGET_SECONDS, TIMED_OUT
+from robinauts.core import message_to_data
+from robinauts.domain import (
+    ACTIVE_RUN_STATES,
+    AnswerStarted,
+    AnswerTextDelta,
+    ConfigError,
+    InvalidValueError,
+    Run,
+    RunQuietError,
+    RunState,
+)
+from turns import AUTHOR, readable, stored_events
 from webapp import PUBLIC_URL, running
 
 pytestmark = pytest.mark.io  # every test here writes a configuration file
@@ -74,16 +107,21 @@ def reading(variables: Mapping[str, str]) -> SecretLookup:
 
 
 def deployed(tmp_path: Path, **changes: object) -> Deployment:
-    """A configured deployment over fakes, its file written for it."""
-    return Deployment.configured(
-        config_path=written(tmp_path),
-        database_url=DATABASE_URL,
-        secret_for=reading({"ROBINAUTS_GOOGLE_SECRET": "a-secret"}),
-        credentials=MemoryCredentialStore(),
-        conversations=MemoryConversationStore(),
-        clock=FakeClock(),
-        **changes,  # type: ignore[arg-type]
-    )
+    """A configured deployment over fakes, its file written for it.
+
+    Anything named in ``changes`` replaces what is here, so a test that is
+    about a store, an engine or an agent hands in its own.
+    """
+    fields: dict[str, object] = {
+        "config_path": written(tmp_path),
+        "database_url": DATABASE_URL,
+        "secret_for": reading({"ROBINAUTS_GOOGLE_SECRET": "a-secret"}),
+        "credentials": MemoryCredentialStore(),
+        "conversation_store": MemoryConversationStore(),
+        "clock": FakeClock(),
+    }
+    fields.update(changes)
+    return Deployment.configured(**fields)  # type: ignore[arg-type]
 
 
 # Configuring.
@@ -97,7 +135,7 @@ def test_a_file_that_does_not_parse_is_the_whole_story(tmp_path: Path) -> None:
             database_url=DATABASE_URL,
             secret_for=reading({}),
             credentials=MemoryCredentialStore(),
-            conversations=MemoryConversationStore(),
+            conversation_store=MemoryConversationStore(),
         )
 
     assert len(raised.value.problems) == 1
@@ -158,7 +196,7 @@ def test_the_missing_client_secret_is_named_and_never_its_value(
             database_url=DATABASE_URL,
             secret_for=reading({}),
             credentials=MemoryCredentialStore(),
-            conversations=MemoryConversationStore(),
+            conversation_store=MemoryConversationStore(),
         )
 
     assert raised.value.problems == (
@@ -201,13 +239,13 @@ def test_the_stores_that_were_handed_in_need_no_database_url(tmp_path: Path) -> 
         config_path=written(tmp_path),
         secret_for=reading({"ROBINAUTS_GOOGLE_SECRET": "a-secret"}),
         credentials=MemoryCredentialStore(),
-        conversations=MemoryConversationStore(),
+        conversation_store=MemoryConversationStore(),
     )
 
     assert deployment.database_url is None
 
 
-@pytest.mark.parametrize("handed_in", ["credentials", "conversations"])
+@pytest.mark.parametrize("handed_in", ["credentials", "conversation_store"])
 def test_one_store_handed_in_and_no_database_is_refused(tmp_path: Path, handed_in: str) -> None:
     # Both stores are the same database, and a deployment that is open has
     # both. Handing in one of them and naming no database would otherwise
@@ -215,7 +253,7 @@ def test_one_store_handed_in_and_no_database_is_refused(tmp_path: Path, handed_i
     # fail on the first request that needed it.
     stores = {
         "credentials": MemoryCredentialStore(),
-        "conversations": MemoryConversationStore(),
+        "conversation_store": MemoryConversationStore(),
     }
 
     with pytest.raises(ConfigError) as raised:
@@ -325,7 +363,7 @@ async def test_the_lifespan_opens_before_the_first_request_and_closes_after(
         config_path=written(tmp_path),
         secret_for=reading({"ROBINAUTS_GOOGLE_SECRET": "a-secret"}),
         credentials=MemoryCredentialStore(),
-        conversations=MemoryConversationStore(),
+        conversation_store=MemoryConversationStore(),
         provider=ScriptedIdentityProvider(),
         clock=FakeClock(),
     )
@@ -349,6 +387,54 @@ async def test_the_lifespan_opens_before_the_first_request_and_closes_after(
     assert app.state.deployment.sign_in is None
 
 
+TURN_SECONDS = 0.05
+"""A turn timeout short enough that both of its sides can be waited out."""
+
+
+@asyncio_test
+async def test_one_turn_timeout_bounds_a_turn_and_the_watching_of_one(tmp_path: Path) -> None:
+    # One number, two sides of the same question: how long a turn may take,
+    # and how long a watcher follows a run that has stored nothing before it
+    # gives up on it. A deployment that shortened the first and left the
+    # second would hold a request open long after it had failed the run the
+    # request was watching -- so both are this, and both are waited out here.
+    held = Gate()
+    store = MemoryConversationStore()
+    deployment = answering(tmp_path, held, store=store, turn_seconds=TURN_SECONDS)
+    assert deployment.turn_seconds == TURN_SECONDS
+    await deployment.open()
+    assert deployment.turns is not None and deployment.watch is not None
+
+    # Watching: a run nothing here is answering, written after the start-up
+    # sweep, stores nothing and is given up on -- which is said and not
+    # guessed (`domain.RunQuietError`).
+    going = await left_running(store)
+    with pytest.raises(RunQuietError):
+        await anext(deployment.watch.events(AUTHOR, going.id))
+
+    # The turn: an engine that never answers is stopped by the same number,
+    # and the run is failed for it rather than left running.
+    started = await deployment.turns.begin(AUTHOR, agent_id=AGENT, text="What is a robinaut?")
+    while (await store.run_by_id(started.run.id)).state in ACTIVE_RUN_STATES:
+        await asyncio.sleep(0.005)
+    failed = await store.run_by_id(started.run.id)
+    assert failed.state is RunState.FAILED and failed.error == TIMED_OUT
+    await deployment.aclose()
+
+    # And a deployment that asks for no particular one has the application's,
+    # which is the same number for both of them too.
+    assert deployed(tmp_path).turn_seconds == DEFAULT_TURN_SECONDS
+
+
+def test_the_shutdown_bound_is_added_up_from_the_endings_it_waits_for() -> None:
+    # Not a number chosen here: a cancelled run writes its ending under a
+    # shield, a few bounded attempts of it, and the application is what says
+    # how long all of that may take. A shutdown bound shorter than that would
+    # abandon writes that were about to land and leave runs `running` for the
+    # next start-up sweep to find.
+    assert SHUTDOWN_SECONDS > ENDING_BUDGET_SECONDS
+
+
 @asyncio_test
 async def test_create_app_refuses_a_configuration_it_cannot_use(tmp_path: Path) -> None:
     """``robinauts start`` fails before it binds a port, not after."""
@@ -357,5 +443,172 @@ async def test_create_app_refuses_a_configuration_it_cannot_use(tmp_path: Path) 
             config_path=written(tmp_path),
             secret_for=reading({}),
             credentials=MemoryCredentialStore(),
-            conversations=MemoryConversationStore(),
+            conversation_store=MemoryConversationStore(),
         )
+
+
+# Background work: the sweep at start-up, and the runs a shutdown stops.
+
+
+async def left_running(store: MemoryConversationStore) -> Run:
+    """A conversation whose run is still going, as a process that died left it.
+
+    Written straight into the store, because that is what it is: rows from
+    before this process existed, with nothing in memory that knows about them.
+    """
+    asked = question(conversation_id=CONVERSATION)
+    going = run(conversation_id=CONVERSATION, message_id=asked.id)
+    await store.start_run(
+        conversation=conversation(),
+        message=(asked, message_to_data(asked)),
+        run=going,
+        now=at(0),
+    )
+    return going
+
+
+def answering(
+    tmp_path: Path, *steps: object, store: MemoryConversationStore, **changes: object
+) -> Deployment:
+    """A deployment whose one agent runs that script over that store."""
+    definition = agent_definition()
+    return deployed(
+        tmp_path,
+        conversation_store=store,
+        agents={definition.id: definition},
+        engines={definition.engine: ScriptedAgent(*steps)},  # type: ignore[arg-type]
+        provider=ScriptedIdentityProvider(),
+        **changes,
+    )
+
+
+@asyncio_test
+async def test_the_start_up_sweep_ends_the_runs_a_process_that_went_away_left(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The POC is one process, so a run still going when this one starts is a
+    # run whose process is gone. It is ended with the event that says so --
+    # otherwise its conversation refuses every new message and a watcher of it
+    # waits for an answer nobody is writing.
+    store = MemoryConversationStore()
+    going = await left_running(store)
+    deployment = deployed(tmp_path, conversation_store=store, provider=ScriptedIdentityProvider())
+
+    with caplog.at_level(logging.INFO):
+        await deployment.open()
+    await deployment.aclose()
+
+    ended = await store.run_by_id(going.id)
+    assert ended is not None and ended.state is RunState.INTERRUPTED
+    readable(await stored_events(store, going.id), ended)
+    assert "1 run" in caplog.text
+
+
+@asyncio_test
+async def test_a_sweep_that_fails_does_not_stop_the_deployment(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Housekeeping, not correctness: the schema was checked a moment ago, so a
+    # sweep that cannot read is a store that went away between two calls, and
+    # a server that refused to start over it would be down for a reason
+    # nobody asked about.
+    class Unreadable(MemoryConversationStore):
+        async def runs_in(self, states: object, *, limit: int = 1) -> tuple[Run, ...]:
+            raise OSError("the database went away")
+
+    deployment = deployed(
+        tmp_path, conversation_store=Unreadable(), provider=ScriptedIdentityProvider()
+    )
+
+    with caplog.at_level(logging.ERROR):
+        assert await deployment.open() is not None
+    await deployment.aclose()
+
+    assert "sweep" in caplog.text
+
+
+@asyncio_test
+async def test_opening_wires_the_services_the_routes_call(tmp_path: Path) -> None:
+    deployment = deployed(tmp_path, provider=ScriptedIdentityProvider())
+
+    await deployment.open()
+
+    assert deployment.conversations is not None
+    assert deployment.turns is not None
+    assert deployment.watch is not None
+    assert deployment.conversation_store is not None
+
+    await deployment.aclose()
+
+    assert deployment.conversations is None
+    assert deployment.turns is None
+    assert deployment.watch is None
+
+
+@asyncio_test
+async def test_shutting_down_interrupts_the_runs_this_process_was_answering(
+    tmp_path: Path,
+) -> None:
+    # Nobody cancelled these runs: the process went away with them. The
+    # difference is the author's -- an interrupted run is theirs to retry --
+    # and it is written into the record and announced to whoever is watching.
+    held = Gate()
+    store = MemoryConversationStore()
+    deployment = answering(
+        tmp_path,
+        AnswerStarted(),
+        AnswerTextDelta(text="Half of an"),
+        held,
+        store=store,
+    )
+    await deployment.open()
+    assert deployment.turns is not None
+    started = await deployment.turns.begin(AUTHOR, agent_id=AGENT, text="What is a robinaut?")
+    await held.reached.wait()
+    while await store.last_position(started.run.id) < 3:
+        await asyncio.sleep(0)
+
+    await deployment.aclose()
+
+    ended = await store.run_by_id(started.run.id)
+    assert ended is not None and ended.state is RunState.INTERRUPTED
+    events = await stored_events(store, started.run.id)
+    readable(events, ended)
+    assert events[-1].event.state is RunState.INTERRUPTED
+
+
+@asyncio_test
+async def test_a_turn_whose_work_never_began_is_ended_while_the_stores_are_open(
+    tmp_path: Path,
+) -> None:
+    # The window a shutdown can land in: the work was handed over and the
+    # process began stopping before the loop stepped it. Nothing of the turn
+    # ran, so the executor says so -- and it says so **before** the stores are
+    # closed, which is the whole reason it is closed before them.
+    store = MemoryConversationStore()
+    deployment = answering(tmp_path, *says("Someone who plays fair."), store=store)
+    await deployment.open()
+    assert deployment.turns is not None
+    started = await deployment.turns.begin(AUTHOR, agent_id=AGENT, text="What is a robinaut?")
+
+    await deployment.aclose()
+
+    ended = await store.run_by_id(started.run.id)
+    assert ended is not None and ended.state is RunState.INTERRUPTED
+    readable(await stored_events(store, started.run.id), ended)
+
+
+@asyncio_test
+async def test_a_turn_begun_through_the_deployment_runs_to_its_end(tmp_path: Path) -> None:
+    store = MemoryConversationStore()
+    deployment = answering(tmp_path, *says("Someone who plays fair."), store=store)
+    await deployment.open()
+    assert deployment.turns is not None and deployment.watch is not None
+
+    started = await deployment.turns.begin(AUTHOR, agent_id=AGENT, text="What is a robinaut?")
+    seen = [event async for event in deployment.watch.events(AUTHOR, started.run.id)]
+
+    readable(seen, started.run)
+    ended = await store.run_by_id(started.run.id)
+    assert ended is not None and ended.state is RunState.FINISHED
+    await deployment.aclose()

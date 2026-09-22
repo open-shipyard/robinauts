@@ -215,10 +215,9 @@ async def test_the_local_development_mode_runs_as_one_real_row() -> None:
 @asyncio_test
 async def test_the_conversation_store_is_opened_on_the_same_pool() -> None:
     # Conversations, messages, runs and events are the same database as users
-    # and sessions, so they are the same pool. Nothing is wired on top of the
-    # store yet -- the services and the routes come with their own steps --
-    # but the deployment holds it, it reaches the schema the connection string
-    # names, and the lifespan gives it back with everything else.
+    # and sessions, so they are the same pool. The deployment holds the store
+    # and the three services built on it, it reaches the schema the connection
+    # string names, and the lifespan gives all of it back.
     async with schema() as temporary:
         app = create_app(
             local_development_host="127.0.0.1",
@@ -227,12 +226,18 @@ async def test_the_conversation_store_is_opened_on_the_same_pool() -> None:
         )
 
         async with running(app):
-            store = app.state.deployment.conversations
+            store = app.state.deployment.conversation_store
             assert isinstance(store, PostgresConversationStore)
             assert await store.conversation_by_id(uuid.uuid4()) is None
             assert app.state.deployment.pool is not None
+            assert app.state.deployment.conversations is not None
+            assert app.state.deployment.turns is not None
+            assert app.state.deployment.watch is not None
 
+        assert app.state.deployment.conversation_store is None
         assert app.state.deployment.conversations is None
+        assert app.state.deployment.turns is None
+        assert app.state.deployment.watch is None
         assert app.state.deployment.pool is None
 
 

@@ -79,6 +79,7 @@ from robinauts.domain import (
     RobinautsError,
     RunAlreadyActiveError,
     RunNotFoundError,
+    RunQuietError,
     SchemaError,
     SignInError,
     SignInErrorCode,
@@ -105,6 +106,17 @@ NOT_FOUND_ERROR = "NotFoundError"
 
 NOT_FOUND_DETAIL = "there is nothing here of that id"
 """The one sentence it answers with. It says nothing about whose it is."""
+
+QUIET_RUN_DETAIL = "the run stored nothing for a long time and watching it was given up on"
+"""The one sentence a watcher that gave up on a run answers with.
+
+Fixed, like every other detail here: nothing of the request in it. It is the
+one 5xx that says what happened, because nothing about the request **was**
+wrong and the run is not over -- a person told "internal error" would think
+the deployment broken and start the whole turn again, rather than opening the
+conversation and seeing where the run got to (``docs/specs/runs.md``, known
+limits).
+"""
 
 UNREADABLE_DETAIL = "the request could not be read"
 """What a request nobody could parse is told, when there is nothing safe to add."""
@@ -180,6 +192,13 @@ STATUS_OF: dict[type[RobinautsError], int] = {
     # that is not the next one means the run moved on under it. No request
     # names a position; it is here because the table is exhaustive.
     PositionTakenError: 409,
+    # Watching a run that said nothing for longer than a turn may take was
+    # given up on. A gateway timeout is the honest one: nothing about the
+    # request was wrong, the run is not over, and what the deployment could
+    # not do is wait any longer for something behind it. It is the one 5xx
+    # here that answers a body of its own (`QUIET_RUN_DETAIL`), because the
+    # generic one would have a person believe the deployment broken.
+    RunQuietError: 504,
     # Start-up, not a request: a deployment in this state does not serve.
     ConfigError: 500,
     SchemaError: 500,
@@ -201,6 +220,11 @@ def status_of(exc: RobinautsError) -> int:
 
 def error_body(exc: BaseException, status: int) -> dict[str, Any]:
     """The JSON body an error crosses as, with nothing in it that came from outside."""
+    if isinstance(exc, RunQuietError):
+        # The 5xx that is not a bug of ours and not a secret: see
+        # `QUIET_RUN_DETAIL`. The message it carries names the run and the
+        # bound, so the fixed sentence is what crosses instead.
+        return {"error": type(exc).__name__, "detail": QUIET_RUN_DETAIL}
     if status >= 500:
         return {"error": INTERNAL_ERROR, "detail": GENERIC_DETAIL}
     if isinstance(exc, NotFoundError | NotTheOwnerError):
@@ -226,7 +250,13 @@ def refusal(exc: RobinautsError) -> JSONResponse:
     """
     status = status_of(exc)
     body = error_body(exc, status)
-    if status >= 500:
+    if isinstance(exc, RunQuietError):
+        # Not an internal error, and not news: ``application.Watch`` has
+        # already said at WARNING which run it gave up on and why. One line
+        # here, at the same level, rather than the whole chain of a 5xx as
+        # though something had gone wrong with the deployment.
+        _log.warning("%s", chain(exc))
+    elif status >= 500:
         # The whole chain: see `chain`. A 5xx of ours says nothing to the
         # browser, so if what it was raised from does not reach the log,
         # nothing anywhere says which row or which version was the trouble.

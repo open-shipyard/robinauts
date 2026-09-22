@@ -213,9 +213,51 @@ Tool usage is planned ([agents.md](agents.md)); runs are designed for it.
   half-written. One that failed, was cancelled or was interrupted may leave a
   message announced and never completed: that is what a cancellation in the
   middle of an answer looks like.
-- A `RunExecutor` port: execute this in the background; subscribe to a
-  run's events from a given position; cancel. `api` only subscribes and
-  maps events to the wire ([wire.md](wire.md)).
+- **Two ports and a watcher**, where this document first said one port. A
+  `RunExecutor` carries the work of a run in the background and cancels it,
+  and knows nothing else: it is handed a run's id and something to run, and
+  which run may be executed, what a cancellation means and what is written
+  when work stops are all the application's. Subscribing is **not** its
+  business, because a run's events are read from the store and never from
+  whoever is executing them — a watcher in another process has no task to
+  subscribe to, and a watcher in this one must still be told only what was
+  stored. So a second port, `RunSignals`, says one thing — "this run now
+  reaches this position" — carrying no data at all, and the application's
+  watcher reads the store, yields what is past the position it was asked
+  for, waits on a signal under a bound, reads again when the bound passes,
+  and ends once it has yielded the event that ended the run — or gives up and
+  says so, if the run stores nothing at all for long enough (known limits). A
+  signal that is lost is a stream that arrives a wait later; a store that is not read is a
+  stream that is wrong. `api` only watches and maps events to the wire
+  ([wire.md](wire.md)).
+- **Signals remember what they said, for a bounded while.** A watcher does not
+  ask to be woken; it asks whether there is anything past the position it
+  holds, and for everything already announced — the end included — that
+  question has an answer and must be answered at once. A run's record
+  therefore outlives the run, bounded in number and in age, and a watcher of
+  one that has been forgotten falls back to the bounded poll.
+- **A watcher looks at the run again after every wait, and every turn of its
+  loop either sends something or waits.** A signal that answers at once must
+  not become a loop that answers at once for ever: a wake-up with nothing
+  behind it is not believed a second time in a row, and the run record is
+  re-read after each wait — which is what ends a watcher of a run that has
+  ended without storing the end it was waiting for, and of one whose rows are
+  gone. **A run that is no longer there is over**: the conversation was
+  deleted, the stream ends, and nothing is reported, because nothing about the
+  request was wrong.
+- **A run is claimed before its work exists, and work is cancelled only once
+  it has begun.** Between handing work over and its first step there is an
+  instant in which nothing is executing the run, and a sweep looking in it
+  would interrupt a run that is about to be answered; and work cancelled
+  before that first step would write no ending at all. So the process says
+  the run is its own before it hands the work over, and a cancellation that
+  cannot reach work that has begun is written into the store instead — which
+  is where a cancellation counts anyway.
+- **A turn whose work cannot be scheduled is ended, not left.** The one way
+  that happens is a request landing while the process is shutting down: the
+  run has been written by then, and a run nothing will ever execute would
+  block its conversation until the next start-up swept it. It is ended
+  `interrupted` at once, and the refusal is answered to whoever asked.
 - Runs and their events are stored by the **same port as conversations and
   messages** (`ConversationStore`), because they are the same database and
   several operations over them are one transaction: beginning a turn, ending
@@ -283,6 +325,37 @@ Tool usage is planned ([agents.md](agents.md)); runs are designed for it.
   never simply offered again at the next free position: two writers that both
   did that would store a run's beginning twice and leave a stream nobody can
   read back.
+- **A watcher gives up on a run that stores nothing.** A run whose end could
+  not be written, or whose process was killed, would otherwise be followed
+  until the client gave up: after a silence as long as a whole turn may take,
+  watching it is given up on — with a line in the log, and by **raising**,
+  which the wire turns into something the person can see rather than a page
+  that waits for ever. It is **said** and not left to be noticed: a stream
+  that simply ends has sent everything there is — the run's `RunEnded`, or
+  everything stored after the position it was asked from of a run that is over
+  or is no longer there — so "we stopped watching" and "there is nothing more"
+  are told apart by what was raised rather than by what is missing.
+- **Shutdown cancels; it does not drain.** The backend says that it is
+  stopping, cancels the work of every run it is carrying, and waits for them
+  to write their ends under **one bound for the whole stop** — not one bound
+  each. They write at the same time, so what the stop needs is as long as one
+  ending may take, which is a number the run lifecycle owns and the
+  composition root adds up; a bound multiplied by however many runs a process
+  happened to be carrying is not a bound at all. They end `interrupted` —
+  nobody cancelled them, their authors may retry them, and an interface must
+  not tell somebody they stopped what they did not — and each is announced, so
+  a watcher is told the run is over rather than left waiting. A run whose work
+  does not stop inside the bound is abandoned, and the start-up sweep of the
+  next restart is what ends it. **Work cancelled in the instant before it ever
+  began is reported rather than lost**: it ran no line, so nothing of it wrote
+  an ending, and the run is ended `interrupted` while the process still holds
+  its store — inside that same one bound, and told what it is, because an
+  ending is written where no cancellation can reach it and a stop that simply
+  waited would be as long as the slowest store times the number of runs. A
+  write still going when the bound passes is **left to land** rather than
+  killed, with a line in the log saying so. Letting runs finish what they were
+  doing is the draining described above, and it is outside this version
+  ([poc-scope.md](../working-notes/poc-scope.md)).
 - **A run's events are kept until its conversation is deleted.** They exist to
   be re-attached to, and removing them once a run has been over for a while is
   the housekeeping described above; until it exists, what a run published —
@@ -292,10 +365,11 @@ Tool usage is planned ([agents.md](agents.md)); runs are designed for it.
 ## Details likely to change
 
 - The executor is an adapter over `asyncio.create_task`, with a registry of
-  live tasks (so that none is lost to garbage collection, every failure
-  reaches its run record, and shutdown can drain them), started and stopped
-  by the ASGI lifespan. FastAPI's `BackgroundTasks` is not used: it is tied
-  to a request.
+  live tasks (so that none is lost to garbage collection, every failure is
+  retrieved and logged, and shutdown can stop them — this version cancels
+  rather than drains, as the known limits say), started and stopped by the
+  ASGI lifespan. FastAPI's `BackgroundTasks` is not used: it is tied to a
+  request.
 - Events are kept per run in an events table and announced with
   PostgreSQL `LISTEN/NOTIFY`; a watcher re-attaches with the id of the last
   event it saw. Events of a finished run are removed after a while; the

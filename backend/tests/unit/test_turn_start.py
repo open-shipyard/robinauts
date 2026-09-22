@@ -24,6 +24,7 @@ import pytest
 from aio import asyncio_test
 from conversations import AGENT, OTHER_CONVERSATION, agent_definition
 from fakes import CountingIdSource, FakeClock, MemoryConversationStore, ScriptedAgent, says
+from robinauts.adapters import AsyncioRunExecutor, MemoryRunSignals
 from robinauts.application import Turns
 from robinauts.domain import (
     ACTIVE_RUN_STATES,
@@ -394,6 +395,8 @@ def test_an_agent_whose_engine_is_not_wired_is_a_deployment_that_does_not_start(
             ids=CountingIdSource(),
             agents={definition.id: definition},
             engines={Engine.PYDANTIC_AI: ScriptedAgent()},
+            executor=AsyncioRunExecutor(),
+            signals=MemoryRunSignals(),
         )
 
 
@@ -407,6 +410,8 @@ def test_an_agent_filed_under_a_name_that_is_not_its_own_is_refused() -> None:
             ids=CountingIdSource(),
             agents={"somebody-else": definition},
             engines={definition.engine: ScriptedAgent()},
+            executor=AsyncioRunExecutor(),
+            signals=MemoryRunSignals(),
         )
 
 

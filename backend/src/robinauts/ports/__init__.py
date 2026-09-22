@@ -22,6 +22,8 @@ from robinauts.ports.conversations import (
 from robinauts.ports.credentials import CredentialStore
 from robinauts.ports.identity_provider import IdentityProvider
 from robinauts.ports.ids import IdSource
+from robinauts.ports.run_executor import RunExecutor, RunReport, RunWork
+from robinauts.ports.run_signals import RunSignals
 from robinauts.ports.secrets import SECRET_BITS, SecretSource
 
 __all__ = [
@@ -36,6 +38,10 @@ __all__ = [
     "Document",
     "IdSource",
     "IdentityProvider",
+    "RunExecutor",
+    "RunSignals",
+    "RunReport",
+    "RunWork",
     "SecretSource",
     "Snapshot",
 ]

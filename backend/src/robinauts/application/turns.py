@@ -14,9 +14,19 @@ flow over ports: the rules it applies are ``core``'s, the records are
 **Beginning and executing are two calls**, deliberately. ``start`` and
 ``regenerate`` write the whole beginning of a turn in one store call and hand
 back the ``Run`` they created; ``execute`` is the coroutine that produces the
-answer, and a later step schedules it as a task through a ``RunExecutor``
-port. A request is therefore answered as soon as the run exists, and what it
-then does -- watch the stream, or drop -- changes nothing about the run.
+answer, and the ``RunExecutor`` port is what carries it in the background.
+What a request calls is ``begin`` / ``begin_again``, which are the two
+together -- claim the run, hand its work to the executor, answer with the
+turn that was started -- so that **nothing outside the application ever
+creates a task** and ``execute`` stays a coroutine a test can simply await.
+A request is therefore answered as soon as the run exists, and what it then
+does -- watch the stream, or drop -- changes nothing about the run.
+
+**Everything stored is announced** through the ``RunSignals`` port, at the
+position it was stored at, the moment after it was stored. The announcement
+carries nothing: it is how a watcher learns to read again without asking the
+database over and over (``application.Watch``), and a signal that is lost
+costs a bounded wait and never an event.
 
 **What ``execute`` writes, in order** (``docs/specs/runs.md``, "In the
 layout"): the run started, once, first; for each answer, its announcement,
@@ -75,31 +85,37 @@ cancelled from a request with no task here -- goes through ``_ending``, which:
 
 **Cancelling, across the executor boundary.** ``cancel`` marks intent, and
 there are two ways for it to reach a run because there are two situations. If
-this process is executing it, the task is in ``_executing`` -- a registry kept
-by ``execute`` itself, keyed by run id -- and cancelling the task is the
-cancellation: the engine is let go of, and the task writes the end. If no task
-is known, which is what a restart looks like, the run is ended ``cancelled``
-in the **store**, with its ``RunEnded`` at the next position. The limits of
-that are worth saying plainly:
+this process is executing it -- ``_executing``, the runs whose ``execute`` has
+begun here -- the executor is asked to stop that work, and the task writes the
+end a moment later under its shield. Otherwise, which is what a restart looks
+like, the run is ended ``cancelled`` in the **store**, with its ``RunEnded``
+at the next position. The limits of that are worth saying plainly:
 
-- a run is **claimed** before its task exists (``claim``, then create the
-  task, and ``let_go`` if it could not be created), because a task that has
-  been created and not yet stepped is a run nothing knows about, and a sweep
+- a run is **claimed** before its work exists (``claim``, then submit, and
+  ``let_go`` if the submission was refused), because work that has been
+  submitted and not yet begun is a run nothing knows about, and a sweep
   running in that instant would mark it ``interrupted`` while it was about to
-  be answered;
-- the registry is **not** what makes cancelling correct. Losing it -- a
-  restart, a second process -- costs the promptness and nothing else: the run
-  is ended in the store, and a task still executing it discovers that at its
-  next write and stops quietly, because the store refuses everything written
-  into an ended run. So the store, which every process shares, is what
+  be answered. It is also why the executor is only ever asked to cancel work
+  that has **begun**: cancelling work that has not would leave the run
+  ``running`` with nothing to write its end;
+- the executor's registry is **not** what makes cancelling correct. Losing it
+  -- a restart, a second process -- costs the promptness and nothing else: the
+  run is ended in the store, and a task still executing it discovers that at
+  its next write and stops quietly, because the store refuses everything
+  written into an ended run. So the store, which every process shares, is what
   actually stops a run, and the registry is the fast path;
 - what it does **not** do is reach into another process to release a provider
   connection there. With several processes that wants a cancellation flag in
   the database and a listener, which is where this grows (``docs/specs/runs.md``,
   "Restarts and several processes"); the POC is one process
-  (``docs/working-notes/poc-scope.md``);
-- when the ``RunExecutor`` port arrives, the registry moves behind it and
-  ``cancel`` asks the executor instead. Nothing else here changes.
+  (``docs/working-notes/poc-scope.md``).
+
+**A process that is stopping is not somebody cancelling.** ``stopping`` is how
+the composition root says so before it closes the executor: the work of every
+run left is cancelled, and each of them ends ``interrupted`` rather than
+``cancelled``, because nobody asked for those runs to stop and their authors
+may retry them. Nothing is drained (``docs/working-notes/poc-scope.md``); what
+the shutdown bound does not cover is ended by the sweep of the next start-up.
 
 **Ownership is the same one rule as everywhere else**: a conversation of
 somebody else's is answered exactly like one that is not there
@@ -178,7 +194,15 @@ from robinauts.domain import (
     text_parts,
     where,
 )
-from robinauts.ports import Agent, Clock, ConversationStore, Document, IdSource
+from robinauts.ports import (
+    Agent,
+    Clock,
+    ConversationStore,
+    Document,
+    IdSource,
+    RunExecutor,
+    RunSignals,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -260,6 +284,20 @@ uncancellably, and could never be reaped. Each attempt is bounded, and the
 attempts are counted.
 """
 
+ENDING_BUDGET_SECONDS = MAX_ENDING_ATTEMPTS * ENDING_SECONDS + ENDING_BACKOFF_SECONDS * sum(
+    range(MAX_ENDING_ATTEMPTS)
+)
+"""How long ending one run may take at the very most: the attempts and the waits.
+
+**One number, added up rather than written down twice.** It is what a process
+that is shutting down has to allow for -- a run's ending is written under a
+shield, so a shutdown bound shorter than this would abandon writes that were
+about to land -- and the composition root is what reads it
+(``robinauts.app.SHUTDOWN_SECONDS``). Changing the attempts or their bound
+changes this, and changes what a shutdown waits, which is the point of adding
+it up here.
+"""
+
 QUEUE_DEPTH = 8
 """How many engine events may be ahead of the writer.
 
@@ -307,6 +345,8 @@ class Turns:
         ids: IdSource,
         agents: Mapping[str, AgentDefinition],
         engines: Mapping[Engine, Agent],
+        executor: RunExecutor,
+        signals: RunSignals,
         history_chars: int = DEFAULT_HISTORY_CHARS,
         turn_seconds: float = DEFAULT_TURN_SECONDS,
     ) -> None:
@@ -331,15 +371,26 @@ class Turns:
         self._store = store
         self._clock = clock
         self._ids = ids
+        self._executor = executor
+        self._signals = signals
         # Copied: what a deployment configured is not something a caller goes
         # on editing behind this service's back.
         self._agents = dict(agents)
         self._engines = dict(engines)
         self._history_chars = history_chars
         self._turn_seconds = turn_seconds
-        self._executing: dict[uuid.UUID, asyncio.Task[None]] = {}
+        self._executing: set[uuid.UUID] = set()
+        """Runs whose ``execute`` is under way in this process.
+
+        Ids, not tasks: the work itself is the executor's, and what this is
+        for is telling a run being answered here from one that is only
+        claimed -- which is what decides whether a cancellation can be handed
+        to the executor or has to be written into the store.
+        """
         self._claimed: set[uuid.UUID] = set()
-        """Runs this process has said it will execute, before their tasks exist."""
+        """Runs this process has said it will execute, before their work exists."""
+        self._stopping = False
+        """Whether the process is shutting down; see ``stopping``."""
 
     @property
     def executing(self) -> frozenset[uuid.UUID]:
@@ -351,10 +402,128 @@ class Turns:
         task exists. It is a fast path and never a rule: see this module's
         docstring.
         """
-        running = frozenset(run_id for run_id, task in self._executing.items() if not task.done())
-        return running | frozenset(self._claimed)
+        return frozenset(self._executing) | frozenset(self._claimed) | self._executor.running()
 
     # --- beginning a turn ----------------------------------------------------
+
+    async def begin(
+        self,
+        user: User,
+        *,
+        agent_id: str | None = None,
+        conversation_id: uuid.UUID | None = None,
+        text: str,
+        parent_id: uuid.UUID | None = None,
+    ) -> StartedTurn:
+        """Begin a turn **and set it going**: what a request asks for.
+
+        ``start`` writes the beginning of the turn and hands back the run;
+        this is that, followed by handing the work of the run to the
+        ``RunExecutor``. The two are apart because they answer two questions
+        -- what was written, and where the work happens -- and they are called
+        together by everything outside this service, so that **nothing above
+        the application ever creates a task** (``docs/layout.md``).
+
+        It returns as soon as the run exists and the work has been handed
+        over. Whoever asked then watches the run or drops; neither changes
+        anything about it (``docs/specs/runs.md``).
+        """
+        started = await self.start(
+            user,
+            agent_id=agent_id,
+            conversation_id=conversation_id,
+            text=text,
+            parent_id=parent_id,
+        )
+        await self._scheduled(started.run)
+        return started
+
+    async def begin_again(
+        self, user: User, *, conversation_id: uuid.UUID, message_id: uuid.UUID
+    ) -> StartedTurn:
+        """``regenerate``, with the work of the new run set going. See ``begin``."""
+        started = await self.regenerate(
+            user, conversation_id=conversation_id, message_id=message_id
+        )
+        await self._scheduled(started.run)
+        return started
+
+    async def _scheduled(self, run: Run) -> None:
+        """Claim the run and hand its work over, in that order.
+
+        **Claimed first**, because between the moment work is submitted and
+        the moment it begins there is an instant in which nothing at all knows
+        the run is being answered, and a sweep looking in that instant would
+        mark it ``interrupted`` while an answer was about to be written into
+        it.
+
+        A submission the executor refuses -- the process is shutting down, and
+        that is the one that happens -- leaves a run in the store that nothing
+        will ever execute, so it is **ended here** rather than left going
+        until the next start-up: ``interrupted``, because nobody cancelled it
+        and its author may retry it. The refusal is then raised, since
+        whoever asked for the turn is owed an answer about it.
+
+        **And the same for the instant after the submission was accepted.**
+        Work given up on before its first step -- the executor closing in that
+        one instant -- runs no line of ``execute``, so nothing writes the run's
+        end and nothing lets the claim go; ``never_began`` is what the executor
+        runs instead, and it does the same thing here.
+        """
+        self.claim(run.id)
+        try:
+            self._executor.submit(
+                run.id,
+                functools.partial(self.execute, run),
+                never_began=functools.partial(self._never_began, run),
+            )
+        except BaseException as refused:
+            self.let_go(run.id)
+            _log.error("run %s could not be given to the executor: %s", run.id, chain(refused))
+            with contextlib.suppress(Exception):
+                await self._end_elsewhere(run, RunState.INTERRUPTED)
+            raise
+
+    async def _never_began(self, run: Run, deadline: float) -> None:
+        """End a run whose work was given up on before it ever ran.
+
+        The executor calls it, at the latest while it is closing and always
+        before the stores are (``robinauts.ports.RunExecutor``). There is
+        nothing to cancel and nothing was written: the run is ended
+        ``interrupted`` -- the process went away with it, nobody asked for it
+        to stop -- and it is given the event that begins it first, as every
+        run ended from outside its own task is (``_ending``).
+
+        **``deadline`` is the shutdown's, and it is respected.** The ending is
+        written under a shield, which no cancellation can reach, so a report
+        that simply waited for it would spend the whole of a slow store's
+        budget however short a bound the process was given -- and one report
+        per run in flight would be that many times over. When the deadline
+        passes the write is **left running** rather than killed: it may be
+        about to land, and whether it did is said in the log when it does
+        (``_StillWriting.left_writing``). If it does not, the run is ended by
+        the start-up sweep of the next restart, which is the limit this
+        version has anyway (``docs/specs/runs.md``).
+
+        It lets the claim go **whatever happens**, because a claim left behind
+        would hide the run from this process's own start-up sweep.
+        """
+        try:
+            _log.warning(
+                "run %s was given up on before its work began; it is ended interrupted", run.id
+            )
+            await self._end_elsewhere(run, RunState.INTERRUPTED, deadline=deadline)
+        except _StillWriting as writing:
+            _log.warning(
+                "run %s could not be ended inside what was left of the shutdown's bound; the"
+                " write was left to finish on its own",
+                run.id,
+            )
+            writing.left_writing(run.id)
+            if writing.stopped is not None:  # pragma: no cover -- nothing cancels a report
+                raise writing.stopped from None
+        finally:
+            self.let_go(run.id)
 
     async def start(
         self,
@@ -591,8 +760,8 @@ class Turns:
         """
         if not isinstance(run, Run):
             raise InvalidValueError(f"a run is a Run, not {describe(run)}")
-        task = self._take_up(run.id)
-        stream = _Stream(self._store, run)
+        self._take_up(run.id)
+        stream = _Stream(self._store, run, self._signals)
         pump = _Pump()
         try:
             ending = await self._turn(stream, pump)
@@ -608,7 +777,7 @@ class Turns:
             try:
                 await self._released(pump)
             finally:
-                self._let_go(run.id, task)
+                self._let_go(run.id)
 
     async def _turn(self, stream: _Stream, pump: _Pump) -> _Ending | None:
         """Run the turn and decide how it ended; ``None`` if the run ended under us.
@@ -628,18 +797,18 @@ class Turns:
             # event would be one nothing could read back.
             return None
         except asyncio.CancelledError as stop:
-            return _Ending(RunState.CANCELLED, stop=stop)
+            return _Ending(self._stopped_in(), stop=stop)
         except _Faulted as fault:
             # The stream itself could not be written: nobody ended this run
             # and leaving it `running` would block its conversation behind a
             # silence, so it is failed, saying which of the two it was.
             if _being_cancelled():
-                return _Ending(RunState.CANCELLED)
+                return _Ending(self._stopped_in())
             self._failed(run, fault)
             return _Ending(RunState.FAILED, str(fault))
         except TimeoutError as failure:
             if _being_cancelled():
-                return _Ending(RunState.CANCELLED)
+                return _Ending(self._stopped_in())
             if limit.expired():
                 return _Ending(RunState.FAILED, TIMED_OUT)
             # A provider's own timeout, not ours: an ordinary failure.
@@ -651,7 +820,7 @@ class Turns:
                 # -- an engine's `aclose`, a store that lost its connection.
                 # The outcome is the cancellation; this is a note in the log.
                 self._failed(run, failure, while_cancelled=True)
-                return _Ending(RunState.CANCELLED)
+                return _Ending(self._stopped_in())
             self._failed(run, failure)
             return _Ending(RunState.FAILED, _described(failure))
         if unfinished:
@@ -914,9 +1083,9 @@ class Turns:
             raise RunNotFoundError(f"there is no run {run_id}") from missing
         if not run.is_active:
             return run
-        task = self._executing.get(run_id)
-        if task is not None and not task.done():
-            task.cancel()
+        if run_id in self._executing and self._executor.cancel(run_id):
+            # The work is this process's and has begun, so the task it runs
+            # in writes the end a moment from now, under its shield.
             return run
         return await self._end_elsewhere(run, RunState.CANCELLED)
 
@@ -962,7 +1131,9 @@ class Turns:
                 swept.append(ended)
         return tuple(swept)
 
-    async def _end_elsewhere(self, run: Run, state: RunState) -> Run:
+    async def _end_elsewhere(
+        self, run: Run, state: RunState, *, deadline: float | None = None
+    ) -> Run:
         """End a run no task of this process is executing; the run as it now is.
 
         **Planned from the store, every time.** This process wrote none of the
@@ -972,9 +1143,16 @@ class Turns:
         that ends it, or only the one that ends it. Reading it once, outside
         the attempts, would make one unreachable moment the end of the whole
         sweep.
+
+        ``deadline`` is how long the **caller** may wait for that, and only a
+        process that is shutting down has one: when it passes with the write
+        still going, ``_StillWriting`` is raised and the write is left to land
+        on its own (``_to_the_end``).
         """
-        stream = _Stream(self._store, run)
-        ended, stopped = await _to_the_end(self._ending(stream, state, replan=True))
+        stream = _Stream(self._store, run, self._signals)
+        ended, stopped = await _to_the_end(
+            self._ending(stream, state, replan=True), deadline=deadline
+        )
         if stopped is not None:
             # Whoever asked was cancelled while this was written; the run
             # ended all the same, and the cancellation is theirs to have.
@@ -1105,27 +1283,52 @@ class Turns:
         if run_id in self._claimed or run_id in self._executing:
             raise RunAlreadyActiveError(f"run {run_id} is already being executed by this process")
 
-    def _take_up(self, run_id: uuid.UUID) -> asyncio.Task[None] | None:
-        """Register this task as the one executing that run."""
-        task = asyncio.current_task()
-        if task is not None and self._executing.get(run_id) is task:
-            raise RunAlreadyActiveError(f"run {run_id} is already being executed by this process")
+    def _take_up(self, run_id: uuid.UUID) -> None:
+        """Say that this call is the execution of that run.
+
+        A claim made before the work existed is taken up by it, so that the
+        run is in ``executing`` without interruption from the moment it was
+        claimed to the moment the work lets go. A run this process is already
+        executing is refused: one run is answered once here.
+        """
         if run_id in self._executing:
             raise RunAlreadyActiveError(f"run {run_id} is already being executed by this process")
-        # A claim made before the task existed is now that task's.
         self._claimed.discard(run_id)
-        if task is None:
-            # Nothing to cancel; the claim alone says this run is ours.
-            self._claimed.add(run_id)
-        else:
-            self._executing[run_id] = task
-        return task
+        self._executing.add(run_id)
 
-    def _let_go(self, run_id: uuid.UUID, task: asyncio.Task[None] | None) -> None:
-        """Forget it, whichever way it was registered. Never fails."""
-        if task is not None and self._executing.get(run_id) is task:
-            del self._executing[run_id]
+    def _let_go(self, run_id: uuid.UUID) -> None:
+        """Forget it, however it was registered. Never fails."""
+        self._executing.discard(run_id)
         self._claimed.discard(run_id)
+
+    def stopping(self) -> None:
+        """Say that this process is shutting down. Nothing is undone.
+
+        What it changes is the **meaning of a cancellation**: work stopped
+        from now on was stopped because the process is going away, so the run
+        ends ``interrupted`` rather than ``cancelled`` -- nobody cancelled it,
+        it is the author's to retry, and an interface must not tell them they
+        stopped something they did not (``docs/specs/runs.md``).
+
+        The composition root calls it at shutdown, before it closes the
+        executor, so that every run cancelled by that close is recorded for
+        what it was. There is no way back: a process that is stopping stays
+        stopping.
+        """
+        self._stopping = True
+
+    @property
+    def is_stopping(self) -> bool:
+        """Whether this process has said it is shutting down."""
+        return self._stopping
+
+    def _stopped_in(self) -> RunState:
+        """What a run whose work was stopped ends in: whose stopping it was.
+
+        Somebody asked for that run to stop: ``cancelled``. The process is
+        stopping and took every run with it: ``interrupted``.
+        """
+        return RunState.INTERRUPTED if self._stopping else RunState.CANCELLED
 
     def _failed(self, run: Run, failure: BaseException, *, while_cancelled: bool = False) -> None:
         """Write the whole of what went wrong to the log, in one bounded line.
@@ -1243,8 +1446,11 @@ class _Stream:
     blindly.
     """
 
-    def __init__(self, store: ConversationStore, run: Run, position: int = 0) -> None:
+    def __init__(
+        self, store: ConversationStore, run: Run, signals: RunSignals, position: int = 0
+    ) -> None:
         self._store = store
+        self._signals = signals
         self.run = run
         self.position = position
         self._offered: RunEvent | None = None
@@ -1299,8 +1505,36 @@ class _Stream:
                 continue
             self._offered = None
             self.position = numbered.seq
+            await self._announced(numbered)
             return
         raise _Faulted(UNWRITABLE_STREAM)
+
+    async def _announced(self, event: RunEvent) -> None:
+        """Say that this run has moved, so that its watchers stop waiting.
+
+        **After the write and never before it**: what an announcement makes
+        somebody go and read must already be there to read
+        (``robinauts.ports.RunSignals``).
+
+        Nothing it does can fail a write that has already happened. A signal
+        that could not be sent costs every watcher of this run one bounded
+        wait -- they read the store when it passes, because that is what a
+        watcher does with either answer -- so it is logged and the turn goes
+        on. A cancellation is not that, and passes through.
+        """
+        try:
+            await self._signals.announce(
+                self.run.id, event.seq, ended=isinstance(event.event, RunEnded)
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as failure:  # noqa: BLE001 - a signal never fails a write
+            _log.warning(
+                "run %s reached position %d and could not be announced: %s",
+                self.run.id,
+                event.seq,
+                chain(failure),
+            )
 
     async def _settled(self) -> bool:
         """Settle the offered event against the store; whether it is still to write.
@@ -1326,6 +1560,10 @@ class _Stream:
             return True
         if _is_ours(offered, standing):
             self.position = offered.seq
+            # Stored after all -- a write whose answer never came back. It is
+            # stored, so it is announced: "everything stored is announced"
+            # must not depend on which of the two ways it got there.
+            await self._announced(offered)
             return False
         if any(_is_the_end(document) for document in standing):
             raise _Moved(f"run {self.run.id} has ended")
@@ -1391,6 +1629,58 @@ class _Faulted(Exception):
     """
 
 
+class _StillWriting(Exception):
+    """A shielded ending outlived the bound the caller was allowed to wait.
+
+    Raised by ``_to_the_end`` when it is given a deadline, and never when it
+    is not, so only a shutdown ever meets it. It is **not** a failure of
+    anything: the write is still going, uncancelled, and what it carries is
+    that write -- ``left_writing`` is how whoever returns says in the log what
+    became of it.
+    """
+
+    def __init__(
+        self, writing: asyncio.Future[Any], stopped: asyncio.CancelledError | None = None
+    ) -> None:
+        super().__init__("the run's ending is still being written")
+        self.writing = writing
+        """The ending, still running. Nobody waits on it; somebody logs it."""
+        self.stopped = stopped
+        """A cancellation that arrived meanwhile and is still owed to whoever sent it."""
+
+    def left_writing(self, run_id: uuid.UUID) -> None:
+        """Say in the log what became of that write, whenever it lands.
+
+        A done callback rather than a task to wait on: whoever calls this is
+        on its way out under somebody else's bound. It also **retrieves** what
+        the write raised, which an unretrieved exception at shutdown would
+        otherwise have the loop print in nobody's frame.
+        """
+
+        def said(finished: asyncio.Future[Any]) -> None:
+            if finished.cancelled():  # pragma: no cover -- nothing cancels it
+                _log.error(
+                    "run %s was left being ended as the process stopped, and that write was"
+                    " cancelled; the start-up sweep of the next restart ends it",
+                    run_id,
+                )
+                return
+            failure = finished.exception()
+            if failure is not None:
+                _log.error(
+                    "run %s was left being ended as the process stopped, and it failed:"
+                    " %s; the start-up sweep of the next restart ends it",
+                    run_id,
+                    chain(failure),
+                )
+            else:
+                _log.warning(
+                    "run %s was ended after the process had stopped waiting for it", run_id
+                )
+
+        self.writing.add_done_callback(said)
+
+
 def _forgotten(task: asyncio.Task[None]) -> None:
     """Read the result of a task nobody waited for, so the loop says nothing.
 
@@ -1436,7 +1726,9 @@ class _Text:
         return "".join(self._published)
 
 
-async def _to_the_end[T](work: Coroutine[Any, Any, T]) -> tuple[T, asyncio.CancelledError | None]:
+async def _to_the_end[T](
+    work: Coroutine[Any, Any, T], *, deadline: float | None = None
+) -> tuple[T, asyncio.CancelledError | None]:
     """Run ``work`` to completion however often this task is cancelled meanwhile.
 
     ``asyncio.shield`` alone does not do this: it keeps the work running and
@@ -1445,17 +1737,37 @@ async def _to_the_end[T](work: Coroutine[Any, Any, T]) -> tuple[T, asyncio.Cance
     waited on again until the work is done, and the cancellation that arrived
     is handed back to be raised afterwards, when there is nothing left to
     lose by raising it.
+
+    **``deadline`` is somebody else's bound, and it wins.** A process that is
+    stopping says how long the whole of its shutdown may take
+    (``robinauts.ports.RunReport``), and waiting here for a store that is not
+    answering would spend that bound however often it was asked not to. When
+    the deadline passes with the work still going, ``_StillWriting`` is raised
+    and carries the work with it: **the work is not cancelled** -- it may be
+    half way through the one write a run's ending is -- so whoever asked is
+    the one who returns, and what became of the write is theirs to log when it
+    lands. Without a deadline this waits for as long as the work takes, which
+    is what every caller but a shutdown wants.
     """
     running = asyncio.ensure_future(work)
     stopped: asyncio.CancelledError | None = None
     while True:
         try:
-            return await asyncio.shield(running), stopped
+            if deadline is None:
+                return await asyncio.shield(running), stopped
+            async with asyncio.timeout_at(deadline):
+                return await asyncio.shield(running), stopped
         except asyncio.CancelledError as stop:
             if running.done():
                 # It was the work's own cancellation, not one aimed at us.
                 raise
             stopped = stop
+        except TimeoutError:
+            if running.done():
+                # The work's own timeout, on its way out of it, and not the
+                # deadline above: it is the work's answer and it is raised.
+                raise
+            raise _StillWriting(running, stopped) from None
 
 
 def _being_cancelled() -> bool:

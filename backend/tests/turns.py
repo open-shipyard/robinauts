@@ -5,10 +5,18 @@
 
 ``application.Turns`` with an in-memory store, a clock that stands still, ids
 a test knows in advance and an engine a test writes the script for. Nothing
-here decides anything -- it is the four ports and the two services, built the
-way a deployment builds them -- and the readers at the bottom are what a test
-looks at afterwards: the messages that were stored, the events that were
-published, and whether the stream reads back.
+here decides anything -- it is the ports and the services, built the way a
+deployment builds them -- and the readers at the bottom are what a test looks
+at afterwards: the messages that were stored, the events that were published,
+and whether the stream reads back.
+
+**The executor and the signals are the real adapters**, not fakes. They are
+in-memory and touch nothing outside the process -- tasks on the test's own
+loop, and futures -- so a fake of either would be a second implementation of
+the same few lines, and a test of the lifecycle that did not use the real one
+would prove less. ``submitted`` is how a test hands a turn over the way a
+request does (claim, then submit), which is what makes ``cancel`` reach it,
+and ``settled`` waits for the work to let go.
 
 ``readable`` is the one that matters. **Everything ``execute`` stores must
 satisfy ``core.check_event_order``**, in every scenario -- finished, failed,
@@ -20,12 +28,14 @@ returned.
 from __future__ import annotations
 
 import asyncio
+import functools
 import uuid
 from dataclasses import dataclass
 
 from conversations import AGENT, OWNER, agent_definition, at
 from fakes import CountingIdSource, FakeClock, MemoryConversationStore, ScriptedAgent, Step
-from robinauts.application import Conversations, Turns
+from robinauts.adapters import AsyncioRunExecutor, MemoryRunSignals
+from robinauts.application import Conversations, Turns, Watch
 from robinauts.core import check_event_order, message_from_stored, run_event_from_stored
 from robinauts.domain import AgentDefinition, Message, Run, RunEvent, User
 from robinauts.ports import ConversationStore
@@ -44,10 +54,13 @@ SOMEBODY_ELSE = User(
 
 @dataclass(frozen=True, slots=True)
 class Wiring:
-    """The service, the ports under it, and the store a test looks in."""
+    """The services, the ports under them, and the store a test looks in."""
 
     turns: Turns
     conversations: Conversations
+    watch: Watch
+    executor: AsyncioRunExecutor
+    signals: MemoryRunSignals
     store: MemoryConversationStore
     clock: FakeClock
     ids: CountingIdSource
@@ -59,8 +72,11 @@ def wired(
     *steps: Step,
     definition: AgentDefinition | None = None,
     store: MemoryConversationStore | None = None,
+    signals: MemoryRunSignals | None = None,
     history_chars: int = 100_000,
     turn_seconds: float = 30.0,
+    wait_seconds: float = 30.0,
+    quiet_seconds: float = 300.0,
 ) -> Wiring:
     """``Turns`` over the fakes, with an engine that runs that script."""
     kept = definition if definition is not None else agent_definition()
@@ -68,6 +84,8 @@ def wired(
     clock = FakeClock(now=NOW)
     ids = CountingIdSource()
     agent = ScriptedAgent(*steps)
+    executor = AsyncioRunExecutor()
+    signals = signals if signals is not None else MemoryRunSignals()
     return Wiring(
         turns=Turns(
             store=store,
@@ -75,16 +93,55 @@ def wired(
             ids=ids,
             agents={kept.id: kept},
             engines={kept.engine: agent},
+            executor=executor,
+            signals=signals,
             history_chars=history_chars,
             turn_seconds=turn_seconds,
         ),
         conversations=Conversations(store=store, clock=clock),
+        watch=Watch(
+            store=store,
+            signals=signals,
+            wait_seconds=wait_seconds,
+            quiet_seconds=quiet_seconds,
+        ),
+        executor=executor,
+        signals=signals,
         store=store,
         clock=clock,
         ids=ids,
         agent=agent,
         definition=kept,
     )
+
+
+def submitted(wiring: Wiring, run: Run) -> None:
+    """Hand a run's work to the executor, the way a request does.
+
+    ``Turns.begin`` is this after ``start``; a test that began its turn some
+    other way -- or that wants the run before the work exists -- says it here.
+    Claimed first and submitted second, which is the order that leaves no
+    instant in which nothing knows the run is being answered, and with the
+    same **never-began report** the service passes, because the instant
+    before the first step is the one thing that report is for.
+    """
+    wiring.turns.claim(run.id)
+    wiring.executor.submit(
+        run.id,
+        functools.partial(wiring.turns.execute, run),
+        never_began=functools.partial(wiring.turns._never_began, run),
+    )
+
+
+async def settled(wiring: Wiring, run: Run) -> None:
+    """Wait until the executor has let go of that run's work.
+
+    What a test awaits instead of a task it created itself, now that the task
+    is the executor's. Nothing sleeps: it yields to the loop, and the work is
+    what runs.
+    """
+    while run.id in wiring.turns.executing:
+        await asyncio.sleep(0)
 
 
 async def begun(wiring: Wiring, text: str = "What is a robinaut?") -> Run:

@@ -56,6 +56,19 @@ known-first-party = ["robinauts"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# A warning is a failure: a deprecation, a resource left open, anything a
+# dependency has to say. It must be fixed, or excepted by name here, rather
+# than scrolled past in a green run.
+#
+# It does **not** cover the two things work in the background goes quiet with,
+# and neither can pytest: "coroutine was never awaited" is raised inside the
+# garbage collector, where nothing can turn it into a failure -- it reaches
+# the warnings summary and no further -- and "task exception was never
+# retrieved" is not a warning at all but a line the event loop logs. That is
+# why robinauts.adapters.run_executor retrieves every exception itself, and
+# why its tests install an exception handler on the loop and assert that it
+# saw nothing.
+filterwarnings = ["error"]
 # The gate scripts are not part of the robinauts package, but their pure
 # logic is tested like anything else.
 pythonpath = ["src", "tests", "../scripts"]

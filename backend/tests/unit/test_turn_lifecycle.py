@@ -29,7 +29,8 @@ import pytest
 from aio import asyncio_test
 from conversations import AGENT, agent_definition, at
 from fakes import CountingIdSource, FakeClock, Gate, MemoryConversationStore, Raise, says
-from robinauts.application import Conversations, Turns
+from robinauts.adapters import AsyncioRunExecutor, MemoryRunSignals
+from robinauts.application import Conversations, Turns, Watch
 from robinauts.application.turns import _Pump
 from robinauts.core import (
     check_event_order,
@@ -72,8 +73,10 @@ from turns import (
     begun,
     kinds,
     readable,
+    settled,
     stored_events,
     stored_messages,
+    submitted,
     wired,
     written,
 )
@@ -388,16 +391,17 @@ async def test_cancelling_in_the_middle_of_an_answer_ends_the_run_and_keeps_noth
     held = Gate()
     wiring = wired(AnswerStarted(), AnswerTextDelta(text="Half of an"), held)
     run = await begun(wiring)
-    turn = asyncio.create_task(wiring.turns.execute(run))
+    # Through the executor, which is where the work of a run lives and what
+    # `cancel` asks: a request begins a turn exactly this way.
+    submitted(wiring, run)
     await held.reached.wait()
     await written(wiring.store, run.id, 3)
 
     asked = await wiring.turns.cancel(AUTHOR, run.id)
 
-    # Asking is not the same as having happened: the task writes the end.
+    # Asking is not the same as having happened: the work writes the end.
     assert asked.state is RunState.RUNNING
-    with pytest.raises(asyncio.CancelledError):
-        await turn
+    await settled(wiring, run)
     events = await stored_events(wiring.store, run.id)
     readable(events, run)
     assert kinds(events) == ["RunStarted", "MessageStarted", "TextDelta", "RunEnded"]
@@ -863,6 +867,8 @@ def over(engine: Agent) -> Wiring:
     definition = agent_definition()
     store = MemoryConversationStore()
     clock = FakeClock(now=NOW)
+    executor = AsyncioRunExecutor()
+    signals = MemoryRunSignals()
     return Wiring(
         turns=Turns(
             store=store,
@@ -870,8 +876,13 @@ def over(engine: Agent) -> Wiring:
             ids=CountingIdSource(),
             agents={definition.id: definition},
             engines={definition.engine: engine},
+            executor=executor,
+            signals=signals,
         ),
         conversations=Conversations(store=store, clock=clock),
+        watch=Watch(store=store, signals=signals),
+        executor=executor,
+        signals=signals,
         store=store,
         clock=clock,
         ids=CountingIdSource(),
@@ -1130,11 +1141,13 @@ async def test_a_cancel_and_the_task_it_raced_start_the_run_once() -> None:
     # read back.
     wiring = wired(*says(ANSWER), store=Sluggish())
     run = await begun(wiring)
-    wiring.turns.claim(run.id)
+    # Submitted and not yet begun, which is the window: the executor has the
+    # work, nothing has run it, and `cancel` therefore ends the run in the
+    # store while the work is about to start writing into it.
+    submitted(wiring, run)
 
-    cancelling = asyncio.create_task(wiring.turns.cancel(AUTHOR, run.id))
-    executing = asyncio.create_task(wiring.turns.execute(run))
-    asked, _ = await asyncio.gather(cancelling, executing)
+    asked = await wiring.turns.cancel(AUTHOR, run.id)
+    await settled(wiring, run)
 
     events = await stored_events(wiring.store, run.id)
     assert kinds(events).count("RunStarted") == 1
@@ -1303,19 +1316,18 @@ async def test_a_second_cancellation_during_the_release_leaves_nothing_behind(
     engine = NeverLetsGo()
     wiring = over(engine)
     run = await begun(wiring)
-    turn = asyncio.create_task(wiring.turns.execute(run))
+    submitted(wiring, run)
     await engine.answering.wait()
     await written(wiring.store, run.id, 3)
 
     try:
         asked = await wiring.turns.cancel(AUTHOR, run.id)
-        # The engine's release has begun, so this task is inside it.
+        # The engine's release has begun, so the work is inside it.
         with caplog.at_level(logging.WARNING):
             await engine.closing.wait()
-            turn.cancel()
+            assert wiring.executor.cancel(run.id)
 
-            with pytest.raises(asyncio.CancelledError):
-                await turn
+            await settled(wiring, run)
 
         assert asked.state is RunState.RUNNING
         assert (await wiring.store.run_by_id(run.id)).state is RunState.CANCELLED
