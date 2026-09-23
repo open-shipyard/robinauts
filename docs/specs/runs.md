@@ -157,9 +157,11 @@ Tool usage is planned ([agents.md](agents.md)); runs are designed for it.
 
 ## Restarts and several processes
 
-- On shutdown the backend stops accepting new messages and lets active runs
-  drain for a bounded time; what remains is cancelled and marked
-  `interrupted`.
+- On shutdown the backend stops accepting new messages and cancels every run
+  it is carrying, which ends them `interrupted` under one bound for the whole
+  stop ("Shutdown cancels; it does not drain", below). Letting them **drain**
+  first, so that an answer nearly finished is finished rather than retried, is
+  planned.
 - Asking the store which runs are in a state is asked for the **active**
   states, by the sweep alone, and is bounded: a read with no bound over a
   table that only grows is a read waiting to take all of it.

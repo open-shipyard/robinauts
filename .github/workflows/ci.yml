@@ -203,7 +203,13 @@ jobs:
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: robinauts-wheel
-          path: ${{ runner.temp }}/wheel/*.whl
+          # Both files: the wheel, and the locked runtime set with its hashes.
+          # A deployment installs the second first, so that what runs is the
+          # set the licence gate and pip-audit judged rather than whatever pip
+          # resolves on the day (docs/deployment.md).
+          path: |
+            ${{ runner.temp }}/wheel/*.whl
+            ${{ runner.temp }}/wheel/requirements.txt
           if-no-files-found: error
           retention-days: 14
 

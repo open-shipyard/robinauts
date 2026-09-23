@@ -17,9 +17,13 @@ What an internal platform team deploys and controls.
   Until a production deployment exists the schema is edited in place and
   the database is recreated; after that, migrations upgrade it in place
   ([backend.md](backend.md)).
-- A restart lets active runs drain for a bounded time; the rest are marked
-  interrupted and can be retried by their authors ([runs.md](runs.md)).
-  Several backend processes may run against the one database.
+- A restart ends the runs that are in flight: each is marked interrupted,
+  and its author retries it by sending the message again
+  ([runs.md](runs.md)). Letting them **drain** for a bounded time first is
+  planned there too; the bounded window a shutdown has today is for ending
+  them and giving back what the process holds, not for finishing
+  them. Several backend processes may run against
+  the one database.
 - Outbound traffic: the identity providers at sign-in, and the model
   providers the operator configured. Nothing else.
 

@@ -21,10 +21,12 @@ first, so nothing here is skipped where it matters.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
+import tomllib
 import zipfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -362,3 +364,94 @@ def test_a_wheel_from_an_sdist_unpacked_beside_a_frontend_is_refused_too(sdist: 
     assert NOT_FROM_AN_SDIST in built.stdout + built.stderr
     assert (sdist / "LICENSE").read_text(encoding="utf-8") != "not this project's"
     assert (sdist / "NOTICE").is_file()
+
+
+# The locked runtime set the build writes beside the wheel.
+
+
+BUILD_SCRIPT = REPOSITORY / "scripts" / "build-wheel.sh"
+LOCK = BACKEND / "uv.lock"
+PYPROJECT = BACKEND / "pyproject.toml"
+
+DEVELOPMENT_ONLY = ("pytest", "ruff", "black", "import-linter")
+"""What ``[dependency-groups].dev`` names: none of it is in a deployment."""
+
+PIN = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^ \;]+)", re.MULTILINE)
+"""A pinned requirement at the beginning of a line; markers and hashes follow."""
+
+
+def export_command() -> list[str]:
+    """The ``uv export`` line out of ``scripts/build-wheel.sh``, as written there.
+
+    Read from the script rather than repeated here, so that this is a test of
+    **what the build does**: a flag changed there -- ``--no-dev`` dropped, the
+    project emitted after all -- has to come through this, or the test would be
+    checking a command nothing runs.
+    """
+    text = BUILD_SCRIPT.read_text(encoding="utf-8")
+    found = re.search(r"^uv export .*?--format requirements\.txt", text, re.MULTILINE | re.DOTALL)
+    assert found is not None, f"{BUILD_SCRIPT} no longer exports a requirements file"
+    return found.group(0).replace("\\\n", " ").split()
+
+
+@pytest.fixture(scope="module")
+def exported() -> str:
+    """What that command writes: the locked runtime set, with its hashes."""
+    uv = shutil.which("uv")
+    if uv is None:
+        pytest.skip("no uv on the path to export the lock with")
+    command = export_command()
+    done = subprocess.run(
+        [uv, *command[1:]], cwd=BACKEND, capture_output=True, text=True, check=False
+    )
+    assert done.returncode == 0, done.stdout + done.stderr
+    return done.stdout
+
+
+def locked_versions() -> dict[str, str]:
+    """Every package ``uv.lock`` pins, by name."""
+    lock = tomllib.loads(LOCK.read_text(encoding="utf-8"))
+    return {package["name"]: package["version"] for package in lock["package"]}
+
+
+def test_the_export_pins_the_versions_the_lock_pins(exported: str) -> None:
+    # The whole point of the file: `pip install robinauts-*.whl` resolves the
+    # wheel's ranges against PyPI on the day, and can land on a version no gate
+    # has ever seen. This is the set the gates judged, so every line of it has
+    # to be a line of uv.lock.
+    locked = locked_versions()
+    pinned = dict(PIN.findall(exported))
+
+    assert pinned, "the export pins nothing at all"
+    assert {name: version for name, version in pinned.items() if locked.get(name) != version} == {}
+
+
+def test_the_export_is_the_runtime_set_and_not_the_development_one(exported: str) -> None:
+    pinned = dict(PIN.findall(exported))
+    declared = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]
+
+    # Every direct runtime dependency is there ...
+    for requirement in declared["dependencies"]:
+        name = re.split(r"[<>=!~\[ ]", requirement, maxsplit=1)[0]
+        assert name in pinned, f"{name} is a runtime dependency and is not in the export"
+    # ... and nothing a deployment has no use for, the project included: the
+    # wheel is installed separately, with --no-deps (docs/deployment.md).
+    assert declared["name"] not in pinned
+    for name in DEVELOPMENT_ONLY:
+        assert name not in pinned
+
+
+def test_every_pin_in_the_export_carries_its_hashes(exported: str) -> None:
+    # `pip install --require-hashes` is only possible when every requirement
+    # has one, and a set installed without hashes is a set whose files nobody
+    # checked (docs/oss-checklist.md).
+    #
+    # Split **per package**, at the beginning of each requirement rather than
+    # on blank lines: uv writes none, so a blank-line split is one chunk with
+    # every hash in it, and "each pin has a hash" would be true of a file
+    # where only the first one did.
+    entries = [entry for entry in re.split(r"(?m)^(?=[A-Za-z0-9])", exported) if entry.strip()]
+    pinned = [(name, entry) for entry in entries for name, _ in PIN.findall(entry)]
+
+    assert len(pinned) > 1, f"the export was read as {len(pinned)} requirement(s)"
+    assert [name for name, entry in pinned if "--hash=sha256:" not in entry] == []

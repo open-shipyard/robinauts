@@ -8,7 +8,10 @@
 # because built files are never committed, so there is nothing to be stale.
 #
 # One argument: the directory to write the wheel into. It prints the path of
-# the wheel it built and nothing else on stdout, so that a caller can read it.
+# the wheel it built and nothing else on stdout, so that a caller can read it;
+# beside the wheel it also writes `requirements.txt`, the locked runtime set
+# with its hashes, which is how a deployment installs the versions the gates
+# judged rather than whatever pip resolves on the day (docs/deployment.md).
 set -eu
 
 if [ "$#" -ne 1 ]; then
@@ -72,4 +75,23 @@ if [ "$count" -ne 1 ]; then
 fi
 built=$(ls -1 "$fresh")
 mv "$fresh/$built" "$out/$built"
+
+# The locked runtime set, beside the wheel. `pip install robinauts-*.whl`
+# resolves the wheel's dependency *ranges* against PyPI at install time, so
+# what it lands on can differ from backend/uv.lock -- which is the set the
+# licence gate and pip-audit judged. A deployment that wants what was judged
+# installs this first and then the wheel with --no-deps
+# (docs/deployment.md, "Get the wheel"). uv writes the hashes by default,
+# which is what makes `pip install --require-hashes` possible.
+#
+# Its own command and not the left-hand side of a pipeline, and into the
+# temporary directory first: a stale lock has to fail the build rather than
+# leave an empty requirements file beside a perfectly good wheel
+# (scripts/check-audit.sh says the same about its own export).
+uv export --locked --no-dev --no-emit-project --no-annotate \
+    --format requirements.txt >"$fresh/requirements.txt"
+mv "$fresh/requirements.txt" "$out/requirements.txt"
+
+# One line on stdout, still: the wheel is what a caller reads, and the
+# requirements file is beside it under a name that does not change.
 printf '%s\n' "$out/$built"

@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 #
-# The deliverable, end to end: build the wheel, look inside it, install it into
-# a virtual environment that has nothing else in it, and run the command.
+# The deliverable, end to end: build the wheel and the locked runtime set
+# beside it, look inside the wheel, install both into a virtual environment
+# that has nothing else in it -- the way docs/deployment.md tells a deployment
+# to -- and run the command.
 #
 # What it is for is the half that no unit test can reach -- that what a person
 # gets from `pip install` is a working Robinauts with its interface and the
@@ -39,11 +41,46 @@ fi
 wheel=$("$root/scripts/build-wheel.sh" "$into")
 printf 'built %s (%s bytes)\n' "$wheel" "$(wc -c <"$wheel")"
 
+# The locked runtime set the build wrote beside the wheel. What is checked
+# here is that it is *there and pinned*, because this is the directory CI
+# uploads: a release whose requirements file went missing would be a
+# deployment quietly installing whatever pip resolves. What it holds is
+# checked against uv.lock by
+# backend/tests/integration/test_wheel_contents.py.
+#
+# **Per package, not in total**: counting hash lines against pin lines would
+# pass a file where one package carried every hash and the rest carried none,
+# which is exactly the set `--require-hashes` would refuse.
+requirements="$into/requirements.txt"
+pins=$(grep -c '^[A-Za-z0-9]' "$requirements") || pins=0
+unhashed=$(awk '
+    /^[A-Za-z0-9]/ {
+        if (name != "" && !hashed) { print name }
+        name = $1
+        hashed = ($0 ~ /--hash=sha256:/)
+        next
+    }
+    /--hash=sha256:/ { hashed = 1 }
+    END { if (name != "" && !hashed) { print name } }
+' "$requirements") || unhashed="the file could not be read"
+if [ "$pins" -lt 1 ] || [ -n "$unhashed" ]; then
+    printf '%s pins %s package(s); a release set is pinned and every pin is hashed.\n' \
+        "$requirements" "$pins" >&2
+    printf 'Without a hash:\n%s\n' "$unhashed" >&2
+    exit 1
+fi
+printf 'beside it, %s pins %s packages, every one of them hashed\n' "$requirements" "$pins"
+
 # A virtual environment with nothing in it, so that what answers below can only
-# have come out of the wheel.
+# have come out of the wheel -- installed **the way docs/deployment.md says**:
+# the locked set first, under its hashes, and then the wheel with --no-deps so
+# that nothing is resolved against an index at all. That makes this the
+# end-to-end proof of the path a deployment really takes, rather than of a
+# convenience nobody is told to use.
 uv venv "$work/venv" >&2
 python="$work/venv/bin/python"
-uv pip install --python "$python" "$wheel" >&2
+uv pip install --python "$python" --require-hashes -r "$requirements" >&2
+uv pip install --python "$python" --no-deps "$wheel" >&2
 
 "$python" - "$wheel" <<'PYTHON'
 """Everything a release carries, named one at a time."""

@@ -1918,6 +1918,42 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   environment, run the command — and CI's `wheel` job runs it and uploads the
   wheel as the artifact the POC is deployed from.
 
+- The deployment guide, [`docs/deployment.md`](../deployment.md): the
+  prerequisites, getting the wheel, a system user and a virtual environment,
+  the role and the database, a complete worked `robinauts.toml` (both halves,
+  with the allow list and one agent), registering the redirect URI at Google
+  and at Okta and which claims are read, the environment file and a systemd
+  unit, nginx and Caddy, the first start and what a refusal means, verifying,
+  operating and upgrading, and a table of what can go wrong. Its two TOML
+  blocks are **parsed by the real parsers** in
+  `backend/tests/integration/test_config_file.py`, together with the redirect
+  URIs it tells an operator to paste in. `README.md` points at it.
+  The release is now **two** files, not one: `scripts/build-wheel.sh` also
+  writes `requirements.txt` beside the wheel — the locked runtime set of
+  `backend/uv.lock`, pinned and hashed (`uv export --locked --no-dev`) —
+  because `pip install robinauts-*.whl` resolves the wheel's *ranges*
+  against PyPI on the day and lands somewhere the licence gate and
+  `pip-audit` have never looked (it drifted on four packages the first time
+  it was tried). A deployment installs that first and then the wheel with
+  `--no-deps`. `scripts/check-wheel.sh` refuses a release directory without
+  it, CI's artifact carries both, and
+  `backend/tests/integration/test_wheel_contents.py` reads the export
+  command out of the build script and holds what it produces to the lock,
+  to `pyproject.toml`'s runtime dependencies and to a hash on every pin.
+  [`docs/working-notes/deployment-rehearsal.md`](deployment-rehearsal.md) is
+  the record of walking it here, and the one place that says where each of the
+  scope's seven "Done when" items stands — what was rehearsed, what needs the
+  real machine, and what needs a model key. `scripts/rehearse-deployment.sh`
+  and `scripts/rehearse_deployment.py` are what it ran: a development tool
+  run by no check (the Python half is linted by `check-lint.sh`; the shell
+  half by nothing, there being no shellcheck here), which builds the wheel,
+  installs it into an empty environment from the locked set,
+  creates a throwaway database, and drives a whole deployment over https —
+  two stand-in identity providers, a small TLS terminator in front, three
+  people signing in, private conversations, a dropped and re-attached stream,
+  and a grep of the log, of every answer it read and of every database row
+  for the secrets.
+
 ## Steps
 
 ### Step 0 — documents   (feature/poc-0-documents)
@@ -3151,3 +3187,58 @@ Important design decisions made / open questions:
   `ConfigError` prints its problems one per line, never a traceback.
 - Over `--uds`, `forwarded_allow_ips` defaults to `*` (nothing but what
   the mode admits can connect).
+
+### Step 23 — deployment   (feature/poc-23-deployment)
+
+Summary: `docs/deployment.md`, the guide a platform team follows on a
+clean machine: the wheel and its hashed `requirements.txt` from CI (the
+locked set installed with `pip install --require-hashes`, then the wheel
+with `--no-deps` — a plain install had drifted to four versions no gate
+judged), a system user and venv, the role and database, a complete worked
+`robinauts.toml` (tested against both parsers), registering the redirect
+URIs at Google and Okta with the claims the platform reads, the
+environment file and a systemd unit (`RestartPreventExitStatus=2`, the
+`--uds` recipe with the group and `--forwarded-allow-ips '*'`), nginx and
+Caddy snippets (no buffering, the ACME challenge, 1 MiB bodies, HSTS),
+first start, verification, operating, the local mode, and a table of what
+can go wrong with the real messages. `docs/working-notes/deployment-
+rehearsal.md`: the rehearsal on this machine (`scripts/rehearse-
+deployment.sh` + `rehearse_deployment.py`: the wheel installed the guide's
+way, `db init`, two stand-in OIDC providers behind a self-signed TLS
+front, two people in with the `__Host-` cookie, a third refused, private
+conversations, a stream re-attached, the engine swapped across a restart,
+every secret absent from logs, responses and rows; the GPL gates red for
+both ecosystems) with the status of the seven "Done when" items and the
+exact list of what remains for a real deployment.
+
+Review: 2 rounds.
+- High: 1
+  - the guide said cookie security depended on `X-Forwarded-Proto`; it
+    depends on `public_url` and the origin check — nothing in the platform
+    reads a forwarded header (a safer design than the guide described) —
+    fixed in the prose and three table rows.
+- Medium: 11 (11/0) — dependencies resolved unlocked at install (now the
+  exported, hashed requirements beside the wheel, checked in CI); a
+  restart loop on a configuration refusal; the socket recipe; a vacuous
+  hash test; the wrong half of the database url grepped; an nginx
+  directive too new for Ubuntu 24.04; the ACME challenge redirected;
+  socket forwarded-IPs advice; and others.
+- Low: 16 (16/0)
+
+Checks: `scripts/check-all.sh` without a database (2679 backend, 381
+frontend; the wheel and its requirements built, installed the locked way
+and answering) and with one required (2876); the rehearsal 32/32.
+Not done / to watch: the real deployment is the user's (below). The
+systemd unit and the proxy snippets are prose that has not been run. The
+guide is 613 lines. `docs/specs/runs.md` now says shutdown cancels and
+draining is planned.
+What remains for the real deployment ("Done when"):
+1. a machine, a host name, a certificate, nginx or Caddy from the guide,
+   the systemd unit;
+2. Google and Okta client registrations with the two redirect URIs
+   (Okta: the groups claim and scope, the people assigned);
+3. a real Anthropic key — then item 3's engine half and item 4 can be
+   finished on the real instance;
+4. item 3's vendor half needs a second provider kind admitted through
+   `DEPENDENCIES.md` (this build reaches Anthropic alone);
+5. what breaks on the real machine written into the rehearsal note.

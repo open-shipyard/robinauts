@@ -14,7 +14,10 @@ ever in the file, and neither check ever prints one.
 The last test of each half reads the very example in ``docs/specs/sign-in.md``
 and ``docs/specs/agents.md`` through both halves, ``adapters.read_toml`` and
 the matching parser, because a documented example that does not parse is a bug
-report waiting to be filed.
+report waiting to be filed. The end of the module does the same to the worked
+file in ``docs/deployment.md`` -- which is a whole configuration rather than
+half of one, so it goes through **both** parsers at once, with the engines and
+the provider kinds a real deployment passes.
 """
 
 from __future__ import annotations
@@ -31,7 +34,7 @@ from robinauts.adapters import (
     environment,
     read_toml,
 )
-from robinauts.app import BUILDABLE_KINDS, WIRED_ENGINES
+from robinauts.app import BUILDABLE_KINDS, SIGN_IN_TABLES, WIRED_ENGINES
 from robinauts.core import parse_models_config, parse_sign_in_config
 from robinauts.domain import (
     ConfigError,
@@ -48,6 +51,7 @@ pytestmark = pytest.mark.io
 
 SPEC = Path(__file__).resolve().parents[3] / "docs" / "specs" / "sign-in.md"
 AGENTS_SPEC = Path(__file__).resolve().parents[3] / "docs" / "specs" / "agents.md"
+GUIDE = Path(__file__).resolve().parents[3] / "docs" / "deployment.md"
 
 GOOD = """
 public_url = "https://robinauts.example.com"
@@ -404,3 +408,84 @@ def test_the_model_example_names_the_variables_rather_than_the_keys(tmp_path: Pa
     with pytest.raises(ConfigError) as raised:
         check_api_keys(config, secret_for=lambda name: None)
     assert len(raised.value.problems) == 2
+
+
+# The deployment guide's file, read through both halves at once.
+
+
+def guide_examples() -> tuple[str, str]:
+    """The two TOML blocks of ``docs/deployment.md``, as they are written there.
+
+    The first is the worked ``robinauts.toml`` an operator copies: one file,
+    both halves, and it must parse through both parsers with the engines and
+    the kinds a real deployment passes. The second is the **local development
+    mode**'s file, which the guide says holds the model tables and nothing
+    else -- a claim that is checked here rather than believed.
+    """
+    blocks = re.findall(r"```toml\n(.*?)```", GUIDE.read_text(encoding="utf-8"), re.DOTALL)
+    assert len(blocks) == 2, f"{GUIDE} should hold two TOML examples, not {len(blocks)}"
+    return blocks[0], blocks[1]
+
+
+def test_the_guides_configuration_is_one_a_deployment_starts_with(tmp_path: Path) -> None:
+    deployment, _ = guide_examples()
+    tables = read_toml(written(tmp_path, deployment, name="robinauts.toml"))
+
+    config = parse_sign_in_config(tables)
+    models = parse_models_config(tables, engines=WIRED_ENGINES, kinds=BUILDABLE_KINDS)
+
+    assert config.public_url == "https://robinauts.example.com"
+    assert config.session_hours == 12
+    assert sorted(config.providers) == ["google", "okta"]
+    assert config.provider("okta").groups_claim == "groups"
+    assert [entry.matcher for entry in config.allow] == [
+        Matcher.HOSTED_DOMAIN,
+        Matcher.GROUP,
+        Matcher.EMAIL,
+    ]
+    assert sorted(models.agents) == ["assistant"]
+    assert models.agents["assistant"].engine is Engine.LANGGRAPH
+    assert models.providers["anthropic"].kind is ProviderKind.ANTHROPIC
+
+
+def test_the_guide_prints_the_redirect_uris_the_platform_builds(tmp_path: Path) -> None:
+    # The two URIs the guide tells an operator to paste into Google and Okta
+    # are the two the platform sends. A guide that printed a third thing would
+    # be a sign-in that fails at the provider, for everybody, at once.
+    deployment, _ = guide_examples()
+    config = parse_sign_in_config(read_toml(written(tmp_path, deployment)))
+    text = GUIDE.read_text(encoding="utf-8")
+
+    for provider_id in config.providers:
+        assert config.redirect_uri(provider_id) in text
+
+
+def test_the_guides_configuration_holds_no_secret(tmp_path: Path) -> None:
+    deployment, _ = guide_examples()
+    tables = read_toml(written(tmp_path, deployment))
+    config = parse_sign_in_config(tables)
+    models = parse_models_config(tables, engines=WIRED_ENGINES, kinds=BUILDABLE_KINDS)
+
+    assert config.provider("google").client_secret_env == "ROBINAUTS_GOOGLE_SECRET"
+    assert models.providers["anthropic"].api_key_env == "ROBINAUTS_ANTHROPIC_KEY"
+    with pytest.raises(ConfigError) as secrets:
+        check_client_secrets(config, secret_for=lambda name: None)
+    with pytest.raises(ConfigError) as keys:
+        check_api_keys(models, secret_for=lambda name: None)
+    assert len(secrets.value.problems) == 2
+    assert len(keys.value.problems) == 1
+
+
+def test_the_guides_development_file_is_the_model_half_alone(tmp_path: Path) -> None:
+    # What the local development mode may be given: the model tables, and none
+    # of the sign-in ones, which the composition root refuses there (BOTH_MODES).
+    _, development = guide_examples()
+    tables = read_toml(written(tmp_path, development, name="development.toml"))
+
+    models = parse_models_config(tables, engines=WIRED_ENGINES, kinds=BUILDABLE_KINDS)
+
+    assert models.agents["assistant"].engine is Engine.PYDANTIC_AI
+    assert not [key for key in tables if key in SIGN_IN_TABLES]
+    with pytest.raises(ConfigError) as raised:
+        parse_sign_in_config(tables)
+    assert any("public_url" in problem for problem in raised.value.problems)
