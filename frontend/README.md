@@ -55,20 +55,15 @@ run's event stream.
 The backend to run beside it is the **local development mode**
 ([../docs/specs/sign-in.md](../docs/specs/sign-in.md)): no identity provider
 to register anything with, one fixed local user, loopback only, and the
-interface shows its permanent banner. `robinauts start` and its
-`--dev-no-sign-in` flag arrive with the wheel, so until then the mode is
-asked for through `create_app`, from `../backend/`:
+interface shows its permanent banner. From `../backend/`:
 
-    DB=postgresql://127.0.0.1/robinauts uv run python -c "
-    import uvicorn, os
-    from robinauts.app import create_app
-    uvicorn.run(create_app(local_development_host='127.0.0.1',
-                           database_url=os.environ['DB'],
-                           config_path=os.environ.get('ROBINAUTS_CONFIG')),
-                host='127.0.0.1', port=8000)"
+    export ROBINAUTS_DATABASE_URL=postgresql://127.0.0.1/robinauts
+    uv run robinauts db init          # once, on an empty database
+    uv run robinauts start --dev-no-sign-in
 
-With `ROBINAUTS_CONFIG` naming a file, only its model tables are read, and
-the agents it defines are the ones the picker offers.
+`--dev-no-sign-in` serves the loopback interface and refuses any other
+`--host`. With `ROBINAUTS_CONFIG` naming a file, only its model tables are
+read, and the agents it defines are the ones the picker offers.
 
 Signing in for real needs a `public_url`, a provider registration and the
 redirect URI — that is a deployment, not a laptop. To see the sign-in page
@@ -131,7 +126,14 @@ Two of these are generated and thrown away; one is generated and committed.
   `generate` first, so a route that changed without the snapshot being
   refreshed is a failing check here rather than a surprise in a browser.
 - `dist/` — **not committed.** The built assets; CI builds them, and a bundle
-  built on a laptop is never released.
+  built on a laptop is never released. It is also **what goes into the
+  wheel**: `scripts/build-wheel.sh` runs `npm run build` here and hatchling
+  carries `dist/` into the package as `robinauts/ui/`, which is where the
+  backend serves it from under `/ui/`. A wheel cannot be built without it --
+  `../backend/hatch_build.py` refuses, rather than producing one that installs
+  and has no interface -- and `THIRD_PARTY_LICENSES.txt`, written into `dist/`
+  beside the bundle, travels with it as one of the wheel's `license-files`.
+  `scripts/check-wheel.sh` is the whole of that, end to end.
 - `bundled-packages.txt` — **committed**, and written by `npm run build`: it is
   how a new package in the bundle becomes a line in a diff. Never edit it by
   hand. `scripts/check-frontend.sh` and CI set `CHECK_BUNDLED=1`, which makes

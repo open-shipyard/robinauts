@@ -56,6 +56,7 @@ or one at a time:
     scripts/check-audit.sh      pip-audit over the whole locked set
     scripts/check-frontend.sh   the frontend: format, lint, types, tests,
                                 the build with its licence gate, npm audit
+    scripts/check-wheel.sh      the wheel: built, looked inside, installed
     scripts/check-reuse.sh      reuse lint: every file states its licence
     scripts/check-dco.sh        sign-off on every commit of the branch
 
@@ -75,6 +76,50 @@ rule. `check-lint.sh`, `check-audit.sh`, `check-frontend.sh` and
 `check-audit.sh` reads pip-audit's JSON to make sure every pinned package was
 really looked at, and `check-frontend.sh` is the frontend's whole CI job in
 order; an argument that changed either would quietly turn the check off.
+
+### The wheel
+
+A deployment is one wheel and one PostgreSQL
+([docs/specs/operations.md](docs/specs/operations.md)), and the wheel carries
+the **built frontend**: `frontend/dist` goes into the package as
+`robinauts/ui/`, which is what the backend serves under `/ui/`. So building
+one means building the interface first, which is what
+`scripts/build-wheel.sh` does:
+
+    scripts/build-wheel.sh /tmp/robinauts-wheel   # prints the path it built
+
+`scripts/check-wheel.sh` is the gate around it: it builds the wheel, looks
+inside it for the interface, the schema and the three licence files, installs
+it into an empty virtual environment and runs `robinauts version` out of it.
+It works in a temporary directory and leaves the checkout alone. It takes a
+few seconds beyond the frontend build and is part of `check-all.sh`; in CI it
+is the `wheel` job, and the artifact of a green run is what gets installed
+(there is no release workflow yet).
+
+**A wheel cannot be built without the interface.** `backend/hatch_build.py`
+refuses when `frontend/dist` has no `index.html`, or no
+`THIRD_PARTY_LICENSES.txt` beside it — one would install and serve a page
+saying the interface is not built, the other would redistribute other
+people's code without their notices. An **editable** install (`uv sync`) is
+exempt and is the only thing that is: a development checkout has no built
+frontend, the interface is developed against Vite's own server, and `/ui/`
+then answers the page that explains it.
+
+**Use `uv build --wheel`, through the script, and not plain `uv build`.** The
+source distribution is a copy of `backend/` and carries no interface, because
+the interface is not under `backend/`; a wheel built *from* an unpacked sdist
+therefore cannot carry one either, and is refused with a sentence saying so.
+`uv build` with no argument does exactly that — sdist, then wheel from the
+sdist — so it fails, on purpose. The sdist itself builds, and is not the
+deliverable. Nothing is left out of it beyond what is not in `backend/` in
+the first place.
+
+**Build one at a time in one checkout.** The licence files the build stages
+beside `pyproject.toml` are real files, so two builds of this project running
+at once would share them and the first to finish would take them out from
+under the second. Only a checkout is written to: in an unpacked sdist the
+files of those names are ones the distribution carries, and nothing here
+touches them.
 
 One script under `scripts/` is not a gate: `scripts/update-openapi.sh`
 rewrites `backend/openapi.json` from the routes as they are. The document is
@@ -140,7 +185,8 @@ No package that starts a PostgreSQL is a dependency of this project;
 there is a production deployment it is **one definition edited in place**:
 there are no migrations, and a database made from an older definition is
 recreated rather than upgraded ([docs/specs/backend.md](docs/specs/backend.md)).
-So `robinauts db init` refuses any database that already holds a schema, and
+So `robinauts db init` applies the file to an **empty** database, does nothing
+to one already at this version, and refuses every other database there is; and
 every edit to that file comes with a bump of `SCHEMA_VERSION` in
 `datastore/schema.py` **and** of the `SCHEMA_SHA256` pinned beside it. A test
 fails until both are done, and says so; that pin is the only thing standing

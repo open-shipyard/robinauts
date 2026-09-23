@@ -19,11 +19,44 @@ as an instant, and asyncpg decodes it to an aware datetime in UTC whatever
 the session or the server is set to, so setting one would only hide a bug
 rather than prevent one. The tests prove it by running against a server
 whose zone is deliberately not UTC.
+
+**It is also where a driver's failure to connect becomes the platform's.**
+Opening is the one moment a database answers an operator rather than a
+request -- there is no database, the name is wrong, the credentials were
+refused, the connection string will not parse -- and every one of those
+arrives as an exception of asyncpg's, which nothing above this package may so
+much as name (``docs/layout.md``). Left alone it would reach ``robinauts
+start`` and ``robinauts db init`` as a traceback about a library. So it is
+turned into ``domain.DatabaseUnreachableError`` here, with the driver's own
+sentence and **never** the connection string, which is where the password is
+(``domain.without_secrets``).
 """
 
 from __future__ import annotations
 
 import asyncpg
+
+from robinauts.domain import DatabaseUnreachableError
+
+OPENING_FAILURES: tuple[type[BaseException], ...] = (
+    # The server answered and said no: no such database, wrong password, too
+    # many connections, a role that may not log in.
+    asyncpg.PostgresError,
+    # The driver would not start: a connection string it cannot read, an
+    # option that is not one. ``ClientConfigurationError`` is under this.
+    asyncpg.InterfaceError,
+    # The machine could not be reached at all: refused, no route, no such
+    # name. ``socket.gaierror`` is an ``OSError``.
+    OSError,
+)
+"""What "the database could not be opened" is, in the driver's own terms.
+
+Deliberately the three broad families rather than a list of the codes seen so
+far: a code nobody thought of is still an operator's problem, and answering it
+with a traceback about asyncpg would be the one case where this helps least.
+An error raised **after** a pool is open is not here -- that is a statement
+failing, which its caller decides about.
+"""
 
 MIN_POOL_SIZE = 2
 MAX_POOL_SIZE = 10
@@ -52,11 +85,20 @@ async def open_pool(
 
     The caller closes it (``await pool.close()``), on the loop that opened
     it: a pool outliving its loop is a warning at best.
+
+    ``DatabaseUnreachableError`` for every way the database refuses to be
+    opened (``OPENING_FAILURES``), carrying what the driver said and not the
+    connection string it was given. The original is **chained**, so a log with
+    a traceback in it still has the driver's own frames; what a command prints
+    is the sentence alone.
     """
-    return await asyncpg.create_pool(
-        dsn,
-        min_size=min_size,
-        max_size=max_size,
-        command_timeout=command_timeout,
-        server_settings=server_settings,
-    )
+    try:
+        return await asyncpg.create_pool(
+            dsn,
+            min_size=min_size,
+            max_size=max_size,
+            command_timeout=command_timeout,
+            server_settings=server_settings,
+        )
+    except OPENING_FAILURES as refused:
+        raise DatabaseUnreachableError.from_driver(refused) from refused

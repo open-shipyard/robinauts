@@ -78,6 +78,7 @@ from robinauts.domain import (
     ConfigError,
     ConversationNotFoundError,
     CrossSiteRequestError,
+    DatabaseUnreachableError,
     IllegalTransitionError,
     InvalidCursorError,
     InvalidIdTokenError,
@@ -277,6 +278,7 @@ STATUS_OF: dict[type[RobinautsError], int] = {
     # Start-up, not a request: a deployment in this state does not serve.
     ConfigError: 500,
     SchemaError: 500,
+    DatabaseUnreachableError: 500,
     # Our own rows, unreadable by this build. Nothing the request did, so the
     # browser is told nothing and the whole of it goes to the log.
     UnsupportedFormatError: 500,
@@ -308,6 +310,21 @@ def error_body(exc: BaseException, status: int) -> dict[str, Any]:
     if isinstance(exc, SignInError):
         return {"error": type(exc).__name__, "detail": SIGN_IN_DETAIL[exc.code]}
     return {"error": type(exc).__name__, "detail": str(exc)}
+
+
+def http_refusal(status: int, *, headers: Mapping[str, str] | None = None) -> JSONResponse:
+    """The response a status the framework raised becomes: one shape, one place.
+
+    Starlette answers a path that is not routed, a method that is not allowed
+    and the rest in a shape of its own (``{"detail": ...}``); this is the
+    project's. The handler below is the usual caller. The other is
+    ``robinauts.api.ui``, which answers for a file that is not there **inside**
+    its own mount, so that such an answer carries the interface's headers like
+    every other answer at that path -- an exception handler runs above the
+    mount and could not know it was for one.
+    """
+    body = {"error": http_error_name(status), "detail": http_error_detail(status)}
+    return JSONResponse(body, status_code=status, headers=dict(headers or {}))
 
 
 def refusal(exc: RobinautsError) -> JSONResponse:
@@ -485,10 +502,6 @@ def install_handlers(app: FastAPI, *, headers: Mapping[str, str] | None = None) 
                 exc.status_code,
                 shown(exc.detail),
             )
-        body = {
-            "error": http_error_name(exc.status_code),
-            "detail": http_error_detail(exc.status_code),
-        }
         sent = dict(exc.headers or {})
         if exc.status_code == METHOD_NOT_ALLOWED:
             served = allowed_methods(request.app, request.url.path)
@@ -497,7 +510,7 @@ def install_handlers(app: FastAPI, *, headers: Mapping[str, str] | None = None) 
                 # way it spelt the name: one header, and the right one.
                 sent = {name: value for name, value in sent.items() if name.lower() != "allow"}
                 sent["allow"] = served
-        return JSONResponse(body, status_code=exc.status_code, headers=sent)
+        return http_refusal(exc.status_code, headers=sent)
 
     @app.exception_handler(RequestValidationError)
     async def _unreadable_request(request: Request, exc: RequestValidationError) -> JSONResponse:

@@ -1807,6 +1807,116 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   `drop` (the connection goes in the middle of an answer and the run does
   not) and `error` — over the real format, positions and headers, so the chat
   can be looked at doing what it is for.
+- **One wheel, and the command that runs it.** `robinauts.api.ui` serves the
+  built interface: `index.html` at `/ui/`, the assets under `/ui/assets/`, and
+  the Content-Security-Policy of `docs/specs/frontend.md` on the interface's
+  answers **and on nothing else** — the API keeps `nosniff` and
+  `Referrer-Policy` and gains no policy over a document it has not got. The
+  policy carries `base-uri 'none'` and `form-action 'none'` beside
+  `frame-ancestors 'none'`, which are the three `default-src` does **not**
+  cover: the page's own script and stylesheet are named relatively, so an
+  injected `<base>` would re-point both. `X-Frame-Options: DENY` goes with it
+  for a browser too old to read a policy.
+  Caching is by **name**: a file under `assets/` whose name carries Vite's
+  eight-character digest (`HASHED`) gets a year of `immutable`, one that does
+  not gets `no-cache`, and everything else — the page above all — `no-store`.
+  Exactly eight, not "at least": the digest's alphabet includes the hyphen, so
+  a lower bound would read `put-here-by-hand.js` as hashed. A path with a
+  **dot-segment** in it is refused (404) before the static files see it: a
+  directory the build writes into is one an editor or a stray `.env` writes
+  into too, and `hatch_build.py` leaves such a file out of the wheel as well.
+  `/` and `/ui` answer `GET` **and `HEAD`** with a 302 to `root_path` +
+  `/ui/`, declared `public()` and out of the OpenAPI document; `/ui` is a
+  **redirect and not a copy of the page**, because the build names its assets
+  relatively (`base: "./"`, so one bundle works under any prefix) and a
+  document served at `/ui` would ask for `/assets/`. A refusal under `/ui/` is
+  built **inside** the mount (`api.errors.http_refusal`, shared with the
+  application's own handler) so that it carries the policy like every other
+  answer at that path — a 404 for a file that is not there, and a 405 with
+  `Allow: GET, HEAD` for a write, which `StaticFiles` raises bare. The request
+  protection lets the interface's paths past its **write** checks
+  (`ui.serves_files_only`, never past the loopback check): they read no body,
+  so `DELETE /ui/index.html` is the method they have not got rather than a
+  complaint about a content type.
+  Everything under `/ui/` is public: the page decides what to show somebody
+  who is not signed in, and a sign-in page only the signed-in could fetch
+  would be a circle. The mount is the one new entry in
+  `api.access.FRAMEWORK_PATHS`. An installation with **no** interface — a
+  development checkout, where the built files are never committed — answers
+  one 503 page at every path under `/ui/`, says the same sentence in the
+  start-up log, and serves the API as usual.
+  The wheel carries `frontend/dist` as `robinauts/ui/`, which
+  `app.packaged_ui` reads through `importlib.resources` exactly as
+  `datastore.schema_sql` reads its own file. `backend/hatch_build.py` is why
+  there are two plugins: a **metadata** hook stages `LICENSE`, `NOTICE` and
+  the frontend's `THIRD_PARTY_LICENSES.txt` beside `pyproject.toml` and names
+  them in `license-files` — hatchling settles that field before it runs a
+  single build hook, and a PEP 639 glob cannot climb out of the project
+  directory — and a **build** hook adds the force-include, file by file so
+  that a dotfile cannot ride along, and refuses a wheel whose interface, or
+  whose notices, are missing. An editable install (`uv sync`) is exempt and is
+  the only thing that is; a refusal clears the staged copies on its way out,
+  since `finalize` does not run when a build raises and that failure is the
+  expected one. The build hook is registered on the **sdist** target too,
+  where it adds and refuses nothing and its `finalize` is what takes the
+  staged copies away again; an sdist is a copy of `backend/` and carries no
+  interface, so a wheel built from one is refused with a sentence saying where
+  a wheel does come from. An sdist's `license-files` are this project's own
+  two and **never** the bundle's notices — it carries no bundle, and listing
+  them would make its metadata depend on whether somebody had run the frontend
+  build; which target is being built is read from the builder module the PEP
+  517 entry point imported, and pinned by tests on both sides. Nothing is
+  staged or cleared outside a checkout, because in an unpacked sdist the files
+  of those names are the distribution's own — told apart by `PKG-INFO`, which
+  every sdist carries and no checkout has, and **not** by what is beside the
+  directory: an sdist unpacked inside the repository has the repository's
+  `frontend/` next to it, and a rule that read that would have cleared its
+  licence files and built it a wheel out of somebody else's bundle. Builds are
+  sequential: the staged copies are real files and two builds in one checkout
+  would share them.
+  `robinauts.cli` is `start` (`--host`, `--port`, `--uds`,
+  `--dev-no-sign-in`, `--log-level`, `--forwarded-allow-ips`), `db init` and
+  `version`, on `argparse`; logging is the command's — one handler on
+  **stdout**, the root logger only, so the vendor loggers the engines
+  quietened stay quiet — and the access log is filtered to **cut every line at
+  the `?`**, because `GET /auth/callback/…?code=…&state=…` is an authorization
+  code in a file. `--uds` binds a unix socket instead of an address and cannot
+  be given with `--host` or `--port`. **The command binds it itself**, at
+  `--uds-mode` (`0o600`) and before it listens, and hands it to uvicorn
+  already listening: uvicorn chmods a socket it created to `0o666`, which for
+  a deployment answering without sign-in is the API handed to every account on
+  the machine. A socket is on no network, which is what the mode's loopback
+  rule asks; who on this machine may open it is the file's mode and its
+  directory's, and the docstrings say that rather than "stricter than
+  loopback". The path is refused rather than written over if something is
+  there — and a bind that **lost a race** for it leaves the winner's socket
+  alone, since only a bind that succeeded makes the file ours. Removing it is
+  a signal handler rather than a `finally`: uvicorn restores the handler it
+  found and re-raises, so the process dies inside `server.run()` and nothing
+  after it runs. The handler unlinks only while the file is still the one this
+  process bound (device, inode **and** the moment it was made — a freed inode
+  number is handed straight back out), and if the handler before it ignores
+  the signal it exits `128 + signum` itself, because a server told to
+  terminate terminates. `--forwarded-allow-ips` defaults to `*` with `--uds`,
+  because a connection over a socket has no address and only what may open the
+  file can connect — which assumes the default mode, and a deployment that
+  widens it says so for itself.
+  uvicorn is built rather than `uvicorn.run`, so a start-up that failed is
+  this command's exit code and not uvicorn's: 0, 2 for a usage error or a
+  configuration one (a `ConfigError` printed as its problems, one per line, no
+  traceback), 1 for a failure. A **database that will not open** is one line
+  too: `datastore.open_pool` turns every way asyncpg refuses to connect into
+  `domain.DatabaseUnreachableError`, so the driver stays inside `datastore`
+  and a command prints what it said — through `domain.without_secrets`, which
+  takes any connection string out of it, because that is where the password
+  is. `uvicorn` is the one new dependency, pinned a release behind the ten-day
+  cooldown, and not `uvicorn[standard]`.
+  `scripts/build-wheel.sh` and `scripts/check-wheel.sh` are the gate — build
+  the bundle, build the wheel into an empty directory of its own, look inside
+  it (the interface, the schema, the three licence files and their metadata
+  lines, every asset hashed, no dotfile), install it into an empty virtual
+  environment, run the command — and CI's `wheel` job runs it and uploads the
+  wheel as the artifact the POC is deployed from.
 
 ## Steps
 
@@ -2987,3 +3097,57 @@ Important design decisions made / open questions:
   is watched here too).
 - A refused turn takes back only the message it added; a message with a
   child is never removed.
+
+### Step 22 — wheel   (feature/poc-22-wheel)
+
+Summary: the built frontend served by the backend at `/ui/` (`api/ui.py`:
+Starlette static files behind `UiHeaders` — the spec's CSP with `base-uri`
+and `form-action` added, `X-Frame-Options`, `no-store` for the page,
+immutable for Vite's hashed assets only, the policy on 404/405 too; dot
+segments refused; `/` and `/ui` redirect to `/ui/` honouring `root_path`;
+HEAD on both doors; a 503 "not built" page in a checkout without a
+build). The `robinauts` command (`argparse`): `start` (uvicorn built as a
+`Server`, `proxy_headers`, `--forwarded-allow-ips`, a bounded graceful
+shutdown, an access log that cuts every query string, root-only logging so
+the pinned vendor loggers stay), `--dev-no-sign-in` refusing a
+non-loopback host before binding, `--uds` with the socket bound by the
+command itself at mode 0600 (`--uds-mode`), removed on shutdown by a
+signal handler that unlinks only the file it made and exits `128+signum`
+even when the signal was inherited-ignored; `db init` (idempotent, refuses
+another version); `version`; driver failures translated in `datastore`
+into one `DatabaseUnreachableError` line with secrets redacted. The wheel
+(hatchling, `hatch_build.py`: a metadata hook staging `LICENSE`, `NOTICE`
+and the frontend's `THIRD_PARTY_LICENSES.txt` into `license-files`, a build
+hook refusing a wheel without the built frontend, force-including
+`frontend/dist` as `robinauts/ui/` file by file without dotfiles; an sdist
+that is honest about not being the deliverable). `scripts/build-wheel.sh`,
+`scripts/check-wheel.sh` (contents, metadata, an install into an empty
+venv), a `wheel` CI job uploading the artifact, `check-all.sh` builds it.
+
+Review: 3 rounds, no high in any.
+- High: 0
+- Medium: 9 (9/0) — sdist builds leaving staged licence copies and a
+  misleading refusal; `HEAD /` 405; driver errors as tracebacks on
+  `db init`; the socket world-writable under uvicorn's chmod; a 405 from
+  the mount without `Allow`; a lost bind race unlinking the winner's
+  socket; an sdist unpacked inside the repository misread as a checkout;
+  a `SIG_IGN` parent making the server survive its own termination.
+- Low: 19 (19/0)
+
+Checks: `scripts/check-all.sh` without a database (2672 backend, 381
+frontend tests; the wheel built, installed and answering) and with one
+required (2869); the installed wheel run live in local mode over TCP and
+over a unix socket with the headers, refusals, signals and socket modes
+observed; a screenshot of the interface served from the wheel.
+Not done / to watch: `/ui` redirects rather than serving the page (the
+bundle's `base: "./"`); `favicon.ico` is a 404; the sdist is not the
+deliverable and a plain `uv build` fails on purpose; `hatch_build.py`
+infers the target from hatchling's imported builder modules (pinned by
+tests both ways); SBOM, provenance and `RELEASING.md` are later. About
+2,300 lines excluding tests; the socket handling is 140 of them.
+Important design decisions made / open questions:
+- `ROBINAUTS_DATABASE_URL` only from the environment; never a flag.
+- The CLI exits 2 for usage and configuration, 1 for a failure; a
+  `ConfigError` prints its problems one per line, never a traceback.
+- Over `--uds`, `forwarded_allow_ips` defaults to `*` (nothing but what
+  the mode admits can connect).

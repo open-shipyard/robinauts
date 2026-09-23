@@ -87,10 +87,18 @@ them from the start.
 ## Releases
 
 - [ ] Built in CI from a signed `v*` tag; the frontend bundle built only
-      there. PyPI trusted publishing, no long-lived tokens.
-- [ ] `LICENSE`, `NOTICE` and `THIRD_PARTY_LICENSES.txt` inside the wheel,
+      there. PyPI trusted publishing, no long-lived tokens. Half of this is
+      done: the `wheel` job builds the bundle and the wheel on every run and
+      uploads the wheel as an artifact, which is how the POC is deployed. What
+      is left is the tag, the signature and the publishing.
+- [x] `LICENSE`, `NOTICE` and `THIRD_PARTY_LICENSES.txt` inside the wheel,
       and listed in `license-files`. **(neorc gap: the third-party file is
-      shipped but not listed)**
+      shipped but not listed)** All three are in
+      `<name>.dist-info/licenses/` and in the metadata as `License-File:`,
+      put there by the metadata hook in `backend/hatch_build.py`; the build
+      hook beside it refuses to build a wheel whose frontend, or whose
+      third-party notices, are not there. `scripts/check-wheel.sh` looks
+      inside a real wheel for all three, and CI runs it.
 - [ ] An SBOM per release; build provenance attestation; `RELEASING.md`
       that someone else can follow; OpenSSF Scorecard.
 

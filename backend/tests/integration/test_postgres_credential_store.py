@@ -36,6 +36,7 @@ from postgres import (
 )
 from robinauts.core import secret_hash
 from robinauts.datastore import PostgresCredentialStore, create_schema
+from robinauts.domain import DatabaseUnreachableError
 from robinauts.ports import CredentialStore
 
 pytestmark = requires_postgres
@@ -182,7 +183,12 @@ async def test_a_schema_that_cannot_be_opened_is_dropped_again() -> None:
     # schema in everybody's database and the mess would outlive the run.
     schema = TemporarySchema(server_settings={"timezone": "Not/AZone"})
 
-    with pytest.raises(asyncpg.PostgresError):
+    # `DatabaseUnreachableError` and not the driver's own class: `open_pool`
+    # turns every way a pool refuses to open into one of ours, so that a
+    # command prints it as a line rather than a traceback about asyncpg
+    # (tests/unit/test_database_errors.py). This is that happening against a
+    # real server, for a setting it really refuses.
+    with pytest.raises(DatabaseUnreachableError):
         await schema.open()
 
     assert await schema_exists(schema.name) is False

@@ -56,10 +56,12 @@ from robinauts.domain.conversation import (
 )
 from robinauts.domain.errors import (
     DB_INIT_COMMAND,
+    REDACTED,
     AuthenticationError,
     ConfigError,
     ConversationNotFoundError,
     CrossSiteRequestError,
+    DatabaseUnreachableError,
     IllegalTransitionError,
     InvalidCursorError,
     InvalidIdTokenError,
@@ -85,6 +87,7 @@ from robinauts.domain.errors import (
     UnsupportedContentError,
     UnsupportedFormatError,
     UnsupportedMediaTypeError,
+    without_secrets,
 )
 from robinauts.domain.identity import (
     MAX_PENDING_LOGINS,
@@ -219,6 +222,7 @@ __all__ = [
     "MAX_TITLE_CHARS",
     "NUL",
     "PENDING_LOGIN_MINUTES",
+    "REDACTED",
     "REPLACEMENT",
     "SUPPORTED_PART_KINDS",
     "SUPPORTED_ROLES",
@@ -235,6 +239,7 @@ __all__ = [
     "Conversation",
     "ConversationNotFoundError",
     "CrossSiteRequestError",
+    "DatabaseUnreachableError",
     "Engine",
     "EngineEvent",
     "Identity",
@@ -321,4 +326,5 @@ __all__ = [
     "shown",
     "text_parts",
     "where",
+    "without_secrets",
 ]

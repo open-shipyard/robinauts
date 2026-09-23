@@ -56,6 +56,7 @@ from robinauts.api.schemas import (
     SessionResponse,
     UserSummary,
 )
+from robinauts.api.ui import UI_PATH
 from robinauts.application import SignIn
 from robinauts.domain import SignInError, UnknownProviderError, is_provider_id
 
@@ -63,9 +64,6 @@ _log = logging.getLogger(__name__)
 
 NO_STORE = "no-store"
 """Every answer here carries a cookie, a redirect or who is signed in."""
-
-UI_PATH = "/ui/"
-"""Where the interface is served; a sign-in ends by landing in it."""
 
 SIGN_IN_PAGE = f"{UI_PATH}#/sign-in?error="
 """The hash route the interface shows in place of every page, and its code."""

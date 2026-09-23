@@ -14,8 +14,12 @@ as a declared ``APIRoute`` or as a framework route allowed by hand.
 It is shown to bite on every way something can be served: an ``APIRoute`` with
 no declaration, a mounted sub-application, a mounted directory, a plain
 Starlette route, a websocket handler, and a frontend added with ``frontend()``
--- which a router keeps in a **second** list, not in ``routes``, and which is
-how the interface will be served two steps from now.
+-- which a router keeps in a **second** list, not in ``routes``.
+
+The one thing that **is** allowed is the interface: a directory of built files
+mounted at ``/ui`` (``robinauts.api.ui``), named in ``FRAMEWORK_PATHS`` with
+``/openapi.json``. So the fixtures here put their extra directories somewhere
+else, ``/pages``, where the escape hatch does not reach them.
 
 Under all of that is the backstop, and the backstop is what this file really
 guards: ``unknown_route_lists`` asks each router which of its attributes hold
@@ -75,6 +79,10 @@ DECLARED = {
     ("GET", "/auth/callback/{provider}"): Permission.PUBLIC,
     ("POST", "/auth/logout"): Permission.PUBLIC,
     ("GET", "/health"): Permission.PUBLIC,
+    ("GET", "/"): Permission.PUBLIC,
+    ("HEAD", "/"): Permission.PUBLIC,
+    ("GET", "/ui"): Permission.PUBLIC,
+    ("HEAD", "/ui"): Permission.PUBLIC,
     ("GET", "/api/conversations"): Permission.SIGNED_IN,
     ("GET", "/api/conversations/{conversation_id}"): Permission.SIGNED_IN,
     ("PATCH", "/api/conversations/{conversation_id}"): Permission.SIGNED_IN,
@@ -90,7 +98,15 @@ DECLARED = {
 
 Written out rather than derived: a route whose declaration changes, or a route
 added at all, is then a change to this file and something a reviewer reads.
+
+``/`` and ``/ui`` are the two navigations that land in the interface
+(``robinauts.api.ui``), each answering ``GET`` and ``HEAD``; the files
+themselves are the mount below, which is not an ``APIRoute`` and is allowed by
+name.
 """
+
+SOMEWHERE_ELSE = "/pages"
+"""Where the fixtures below put a directory, so that it is not the real one."""
 
 
 def declarations(
@@ -119,7 +135,7 @@ def test_every_route_declares_exactly_the_permission_it_needs() -> None:
 
 def test_nothing_this_build_serves_is_undeclared() -> None:
     assert undeclared(create_api()) == []
-    assert FRAMEWORK_PATHS == frozenset({"/openapi.json"})
+    assert FRAMEWORK_PATHS == frozenset({"/openapi.json", "/ui"})
 
 
 def with_an_undeclared_route() -> FastAPI:
@@ -151,9 +167,13 @@ def with_a_frontend(tmp: Any) -> FastAPI:
     ``frontend()`` puts what it serves in a list of its own, so a walk that
     read ``routes`` alone would call this application clean while it handed
     out every file in that directory to anybody who asked.
+
+    At ``/pages`` and not at ``/ui``: ``/ui`` is where this build really serves
+    the interface and is named in ``FRAMEWORK_PATHS``, so a second directory
+    there would be testing the escape hatch instead of the walk.
     """
     app = create_api()
-    app.frontend("/ui", directory=str(tmp))
+    app.frontend(SOMEWHERE_ELSE, directory=str(tmp))
     return app
 
 
@@ -161,7 +181,7 @@ def with_a_frontend_in_a_router(tmp: Any) -> FastAPI:
     """The same, one level down: a router's own second list, through an include."""
     app = create_api()
     router = APIRouter()
-    router.frontend("/ui", directory=str(tmp))
+    router.frontend(SOMEWHERE_ELSE, directory=str(tmp))
     app.include_router(router)
     return app
 
@@ -236,8 +256,8 @@ def test_the_walk_bites_on_every_kind_of_route_that_is_served(tmp_path: Any) -> 
         "/plain": with_a_plain_route(),
         "/ws": with_a_websocket(),
         "/inner/thing": with_an_undeclared_route_in_a_router(),
-        "/ui": with_a_frontend(tmp_path),
-        "/ui in a router": with_a_frontend_in_a_router(tmp_path),
+        "/pages": with_a_frontend(tmp_path),
+        "/pages in a router": with_a_frontend_in_a_router(tmp_path),
         "/carried": with_a_declaration_on_the_include(),
     }
 
@@ -250,8 +270,8 @@ def test_the_walk_bites_on_every_kind_of_route_that_is_served(tmp_path: Any) -> 
     assert "routes cannot be read" in " ".join(named["/files"])
     assert "cannot declare a permission" in " ".join(named["/plain"])
     assert "cannot declare a permission" in " ".join(named["/ws"])
-    assert "_FrontendRouteGroup" in " ".join(named["/ui"])
-    assert "_FrontendRouteGroup" in " ".join(named["/ui in a router"])
+    assert "_FrontendRouteGroup" in " ".join(named["/pages"])
+    assert "_FrontendRouteGroup" in " ".join(named["/pages in a router"])
     # A declaration on the include is not one on the route, and says so.
     assert "on the route itself" in " ".join(named["/carried"])
 
@@ -260,7 +280,7 @@ def test_the_walk_bites_on_every_kind_of_route_that_is_served(tmp_path: Any) -> 
 async def test_a_frontend_added_to_this_build_stops_it_from_starting(
     tmp_path: Any,
 ) -> None:
-    """Serving the interface is a coming step; it does not arrive by accident."""
+    """A second directory of files does not arrive by accident either."""
     (tmp_path / "index.html").write_text("<!doctype html><title>ui</title>")
     app = with_a_frontend(tmp_path)
 
@@ -311,7 +331,9 @@ def test_a_framework_route_passes_only_by_being_named() -> None:
 
     assert undeclared(app) == []
     assert undeclared(app, allowed=()) == [
-        "GET HEAD /openapi.json: a Route, which cannot declare a permission"
+        "GET HEAD /openapi.json: a Route, which cannot declare a permission",
+        "/ui: a mounted application whose routes cannot be read, so what it serves"
+        " cannot be checked",
     ]
 
 
@@ -328,21 +350,22 @@ def test_the_escape_hatch_allows_a_served_directory_by_name(
     (tmp_path / "index.html").write_text("<!doctype html><title>ui</title>")
     app = create_api()
     if serving_the_ui == "frontend":
-        app.frontend("/ui", directory=str(tmp_path))
+        app.frontend(SOMEWHERE_ELSE, directory=str(tmp_path))
     else:
-        app.mount("/ui", StaticFiles(directory=str(tmp_path)))
+        app.mount(SOMEWHERE_ELSE, StaticFiles(directory=str(tmp_path)))
 
     # Named: it passes, and the walk is otherwise unchanged.
-    check_declarations(app, allowed={"/openapi.json", "/ui"})
-    assert undeclared(app, allowed={"/openapi.json", "/ui"}) == []
+    named = {*FRAMEWORK_PATHS, SOMEWHERE_ELSE}
+    check_declarations(app, allowed=named)
+    assert undeclared(app, allowed=named) == []
 
     # Not named: it is still refused, and the message holds the very name
     # that would have allowed it.
     with pytest.raises(ConfigError) as raised:
         check_declarations(app)
-    assert "/ui" in "\n".join(raised.value.problems)
+    assert SOMEWHERE_ELSE in "\n".join(raised.value.problems)
     # And the name does not allow the framework's own route by accident.
-    assert undeclared(app, allowed={"/ui"}) == [
+    assert undeclared(app, allowed={SOMEWHERE_ELSE, "/ui"}) == [
         "GET HEAD /openapi.json: a Route, which cannot declare a permission"
     ]
 
@@ -356,7 +379,7 @@ def test_the_escape_hatch_never_lets_an_api_route_off(tmp_path: Any) -> None:
     """
     app = with_an_undeclared_route()
 
-    assert undeclared(app, allowed={"/openapi.json", "/forgotten"}) == [
+    assert undeclared(app, allowed={*FRAMEWORK_PATHS, "/forgotten"}) == [
         "GET /forgotten: declares no permission. A permission is declared on the route"
         " itself -- one passed to include_router is not read here"
     ]
@@ -394,7 +417,7 @@ def test_the_walk_knows_every_route_list_fastapi_keeps(tmp_path: Any) -> None:
     app.include_router(router)
     app.mount("/sub", FastAPI())
     app.add_route("/plain", lambda request: None, methods=["GET"])
-    app.frontend("/ui", directory=str(tmp_path))
+    app.frontend(SOMEWHERE_ELSE, directory=str(tmp_path))
 
     routers = [app.router, router]
     kept = {

@@ -479,7 +479,18 @@ const proxy = {
 
 export default defineConfig({
   // Relative asset paths, so the built files work under any prefix, /ui/
-  // included, without being rebuilt for it.
+  // included, without being rebuilt for it. It is also why the backend answers
+  // `/ui` with a redirect to `/ui/` rather than with the page: a document at
+  // `/ui` resolves `./assets/…` against `/`.
+  //
+  // **Nothing here names the files under `assets/`**, so Vite's own default
+  // applies and every one of them carries an eight-character digest of its
+  // contents (`[name]-[hash][extname]`). The backend caches on exactly that --
+  // a year of `immutable` for a name that holds a digest, revalidation for one
+  // that does not (`robinauts.api.ui.HASHED`) -- and `scripts/check-wheel.sh`
+  // fails the build if an asset in the wheel is named any other way. So a
+  // `rollupOptions.output.assetFileNames` written here is a change to that
+  // rule as well.
   base: "./",
   // Tailwind compiles src/styles.css; the stylesheet rules still judge every
   // file that reaches the build, Tailwind's own included.

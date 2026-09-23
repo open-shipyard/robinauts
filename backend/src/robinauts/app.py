@@ -67,6 +67,8 @@ import logging
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
+from importlib import resources
+from pathlib import Path
 from typing import Any, Protocol
 
 from fastapi import FastAPI
@@ -96,7 +98,7 @@ from robinauts.adapters import (
 # agent framework.
 from robinauts.adapters.agents.langgraph import LangGraphAgent
 from robinauts.adapters.agents.pydantic_ai import PydanticAIAgent
-from robinauts.api import create_api
+from robinauts.api import NOT_BUILT, create_api, ui_inside
 from robinauts.application import (
     DEFAULT_TURN_SECONDS,
     DEFAULT_WAIT_SECONDS,
@@ -311,6 +313,28 @@ LOCAL_MODE_WARNING = (
 """Logged once, at start-up, because a server that asks nobody who they are
 has to say so wherever it is looked at. The interface says it too, in a
 permanent banner (``docs/specs/frontend.md``)."""
+
+
+def packaged_ui() -> Path | None:
+    """The built interface inside this installation, or ``None``.
+
+    The wheel carries ``frontend/dist`` as ``robinauts/ui/`` -- put there at
+    build time, by a hook that refuses to build a wheel without it
+    (``backend/hatch_build.py``) -- so an installed Robinauts has its interface
+    wherever the package landed, and `pip install` plus a PostgreSQL is a whole
+    deployment (``docs/specs/operations.md``).
+
+    ``None`` is a **development checkout**: the built files are never committed
+    (``docs/specs/frontend.md``), so a source tree has none until somebody runs
+    the build, and the interface is developed against Vite's own server anyway.
+    The composition root says so once, at start-up, and ``/ui/`` answers a page
+    that says it too -- neither of which is a reason to refuse to serve the API.
+
+    Read through ``importlib.resources`` rather than from ``__file__``, as
+    ``datastore.schema_sql`` reads its own file: it is the question "where is
+    this package's data", and the import system is what answers it.
+    """
+    return ui_inside(Path(str(resources.files(__package__))))
 
 
 def _configured_path(secret_for: SecretLookup) -> str | None:
@@ -818,6 +842,7 @@ def create_app(
     agents: Mapping[str, AgentDefinition] | None = None,
     engines: Mapping[Engine, Agent] | None = None,
     turn_seconds: float = DEFAULT_TURN_SECONDS,
+    ui_dir: Path | None = None,
 ) -> FastAPI:
     """The whole deployment as one ASGI application.
 
@@ -843,7 +868,16 @@ def create_app(
     and the chat can be developed against a real engine; without one, it
     starts with none. A file that also holds sign-in tables is refused there,
     because the mode exists where there is nothing to sign in to.
+
+    ``ui_dir`` is the built interface to serve under ``/ui/``; left out, it is
+    the one inside this installation (``packaged_ui``). A checkout that has not
+    been built has none, which is said here once and answered on the page
+    itself -- an API that refused to start because nobody had run ``npm`` would
+    be a deployment down over a screen.
     """
+    served = packaged_ui() if ui_dir is None else ui_dir
+    if served is None:
+        _log.warning(NOT_BUILT)
     deployment = Deployment.configured(
         config_path=config_path,
         local_development_host=local_development_host,
@@ -881,6 +915,6 @@ def create_app(
             app.state.watch = None
             await deployment.aclose()
 
-    app = create_api(lifespan=lifespan)
+    app = create_api(lifespan=lifespan, ui_dir=served)
     app.state.deployment = deployment
     return app

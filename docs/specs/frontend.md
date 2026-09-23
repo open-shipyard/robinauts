@@ -70,7 +70,19 @@ neorc's rules (`neorc/contributing/js-dependencies.md`):
 - The typed API client is generated from the committed OpenAPI snapshot.
 - Content-Security-Policy: `default-src 'none'`; `script-src`, `font-src`,
   `connect-src` `'self'`; `style-src 'self' 'unsafe-inline'`;
-  `img-src 'self' data:`; `frame-ancestors 'none'`; plus `nosniff`.
+  `img-src 'self' data:`; `frame-ancestors 'none'`; plus `base-uri 'none'`
+  and `form-action 'none'`, which `default-src` does not cover — the page's
+  script and stylesheet are named relatively, so an injected `<base>` would
+  re-point both, and no form here posts anywhere. Plus `nosniff`, and
+  `X-Frame-Options: DENY` for a browser too old to read `frame-ancestors`.
+  On the interface's own answers only: an API response is JSON read by a
+  script and has no document to govern. A refusal at an interface path — a
+  file that is not there, a method these paths have not got — carries them
+  too, being an answer where a document could have been.
+- The interface's paths are read: `GET` and `HEAD`, and a write to one is a
+  `405` with `Allow: GET, HEAD`. Nothing under `/ui/` whose name begins with
+  a dot is served or packaged: a directory a build writes into is one an
+  editor or a stray `.env` writes into too.
 - Design tokens are CSS custom properties carried over from neorc; the
   Tailwind theme refers to them, so they survive a change of either
   Tailwind or the chat library.

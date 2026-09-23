@@ -23,12 +23,18 @@ delivery network, and this project serves nothing from a third-party origin
 (``docs/specs/frontend.md``). ``/openapi.json`` is served: it is a document,
 it reaches nothing, and the interface's typed client is generated from the
 committed snapshot of it (``backend/openapi.json``).
+
+**The built interface is served here too** (``robinauts.api.ui``), under
+``/ui/``, from a directory the composition root hands in. One process serves
+the API and the page that calls it, which is what makes a deployment one wheel
+and one PostgreSQL (``docs/specs/operations.md``).
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
@@ -45,6 +51,7 @@ from robinauts.api.protection import (
 )
 from robinauts.api.schemas import HealthResponse
 from robinauts.api.stream_routes import stream_router
+from robinauts.api.ui import add_ui
 from robinauts.application import Conversations, LocalAccess, SignIn, Turns, Watch
 from robinauts.domain import ConfigError
 
@@ -86,6 +93,7 @@ def create_api(
     conversations: Conversations | None = None,
     turns: Turns | None = None,
     watch: Watch | None = None,
+    ui_dir: Path | None = None,
     lifespan: Opening | None = None,
 ) -> FastAPI:
     """The application serving the api, over the services it is given.
@@ -108,6 +116,12 @@ def create_api(
     deployment's answer -- every deployment has conversations -- so a route
     that finds none says the lifespan has not run
     (``robinauts.api.access.NOT_WIRED``).
+
+    ``ui_dir`` is the directory of built interface files this deployment
+    serves under ``/ui/`` (``robinauts.api.ui``), which the composition root
+    finds inside the installed package. ``None`` -- a checkout with no build,
+    and every test that is about the API -- serves one page saying so, so that
+    the interface is never quietly a 404.
 
     ``ConfigError`` -- at build time, and again at start-up -- if anything the
     application serves declares no permission, or if a router keeps routes
@@ -172,6 +186,10 @@ def create_api(
         """
         return HealthResponse(status="ok")
 
+    # Last, so that every path of the API is matched before the directory the
+    # interface is served out of: a mount is a prefix, and a prefix that was
+    # tried first would be answering for routes written after it.
+    add_ui(app, ui_dir)
     check_declarations(app)
     return app
 

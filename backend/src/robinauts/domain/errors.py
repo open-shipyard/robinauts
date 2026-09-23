@@ -10,6 +10,7 @@ while ``detail`` says what really happened and goes to the log.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from enum import StrEnum
 
@@ -242,6 +243,68 @@ Named here because ``SchemaError`` is what an operator reads when the
 database is not the one this build was written against, and an error that
 says what is wrong without saying what to type is half an error.
 """
+
+
+REDACTED = "<redacted>"
+"""What takes the place of anything in a driver's words that could be a secret."""
+
+_A_SECRET = re.compile(
+    # A connection string, whole: everything from the scheme to the first run
+    # of whitespace, since the password is inside it and so is the host.
+    r"[A-Za-z][A-Za-z0-9+.-]*://\S*"
+    # A password given as a field of an object -- JSON, a repr of a mapping, a
+    # driver quoting the arguments it was handed. The name may be quoted, the
+    # separator may be `=` or `:`, and the value may be quoted, in which case
+    # it runs to the closing quote and **may hold spaces**.
+    r'|(?i:["\']?(?:password|passfile|pgpassword)["\']?\s*[=:]\s*)'
+    r"""(?:"[^"]*"|'[^']*'|\S+)"""
+)
+"""What is taken out of a message before it is shown to anybody.
+
+Fails **safe rather than exact**: it takes out more than it has to -- a whole
+url, including the host somebody might have wanted to read -- because the
+alternative is a password in a log. What is left is the driver's own sentence
+about what went wrong, which is the part an operator acts on.
+
+The field rule is **quote-aware** on both halves. A driver that prints what it
+was handed prints it the way its own language spells a mapping, so the name
+arrives as ``password``, ``"password"`` or ``'password'`` and the value as a
+bare word or a quoted string -- and a quoted one runs to its closing quote,
+because a password with a space in it is still a password.
+"""
+
+
+def without_secrets(said: str) -> str:
+    """``said`` with anything that could be a connection string taken out.
+
+    The one rule about showing what a database driver said. A url is where a
+    password lives, and a failure to connect is exactly the moment somebody
+    copies the message into a ticket.
+    """
+    return _A_SECRET.sub(REDACTED, said)
+
+
+class DatabaseUnreachableError(RobinautsError):
+    """The deployment's PostgreSQL could not be opened.
+
+    Not a request's fault and not a bug: a database that is not there, a name
+    that does not exist, credentials the server refused, a connection string
+    the driver will not read. Every one of them is something an operator
+    changes, and every one of them arrives as an exception of the **driver's**
+    -- which nothing above ``datastore`` may name (``docs/layout.md``), and
+    which would otherwise reach a command as a traceback.
+
+    So ``datastore.open_pool`` turns them into this, and a command prints it
+    as one line (``robinauts.cli``). The driver's own sentence is kept,
+    because it is what says which of the five it was; the connection string is
+    **not**, because it holds the password (``without_secrets``).
+    """
+
+    @classmethod
+    def from_driver(cls, problem: BaseException) -> DatabaseUnreachableError:
+        """This error for what a driver raised, with nothing quotable in it."""
+        said = without_secrets(str(problem)) or type(problem).__name__
+        return cls(f"the database could not be opened: {said}")
 
 
 class SchemaError(RobinautsError):

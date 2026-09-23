@@ -15,7 +15,10 @@ fi
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd) || exit 2
 
 failed=""
-for check in lint tests licences audit frontend reuse dco; do
+# `wheel` comes after `frontend`: it builds the bundle again, into the wheel,
+# and it reuses the node_modules the frontend's own gate has just installed
+# from the lock.
+for check in lint tests licences audit frontend wheel reuse dco; do
     printf '\n=== %s ===\n' "$check"
     if ! "$root/scripts/check-$check.sh"; then
         failed="$failed $check"

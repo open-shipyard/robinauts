@@ -118,6 +118,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from robinauts.api.cookies import session_cookie
 from robinauts.api.errors import refusal
 from robinauts.api.logs import shown
+from robinauts.api.ui import serves_files_only
 from robinauts.domain import (
     CrossSiteRequestError,
     InvalidValueError,
@@ -276,6 +277,12 @@ def refused(
 
     Cross-site is answered before the media type: a request another site's
     page sent is refused for what it is, whatever it happens to carry.
+
+    The **interface's own paths** are past the write checks and not past check
+    0: they serve files, they answer ``GET`` and ``HEAD`` and nothing else, and
+    a write to one is a ``405`` with an ``Allow`` rather than a complaint about
+    a body nobody would have read (``robinauts.api.ui.serves_files_only``). The
+    loopback check above still runs on every request, in every mode.
     """
     method = str(scope.get("method", ""))
     # The method is compared with a fixed set below and is escaped here: it
@@ -288,6 +295,13 @@ def refused(
         if elsewhere is not None:
             return elsewhere
     if method in SAFE_METHODS:
+        return None
+    if serves_files_only(str(scope.get("path", ""))):
+        # A write to the interface's own paths is a method they have not got,
+        # and the router and the mount answer it with the ``405`` and the
+        # ``Allow`` that say so. Refusing it here for its content type would
+        # be an answer about a body that nothing was ever going to read
+        # (``robinauts.api.ui.serves_files_only``).
         return None
     for name in DECIDING_HEADERS:
         if len(sent[name]) > 1:

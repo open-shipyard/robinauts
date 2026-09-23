@@ -87,16 +87,18 @@ private ones of the framework's, which is why ``unknown_route_lists`` exists:
 it is the check that does not have to know them.
 """
 
-FRAMEWORK_PATHS: frozenset[str] = frozenset({"/openapi.json"})
+FRAMEWORK_PATHS: frozenset[str] = frozenset({"/openapi.json", "/ui"})
 """What may be served without declaring a permission, named one at a time.
 
 A short, hand-written list, compared **exactly** against the name the walk
 reports for a route -- the path in the message it would otherwise print, which
 is ``/openapi.json`` for the document FastAPI serves, ``/ui`` for a directory
 mounted there and ``/ui`` for one served there by ``frontend()``. So the
-escape hatch works for all three, which matters because the built interface is
-served by one of the last two, two steps from now: that step adds ``"/ui"`` to
-this set, in one line, beside the route it belongs to.
+escape hatch works for all three, which is how the built interface is allowed:
+``robinauts.api.ui`` mounts a directory of static files at ``/ui``, which is
+not an ``APIRoute`` and has no permission to declare, and everything in it is
+public -- the same bundle for every visitor, and the page it holds is where
+somebody who is not signed in is sent to sign in.
 
 It never lets an ``APIRoute`` off. A route with dependencies can declare a
 permission and therefore must; this is for what has none to declare -- a

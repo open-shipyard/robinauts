@@ -17,6 +17,7 @@ robinauts/
   frontend/                   # the UI (ADR 0001)
   backend/
     pyproject.toml
+    hatch_build.py            # build hooks: the frontend and the licence files
     main.py                   # infrastructure: script wrapper
     src/robinauts/
       __init__.py
@@ -278,7 +279,9 @@ concrete adapters and datastore, injects them into the application, mounts
 the api, and exposes `create_app()`. This is the only place that references
 adapters, datastore, application and api together — and therefore the only
 place where the choice of agent engine is made. `cli.py` is also installed
-as the `robinauts` console script.
+as the `robinauts` console script, and is where uvicorn is run and logging
+is configured -- a library configures neither, and a command is the one
+program that may.
 
 ## 3. Dependency matrix
 
