@@ -1,5 +1,7 @@
 # Packages in the built bundle, written by the build.
 # A change here is reviewed: see docs/contributing/js-dependencies.md.
+lucide-react 1.45.0 ISC
 react 19.3.0 MIT
 react-dom 19.3.0 MIT
 scheduler 0.28.0 MIT
+tailwindcss 4.3.3 MIT

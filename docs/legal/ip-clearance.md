@@ -147,5 +147,43 @@ Entries are never edited after the fact; a correction is a new entry.
 - Attribution added to: this entry. Same authors and the same licence; no
   notice is required.
 
+### 2026-09-22 — the interface's design tokens and the shape of its shell, derived from neorc
+
+- Source: https://github.com/open-shipyard/neorc, commit `68e3805`, under
+  `ts/neorc-ui/src/`: `index.css` (the design tokens — the ground, paper,
+  panel, tint, hover, ink, muted, line, accent, link and warning colours in
+  light and dark, and the three radii — and the rules for the sidebar, the
+  rail, the profile block, the banner and the sign-in card),
+  `components/Layout.tsx` (the shape of the shell: the collapse button and
+  the brand, the primary action, the sections, the profile block pinned to
+  the bottom, the rail state in `localStorage`), `components/SignIn.tsx`
+  (the sign-in card and the sentence per error code), `session.ts` (asking
+  once who is signed in, signing out, a 401 ending the session) and
+  `App.tsx` (the session gate in front of every page).
+- Their licence: Apache-2.0, Copyright The neorc Authors.
+- Landed as: `frontend/src/tokens.css`, `frontend/src/styles.css`,
+  `frontend/src/shell/`, `frontend/src/session/`, `frontend/src/App.tsx`.
+- Modifications: no file was copied. **The token values are neorc's**, name
+  for name and colour for colour, because they are the visual identity this
+  project was asked to carry over; the status, graph and table colours were
+  left behind, `--scrim` was added for the drawer, and the whole set is
+  written once and mapped twice rather than repeated under the media query,
+  with a `[data-theme]` override for the toggle that neorc has no
+  counterpart for. The CSS rules themselves were **not** carried over: the
+  interface is written in Tailwind utilities over the tokens (ADR 0001),
+  where neorc writes hand-rolled classes. The components were written again
+  for this project: React 19 with `useSyncExternalStore` and no
+  data-fetching library where neorc uses TanStack Query, our typed API
+  client, an `onUnauthorized` callback rather than a query invalidation,
+  `return_to` as a query parameter of the login route rather than
+  `sessionStorage`, the small-screen drawer and the light/dark/system
+  toggle, which neorc has neither of, and `lucide-react` rather than
+  hand-drawn SVG icons. The error sentences say "deployment" where neorc's
+  say "manager" and are otherwise the same set of eight, because the codes
+  are the same eight. Substantially machine-generated, reviewed by the
+  maintainers.
+- Attribution added to: this entry. Same authors and the same licence; no
+  notice is required.
+
 <!-- Entries go above this line. -->
 <!-- REUSE-IgnoreEnd -->

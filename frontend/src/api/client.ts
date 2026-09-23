@@ -41,6 +41,29 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * What is told when a call is answered 401.
+ *
+ * A session ends between two requests, and the page finds out from whichever
+ * call happens to be next. The session store subscribes here and puts the
+ * interface back to signed-out (`src/session/session.ts`); nothing else does.
+ *
+ * A callback rather than an event on `window`: the interface's own state is
+ * not something any script sharing the page should be able to raise, and a
+ * subscription that is returned as a function is one a test can take back.
+ *
+ * `/auth/session` itself is never a 401 (`docs/specs/sign-in.md`), so this
+ * cannot fire for the very call that would answer it.
+ */
+const unauthorized = new Set<() => void>();
+
+export function onUnauthorized(listener: () => void): () => void {
+  unauthorized.add(listener);
+  return () => {
+    unauthorized.delete(listener);
+  };
+}
+
 type Method = "get" | "put" | "post" | "delete" | "patch";
 
 /** The paths that declare this method; anything else is a type error. */
@@ -211,6 +234,18 @@ export async function request<M extends Method, P extends PathsWith<M>>(
     );
   }
   if (!response.ok) {
+    if (response.status === 401) {
+      // Told before the refusal is thrown, so that a caller catching it
+      // already sees an interface that knows the session is gone. A listener
+      // that throws is its own bug and must not swallow the refusal.
+      for (const listener of [...unauthorized]) {
+        try {
+          listener();
+        } catch {
+          // Nothing here can do anything about it.
+        }
+      }
+    }
     throw await refusal(response);
   }
   if (response.status === 204) {

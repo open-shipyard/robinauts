@@ -120,7 +120,9 @@ Also out, all specified and all addable later without rework:
 - retention, purge, audit log;
 - operator limits other than the timeouts;
 - Gemini and Bedrock;
-- the responsive drawer and the theme toggle;
+- ~~the responsive drawer and the theme toggle~~ — built in step 18 after
+  all: both were cheap beside the shell, and the interface spec asks for
+  them;
 - several backend processes (one process; events need not travel through
   the database yet, but the run and its messages are in the database);
 - draining runs on shutdown;

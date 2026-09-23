@@ -10,18 +10,29 @@
  * states the limit that leaves). What remains needs no resolver -- each rule
  * judges a file's name, or a file the build has already written.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
 
 import {
+  appendCssNotices,
   bundledPackagesFrom,
+  cssPackagesIn,
   refuseInlineStyles,
   refuseStylesheets,
   sizeBudget,
 } from "../../vite.config";
+
+/** This package's own directory, for the one test that reads the real tree. */
+const here = resolve(import.meta.dirname, "..", "..");
 
 const scratches: string[] = [];
 const scratch = () => {
@@ -147,6 +158,174 @@ describe("the bundle's size and its record", () => {
   });
 });
 
+describe("the packages a stylesheet reaches", () => {
+  /** A node_modules with one package in it, as npm would have left it. */
+  const installed = (
+    manifest: Record<string, unknown>,
+    licence: string | null,
+    file = "LICENSE",
+  ) => {
+    const modules = scratch();
+    const where = join(modules, String(manifest.name));
+    mkdirSync(where, { recursive: true });
+    writeFileSync(join(where, "package.json"), JSON.stringify(manifest));
+    if (licence !== null) writeFileSync(join(where, file), licence);
+    return modules;
+  };
+
+  test("its metadata and its notice are read from what npm installed", () => {
+    const modules = installed(
+      { name: "some-css", version: "2.1.0", license: "MIT" },
+      "MIT License\n\nCopyright (c) Somebody\n",
+      "LICENCE.md",
+    );
+    expect(cssPackagesIn(modules, ["some-css"])).toEqual([
+      {
+        name: "some-css",
+        version: "2.1.0",
+        license: "MIT",
+        // Spelt either way, with any suffix, and trimmed.
+        text: "MIT License\n\nCopyright (c) Somebody",
+      },
+    ]);
+  });
+
+  test("it is held to the allowed list, like anything else that ships", () => {
+    const modules = installed(
+      { name: "some-css", version: "1.0.0", license: "GPL-3.0-only" },
+      "…",
+    );
+    expect(() => cssPackagesIn(modules, ["some-css"])).toThrow(
+      /not on the allowed list/,
+    );
+  });
+
+  test("metadata that cannot be read fails, and is never skipped", () => {
+    expect(() =>
+      cssPackagesIn(installed({ name: "some-css", version: "1.0.0" }, "…"), [
+        "some-css",
+      ]),
+    ).toThrow(/no version or no licence/);
+    expect(() => cssPackagesIn(scratch(), ["some-css"])).toThrow(
+      /cannot be read/,
+    );
+  });
+
+  test("a package with no licence file has no notice to ship", () => {
+    const modules = installed(
+      { name: "some-css", version: "1.0.0", license: "MIT" },
+      null,
+    );
+    // The refusal names every spelling that was looked for.
+    expect(() => cssPackagesIn(modules, ["some-css"])).toThrow(
+      /ships no readable LICENSE, LICENCE, COPYING or NOTICE file/,
+    );
+  });
+
+  test("the licence file is found however it is spelt", () => {
+    for (const file of ["LICENSE", "licence.md", "COPYING", "NOTICE.txt"]) {
+      const modules = installed(
+        { name: "some-css", version: "1.0.0", license: "MIT" },
+        `the text of ${file}`,
+        file,
+      );
+      expect(cssPackagesIn(modules, ["some-css"])[0]?.text, file).toBe(
+        `the text of ${file}`,
+      );
+    }
+  });
+
+  test("a LICENSES/ directory is not the licence, and the plainest name wins", () => {
+    const modules = installed(
+      { name: "some-css", version: "1.0.0", license: "MIT" },
+      "the licence itself",
+    );
+    const where = join(modules, "some-css");
+    // What some packages keep their per-file texts in, and what reading as
+    // a file would throw on.
+    mkdirSync(join(where, "LICENSES"));
+    writeFileSync(join(where, "LICENSES", "MIT.txt"), "not this one");
+    writeFileSync(join(where, "LICENSE-MIT"), "nor this one");
+    writeFileSync(join(where, "NOTICE"), "nor this");
+
+    expect(cssPackagesIn(modules, ["some-css"])[0]?.text).toBe(
+      "the licence itself",
+    );
+  });
+
+  test("a directory is the only candidate: that is no notice at all", () => {
+    const modules = scratch();
+    const where = join(modules, "some-css");
+    mkdirSync(where, { recursive: true });
+    writeFileSync(
+      join(where, "package.json"),
+      JSON.stringify({ name: "some-css", version: "1.0.0", license: "MIT" }),
+    );
+    mkdirSync(join(where, "LICENSES"));
+    expect(() => cssPackagesIn(modules, ["some-css"])).toThrow(
+      /a directory of that name is not one/,
+    );
+  });
+
+  test("it joins the record, sorted in with the module graph's", () => {
+    const file = join(scratch(), "bundled-packages.txt");
+    const record = bundledPackagesFrom(
+      ["react 19.3.0 MIT", "some-css 2.1.0 MIT"],
+      { check: false, file },
+    );
+    expect(record.split("\n").slice(2)).toEqual([
+      "react 19.3.0 MIT",
+      "some-css 2.1.0 MIT",
+    ]);
+  });
+
+  test("its notice joins the file the module graph wrote, in its shape", () => {
+    const file = join(scratch(), "THIRD_PARTY_LICENSES.txt");
+    const packages = [
+      { name: "some-css", version: "2.1.0", license: "MIT", text: "MIT text" },
+      { name: "other", version: "1.0.0", license: "ISC", text: "ISC text" },
+    ];
+    // Nothing written yet: a build that shipped no notices at all must not
+    // pass quietly.
+    expect(() => appendCssNotices(file, packages)).toThrow(/was not written/);
+
+    // What rollup-plugin-license leaves: entries parted by a rule, the last
+    // one ending in its licence text and a newline.
+    writeFileSync(file, "Name: react\nLicense Text:\n===\n\nreact text\n");
+    appendCssNotices(file, packages);
+
+    expect(readFileSync(file, "utf8")).toBe(
+      "Name: react\nLicense Text:\n===\n\nreact text" +
+        "\n\n---\n\n" +
+        "Name: some-css\nVersion: 2.1.0\nLicense: MIT\n" +
+        "Reached through a stylesheet, not through the module graph: " +
+        "see DEPENDENCIES.md.\nLicense Text:\n===\n\nMIT text" +
+        "\n\n---\n\n" +
+        "Name: other\nVersion: 1.0.0\nLicense: ISC\n" +
+        "Reached through a stylesheet, not through the module graph: " +
+        "see DEPENDENCIES.md.\nLicense Text:\n===\n\nISC text\n",
+    );
+    // One rule per boundary, and none left dangling at the end.
+    const written = readFileSync(file, "utf8");
+    expect(written.split("\n\n---\n\n")).toHaveLength(3);
+    expect(written.trimEnd().endsWith("---")).toBe(false);
+
+    // Nothing to add is not a reason to touch the file.
+    appendCssNotices(file, []);
+    expect(readFileSync(file, "utf8")).toBe(written);
+  });
+
+  test("what is actually named is read from the real tree", () => {
+    // The by-hand list and the installed tree have to agree, and this is
+    // where a name that was written down without the package being there
+    // stops the build.
+    const named = cssPackagesIn(resolve(here, "node_modules"));
+    expect(named.map((one) => one.name)).toEqual(["tailwindcss"]);
+    expect(named[0]?.license).toBe("MIT");
+    expect(named[0]?.text).toContain("MIT License");
+  });
+});
+
 describe("where the plugins are registered", () => {
   test("the page build and the worker build both carry the gates", async () => {
     // A worker is a second rollup build: its modules are gated only if the
@@ -161,6 +340,10 @@ describe("where the plugins are registered", () => {
 
     expect(named(config.plugins.flat())).toContain(
       "robinauts-stylesheet-rules",
+    );
+    // Without it the CSS-reached packages' notices never reach dist/.
+    expect(named(config.plugins.flat())).toContain(
+      "robinauts-css-package-notices",
     );
     expect(named(config.build.rollupOptions.plugins)).toContain(
       "rollup-plugin-license",

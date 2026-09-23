@@ -19,16 +19,17 @@ this file says how it is applied to npm.
   package is a line in the pull request diff. Never edit it by hand. It is
   written from **rollup's module graph**, so it names every package a *module*
   was imported from — and only those.
-- **A package reached only through a stylesheet is not in that record.**
+- **A package reached only through a stylesheet is in no module graph.**
   `@import "some-package"`, `url(some-package/logo.png)`, and the `@import`s
-  inside a package's own stylesheet are all outside rollup's module graph.
-  Such a package is still held to the allowed list, because
-  `frontend/scripts/check-licences.mjs` holds every package the lockfile pins;
-  what is missing is the record, and the one case neither gate catches is a
-  package excepted as development-only that CSS then pulls into the bundle.
-  **So a CSS `@import` or `url()` that names a package is called out in the
-  pull request**, and the reviewer checks it by hand.
-  [../../DEPENDENCIES.md](../../DEPENDENCIES.md) says the whole of it.
+  inside a package's own stylesheet are all outside rollup's, so nothing
+  discovers them. **They are written down by hand**, in `CSS_PACKAGES` in
+  `frontend/vite.config.ts`: a stylesheet that gains one of those adds the
+  package's name there, and that line is what a reviewer looks at — say so
+  in the pull request as well. From the name, the build holds it to the allowed
+  list, adds it to `bundled-packages.txt` beside the module graph's packages,
+  and appends its `LICENSE` to `dist/THIRD_PARTY_LICENSES.txt`, so nothing
+  ships unrecorded or unattributed. What is still lost is a name nobody wrote
+  down; [../../DEPENDENCIES.md](../../DEPENDENCIES.md) says the whole of it.
 - **Plain CSS, no CSS Modules, no inline `<style>`.** Three things the build
   refuses outright, because each can be judged from a file's name without
   resolving anything: a CSS Module (`composes ... from` and `@value ... from`

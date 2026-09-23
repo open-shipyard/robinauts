@@ -2,7 +2,7 @@
 // Copyright The Robinauts Authors
 import { afterEach, expect, test, vi } from "vitest";
 
-import { ApiError, request } from "./client";
+import { ApiError, onUnauthorized, request } from "./client";
 
 /** Answers the next `fetch` with this, and remembers what it was asked. */
 function answering(
@@ -196,4 +196,56 @@ test("an abort while the body is read is the caller's too", async () => {
 
   expect(failure).toBe(controller.signal.reason);
   expect(failure).not.toBeInstanceOf(ApiError);
+});
+
+test("a 401 tells whoever is listening, before the refusal is thrown", async () => {
+  answering(401, JSON.stringify({ error: "not_signed_in", detail: "gone" }));
+  const told: string[] = [];
+  const stop = onUnauthorized(() => told.push("told"));
+
+  const failure = await refused(request("get", "/api/agents"));
+
+  expect(told).toEqual(["told"]);
+  expect(failure.status).toBe(401);
+  stop();
+});
+
+test("a listener that has unsubscribed is not told", async () => {
+  answering(401, JSON.stringify({ error: "not_signed_in", detail: "gone" }));
+  const told: string[] = [];
+  onUnauthorized(() => told.push("told"))();
+
+  await refused(request("get", "/api/agents"));
+
+  expect(told).toEqual([]);
+});
+
+test("nothing but a 401 tells them", async () => {
+  answering(403, JSON.stringify({ error: "not_yours", detail: "no" }));
+  const told: string[] = [];
+  const stop = onUnauthorized(() => told.push("told"));
+
+  await refused(request("get", "/api/agents"));
+
+  expect(told).toEqual([]);
+  stop();
+});
+
+test("a listener that throws does not swallow the refusal", async () => {
+  answering(401, JSON.stringify({ error: "not_signed_in", detail: "gone" }));
+  const told: string[] = [];
+  const stops = [
+    onUnauthorized(() => {
+      throw new Error("a listener's own bug");
+    }),
+    // Registered after the one that throws: it is still told, and the
+    // caller still gets its ApiError.
+    onUnauthorized(() => told.push("second")),
+  ];
+
+  const failure = await refused(request("get", "/api/agents"));
+
+  expect(told).toEqual(["second"]);
+  expect(failure.error).toBe("not_signed_in");
+  for (const stop of stops) stop();
 });

@@ -48,9 +48,11 @@ Do not:
 
 Do:
 
-- say so in the pull request when a stylesheet gains an `@import` or a
-  `url()` that names a **package**. `bundled-packages.txt` is written from
-  rollup's module graph and will not name it, so that one is checked by hand
+- add the package's name to `CSS_PACKAGES` in `vite.config.ts`, and say so in
+  the pull request, when a stylesheet gains an `@import` or a `url()` that
+  names a **package**. Rollup's module graph does not see it, so that list is
+  written by hand; from the name the build holds it to the allowed list,
+  records it in `bundled-packages.txt` and ships its `LICENSE`
   ([../DEPENDENCIES.md](../DEPENDENCIES.md), "What the bundle's record does
   not see").
 - run `scripts/check-frontend.sh` from the root of the repository before

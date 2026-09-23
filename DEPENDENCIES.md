@@ -198,6 +198,7 @@ the bundle, and excuses nothing there.
 | package | version | scope | licence | why it is acceptable |
 |---|---|---|---|---|
 | `lightningcss`, `lightningcss-android-arm64`, `lightningcss-darwin-arm64`, `lightningcss-darwin-x64`, `lightningcss-freebsd-x64`, `lightningcss-linux-arm-gnueabihf`, `lightningcss-linux-arm64-gnu`, `lightningcss-linux-arm64-musl`, `lightningcss-linux-x64-gnu`, `lightningcss-linux-x64-musl`, `lightningcss-win32-arm64-msvc`, `lightningcss-win32-x64-msvc` | 1.33.0 | development | MPL-2.0 | **restricted**, and the restricted category's conditions hold as they do for `pathspec`: unmodified, unbundled, installed by npm from the registry and never vendored, development only, and in no artefact this project ships. The CSS tool Vite compiles stylesheets with; one package plus the prebuilt binary for each platform, all of which the lock pins, and of which a machine installs the one it can run |
+| `lightningcss`, `lightningcss-android-arm64`, `lightningcss-darwin-arm64`, `lightningcss-darwin-x64`, `lightningcss-freebsd-x64`, `lightningcss-linux-arm-gnueabihf`, `lightningcss-linux-arm64-gnu`, `lightningcss-linux-arm64-musl`, `lightningcss-linux-x64-gnu`, `lightningcss-linux-x64-musl`, `lightningcss-win32-arm64-msvc`, `lightningcss-win32-x64-msvc` | 1.32.0 | development | MPL-2.0 | the same packages, the same licence — the MPL-2.0 text ships in the 1.32.0 package too — and the same conditions as the row above. A second copy, because `@tailwindcss/node` depends on `lightningcss` at exactly `1.32.0` while Vite is on 1.33.0, so the lock holds both and the gate asks for the version somebody read |
 | `caniuse-lite` | 1.0.30001810 | development | CC-BY-4.0 | a data set of browser support, which the build reads to decide what to compile down to. Attribution only, no copyleft term, and none of it reaches the bundle. Brought by `vite` through `browserslist` |
 | `spdx-exceptions` | 2.5.0 | development | CC-BY-3.0 | the SPDX list of licence exceptions — the data `rollup-plugin-license` judges everything else by. Attribution only |
 | `spdx-expression-validate` | 2.0.0 | development | `(MIT AND CC-BY-3.0)` | the SPDX expression parser, whose code is MIT and whose data carries the CC-BY-3.0 of the list above |
@@ -223,24 +224,48 @@ Those packages are still **held to the allowed list**, because
 `frontend/scripts/check-licences.mjs` holds every package the lockfile pins,
 whatever route it takes into the bundle — so nothing outside this policy can
 be installed at all, and the licence of anything a stylesheet reaches has
-already been read. Two things are lost. The **record** is incomplete: the
-bundle may carry a package that `bundled-packages.txt` does not name. And one
-case escapes both gates — a package scoped **development only** in the
-lockfile, excepted in the table below on that basis, which a stylesheet then
-pulls into the bundle. The exception says it ships in no artifact; the CSS
-would make that untrue, and nothing would notice.
+already been read.
 
-So: **a change that adds a CSS `@import` or a `url()` naming a package is
-reviewed by hand**, against the list below and against the allowed list. Say
-in the pull request which package it reaches.
+### The by-hand list
 
-A scanner that read the stylesheets was written for this step and dropped: it
+What no scanner finds, a person writes down. `CSS_PACKAGES` in
+`frontend/vite.config.ts` names the packages whose CSS ships although no
+module was ever imported from them, and **that list is maintained by hand**:
+
+- **a change that adds a CSS `@import` or a `url()` naming a package adds the
+  package's name there**, and that name is what a reviewer looks at, exactly
+  as a new line in `bundled-packages.txt` is. Say so in the pull request too.
+
+Once a name is written down, the build does the rest of it, and every part
+fails the build rather than being skipped:
+
+- it reads the package's own `package.json` and holds its licence to the
+  **allowed list** — no exception row reaches here, because what ships in the
+  bundle is the allowed list or nothing;
+- it puts `name version licence` into `frontend/bundled-packages.txt`,
+  alongside the module graph's, so the record is one list however a package
+  got into the bundle and a version bump shows up in the diff;
+- it appends the package's `LICENSE` text to `dist/THIRD_PARTY_LICENSES.txt`,
+  which the wheel carries, so code that ships is not distributed without its
+  notice.
+
+`frontend/src/test/build-rules.test.ts` drives all of that against a made-up
+package directory, and checks the real tree against the list.
+
+What is still lost is what a list written by hand always loses: **a name
+nobody wrote down**. A package scoped `development` in the lockfile and
+excepted in the table below on that basis, which a stylesheet then pulls into
+the bundle without the list being updated, is in no gate's way. The exception
+says it ships in no artifact; the CSS would make that untrue.
+
+A scanner that read the stylesheets was written for step 17 and dropped: it
 has to agree with Vite's own resolver about what a specifier means — `exports`
 maps, a file beside the stylesheet versus a package of that name, what Vite
 rewrites inside a string — and ten rounds of review did not get it there. The
 build still refuses what it can judge without resolving anything: CSS Modules,
 any stylesheet language but plain `.css`, and a `<style>` block in
-`index.html`. A scanner that agrees with the resolver is future work.
+`index.html`. A scanner that agrees with the resolver is future work; until
+then, the by-hand list is the record.
 
 
 ## Known exclusions

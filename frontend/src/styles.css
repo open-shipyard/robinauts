@@ -2,25 +2,82 @@
 /* Copyright The Robinauts Authors */
 
 /*
- * System fonts only: no CDN, no downloaded font, nothing from a third-party
- * origin, so an air-gapped install looks the same as any other
- * (docs/specs/frontend.md).
+ * The stylesheet the page loads: Tailwind, our design tokens, and the little
+ * that is written as plain CSS.
  *
- * There is no shell and no styling system here yet; step 18 brings Tailwind
- * and the panel. This file exists so that the placeholder page is legible.
+ * `@import "tailwindcss"` **names a package**, and rollup's module graph does
+ * not see it, because no module is ever imported from `tailwindcss`. So it
+ * is written down by hand, in `CSS_PACKAGES` in ../vite.config.ts, which is
+ * what puts it in `bundled-packages.txt` and its MIT notice in
+ * `dist/THIRD_PARTY_LICENSES.txt` (../../DEPENDENCIES.md, "What the bundle's
+ * record does not see"). **A stylesheet here that gains an `@import` or a
+ * `url()` naming another package adds that name there too.**
+ *
+ * Tailwind's own sources are named rather than discovered. `source(none)`
+ * turns the automatic scan off: left on, it walks up to the repository root
+ * and reads the backend as well, so what the build produces would depend on
+ * what else happens to be in the tree.
  */
-
+@import "tailwindcss" source(none);
 @import "./tokens.css";
 
-body {
-  margin: 0;
-  font-family:
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    "Helvetica Neue",
-    Arial,
-    sans-serif;
-  line-height: 1.5;
+@source "../index.html";
+@source "./**/*.{ts,tsx}";
+
+/*
+ * The Tailwind theme, over our tokens (docs/specs/frontend.md, ADR 0001).
+ *
+ * `inline` is what makes `bg-panel` compile to `background-color:
+ * var(--panel)` rather than to a variable of Tailwind's own that holds
+ * `var(--panel)`. One indirection, and the tokens stay the thing every
+ * colour in the interface is written in: if Tailwind goes, this block goes
+ * with it and `tokens.css` does not move.
+ *
+ * Tailwind's default palette is left in place. It is not what components are
+ * written in -- every colour below is a token -- and clearing it would take
+ * `transparent` and `current` with it.
+ */
+@theme inline {
+  --color-ground: var(--ground);
+  --color-paper: var(--paper);
+  --color-panel: var(--panel);
+  --color-tint: var(--tint);
+  --color-hover: var(--hover);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-edge: var(--edge);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-link: var(--link);
+  --color-bad: var(--bad);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-ink: var(--warn-ink);
+  --color-scrim: var(--scrim);
+
+  --radius-ui: var(--radius);
+  --radius-card: var(--radius-card);
+  --radius-pill: var(--radius-pill);
+
+  --font-sans: var(--sans);
+  --font-mono: var(--mono);
+}
+
+@layer base {
+  body {
+    background-color: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  /*
+   * A keyboard's way through the interface has to be visible, and Tailwind's
+   * preflight removes the browser's own outline from anything it styles.
+   */
+  :focus-visible {
+    outline: 2px solid var(--link);
+    outline-offset: 2px;
+  }
 }

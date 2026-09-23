@@ -4,10 +4,17 @@
 // The gates on what may end up in the bundle. The rules they enforce are in
 // ../docs/contributing/js-dependencies.md; the policy behind them is
 // ../DEPENDENCIES.md.
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import license from "rollup-plugin-license";
 import type { Dependency } from "rollup-plugin-license";
@@ -50,18 +57,181 @@ const here = import.meta.dirname;
  * **What it sees, and what it does not.** rollup-plugin-license reads
  * rollup's module graph, so it lists every package a *module* was imported
  * from. A package reached only through a stylesheet -- `@import "pkg"`,
- * `url(pkg/x.png)`, or a package stylesheet's own imports -- is in the bundle
- * and is **not** in this list. `scripts/check-licences.mjs` still holds it to
- * the allowed list, because it holds every package the lockfile pins, so
- * nothing outside the policy can be installed at all; what is missing is the
- * record, and the one case the tree gate cannot catch is a package scoped
- * development-only that reaches the bundle through CSS.
- *
- * Reviewing a change that adds a CSS `@import` or `url()` of a package means
- * checking that target by hand. ../DEPENDENCIES.md says so, and a scanner
- * that agrees with Vite's own resolver is future work.
+ * `url(pkg/x.png)`, or a package stylesheet's own imports -- is in no module
+ * graph, and the other half of this list is `CSS_PACKAGES` below, which is
+ * written by hand.
  */
 const BUNDLED_PACKAGES = resolve(here, "bundled-packages.txt");
+
+/**
+ * Packages whose CSS ships although no module was ever imported from them.
+ *
+ * **This list is maintained by hand**, and it is the by-hand rule of
+ * ../DEPENDENCIES.md ("What the bundle's record does not see") made into a
+ * file the build reads. A stylesheet that gains an `@import "pkg"`, a
+ * `url(pkg/…)` or a reference to a package stylesheet that imports another
+ * package is a change that adds a name here, and that name is what a
+ * reviewer looks at -- exactly as a new line in `bundled-packages.txt` is.
+ *
+ * Nothing discovers these: a scanner that agrees with Vite's own resolver
+ * about what a specifier means was written for step 17 and dropped after ten
+ * rounds of review. What the build can still do, once a name is written
+ * down, is everything that follows from it: read the package's own metadata,
+ * hold its licence to the allowed list like any bundled package, put it in
+ * the record, and ship its notice with the code it belongs to. Left out,
+ * `tailwindcss`'s preflight and utilities would ship with no MIT notice
+ * anywhere in `dist/`.
+ *
+ * `src/styles.css` says the same thing from the other side.
+ */
+const CSS_PACKAGES = ["tailwindcss"];
+
+/** Where the packages above are read from, which is what npm installed. */
+const NODE_MODULES = resolve(here, "node_modules");
+
+/**
+ * What a package calls the file its licence is in.
+ *
+ * `LICENSE`, `LICENCE`, `LICENSE.md`, `LICENSE-MIT`, `COPYING`, `NOTICE`:
+ * there is no rule, only convention, and a package whose file this misses
+ * fails the build rather than shipping unattributed.
+ */
+const LICENCE_FILE = /^(licen[cs]e|copying|notice)/i;
+
+/** The bare name, with no extension and nothing after it. */
+const BARE = /^(licen[cs]e|copying|notice)$/i;
+
+/**
+ * The one to quote, out of everything in a package that could be it.
+ *
+ * Two things decide it. **It has to be a file**: `LICENSES/` is a
+ * *directory* some packages keep their per-file texts in (this repository
+ * has one), and reading it would throw rather than fail with something a
+ * person can act on. And **the plainest name wins**: `LICENSE` over
+ * `LICENSE.md` over `LICENSE-MIT`, and a licence over a `NOTICE`, which is
+ * an addition to one rather than the thing itself. Ties go alphabetically,
+ * so the answer does not depend on the order a directory happens to list.
+ */
+function rank(file: string): number {
+  const licence = /^licen[cs]e/i.test(file);
+  if (BARE.test(file)) return licence ? 0 : 1;
+  return licence ? 2 : 3;
+}
+
+function licenceFile(where: string): string | undefined {
+  return readdirSync(where)
+    .filter((file) => {
+      if (!LICENCE_FILE.test(file)) return false;
+      try {
+        return statSync(join(where, file)).isFile();
+      } catch {
+        // A broken symbolic link, or something unreadable: not a notice.
+        return false;
+      }
+    })
+    .sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : a > b ? 1 : 0))[0];
+}
+
+/** What a package that reaches the bundle through CSS contributes. */
+export interface CssPackage {
+  name: string;
+  version: string;
+  license: string;
+  /** The text of its LICENSE file, as the notice carries it. */
+  text: string;
+}
+
+/**
+ * One of them, read from what npm installed.
+ *
+ * Everything here fails the build rather than being skipped. A name in
+ * `CSS_PACKAGES` is a statement that this package's code ships; a licence
+ * that cannot be read, or that is not on the allowed list, is then the same
+ * problem as one in the bundle's own gate, and **the bundle is the allowed
+ * list or nothing** (../DEPENDENCIES.md): no exception row reaches here.
+ */
+export function cssPackage(name: string, modules: string): CssPackage {
+  const where = join(modules, name);
+  let manifest: { name?: unknown; version?: unknown; license?: unknown };
+  try {
+    manifest = JSON.parse(
+      readFileSync(join(where, "package.json"), "utf8"),
+    ) as {
+      name?: unknown;
+    };
+  } catch {
+    throw new Error(
+      `${name} is named in CSS_PACKAGES and ${where}/package.json cannot be ` +
+        "read. A package whose CSS ships has to be installed to be judged.",
+    );
+  }
+  const version = manifest.version;
+  const license = manifest.license;
+  if (typeof version !== "string" || typeof license !== "string") {
+    throw new Error(
+      `${name} states no version or no licence in its package.json. ` +
+        "../DEPENDENCIES.md: an exception can never cover metadata nobody " +
+        "can read, and this is code that ships.",
+    );
+  }
+  if (!isAllowed(license)) {
+    throw new Error(
+      `${name} ${version} is ${license}, which is not on the allowed list of ` +
+        "../DEPENDENCIES.md. Its CSS is in the bundle, and what ships is the " +
+        "allowed list or nothing.",
+    );
+  }
+  const named = licenceFile(where);
+  if (named === undefined) {
+    throw new Error(
+      `${name} ${version} ships no readable LICENSE, LICENCE, COPYING or ` +
+        `NOTICE file in ${where} (any extension; a directory of that name ` +
+        "is not one), so there is no notice to carry. The wheel distributes " +
+        "its CSS and has to distribute the licence with it.",
+    );
+  }
+  return {
+    name,
+    version,
+    license,
+    text: readFileSync(join(where, named), "utf8").trimEnd(),
+  };
+}
+
+export function cssPackagesIn(
+  modules: string,
+  names: readonly string[] = CSS_PACKAGES,
+): CssPackage[] {
+  return names.map((name) => cssPackage(name, modules));
+}
+
+/**
+ * The rule rollup-plugin-license puts between two entries, copied.
+ *
+ * What is appended has to be indistinguishable from what it wrote, so that
+ * the file has one shape throughout and nothing reading it has to know
+ * which half an entry came from.
+ */
+const BETWEEN_NOTICES = "\n\n---\n\n";
+
+/**
+ * One entry per package, in the shape rollup-plugin-license writes them:
+ * a block of fields, `License Text:`, and the text.
+ *
+ * No rule before the first or after the last -- `appendCssNotices` puts one
+ * between what is already there and these, and the file ends with a licence
+ * as the plugin's own does.
+ */
+export function cssNotices(packages: readonly CssPackage[]): string {
+  return packages
+    .map(
+      (one) =>
+        `Name: ${one.name}\nVersion: ${one.version}\nLicense: ${one.license}\n` +
+        "Reached through a stylesheet, not through the module graph: " +
+        `see DEPENDENCIES.md.\nLicense Text:\n===\n\n${one.text}`,
+    )
+    .join(BETWEEN_NOTICES);
+}
 
 /**
  * Whether the build compares the committed list instead of rewriting it.
@@ -233,9 +403,55 @@ export function bundledPackagesFrom(
 
 function bundledPackages(dependencies: Dependency[]): string {
   refuseInlineStyles(resolve(here, "index.html"));
-  return bundledPackagesFrom(
-    dependencies.map((d) => `${d.name} ${d.version} ${d.license}`),
-  );
+  // The module graph's packages and the ones a stylesheet reaches, in one
+  // record: what ships is one list, whichever way a package got there.
+  return bundledPackagesFrom([
+    ...dependencies.map((d) => `${d.name} ${d.version} ${d.license}`),
+    ...cssPackagesIn(NODE_MODULES).map(
+      (one) => `${one.name} ${one.version} ${one.license}`,
+    ),
+  ]);
+}
+
+/**
+ * The notices of the CSS-reached packages, after the file has been written.
+ *
+ * rollup-plugin-license writes `THIRD_PARTY_LICENSES.txt` from the module
+ * graph and knows nothing of these, so they are appended once it has. A
+ * missing file is a failure rather than a no-op: it would mean the licence
+ * output did not run at all, and a build that quietly shipped no notices is
+ * the thing this is here to prevent.
+ */
+export function appendCssNotices(
+  file: string,
+  packages: readonly CssPackage[],
+): void {
+  if (packages.length === 0) return;
+  if (!existsSync(file)) {
+    throw new Error(
+      `${file} was not written, so the notices of the packages reached ` +
+        "through a stylesheet have nowhere to go. The licence output of " +
+        "rollup-plugin-license has to run before this.",
+    );
+  }
+  // Read and rewritten rather than appended to: the rule between two
+  // entries is exact, and the only way to put one there is to know where
+  // what is already in the file ends.
+  const written = readFileSync(file, "utf8").trimEnd();
+  writeFileSync(file, `${written}${BETWEEN_NOTICES}${cssNotices(packages)}\n`);
+}
+
+function carryCssNotices(): Plugin {
+  return {
+    name: "robinauts-css-package-notices",
+    apply: "build",
+    closeBundle() {
+      appendCssNotices(
+        resolve(here, "dist/THIRD_PARTY_LICENSES.txt"),
+        cssPackagesIn(NODE_MODULES),
+      );
+    },
+  };
 }
 
 // The dev server against a local `robinauts start`. One target, one set of
@@ -257,7 +473,15 @@ export default defineConfig({
   // Relative asset paths, so the built files work under any prefix, /ui/
   // included, without being rebuilt for it.
   base: "./",
-  plugins: [react(), refuseStylesheets(), sizeBudget()],
+  // Tailwind compiles src/styles.css; the stylesheet rules still judge every
+  // file that reaches the build, Tailwind's own included.
+  plugins: [
+    tailwindcss(),
+    react(),
+    refuseStylesheets(),
+    carryCssNotices(),
+    sizeBudget(),
+  ],
   test: {
     environment: "jsdom",
     setupFiles: ["src/test/setup.ts"],

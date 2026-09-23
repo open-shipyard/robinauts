@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright The Robinauts Authors
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+} from "@testing-library/react";
+import { expect, test, vi } from "vitest";
+
+import {
+  AGENT_KEY,
+  AgentPicker,
+  useAgents,
+  type Agent,
+  type Agents,
+} from "./AgentPicker";
+
+const AGENTS: Agent[] = [
+  { id: "helper", title: "Helper", engine: "langgraph" },
+  { id: "writer", title: "Writer", engine: "pydantic-ai" },
+];
+
+const ready = (items: Agent[]): Agents => ({ status: "ready", items });
+
+const kept = () => localStorage.getItem(`robinauts.${AGENT_KEY}`);
+
+test("one agent is not a choice, so there is no picker", () => {
+  render(<AgentPicker agents={ready(AGENTS.slice(0, 1))} />);
+  expect(screen.queryByLabelText("Agent")).toBeNull();
+});
+
+test("no agent at all: nothing to pick, and a reason why", () => {
+  render(<AgentPicker agents={ready([])} />);
+  expect(screen.getByLabelText("Agent")).toBeDisabled();
+  expect(screen.getByRole("alert")).toHaveTextContent(/no agent configured/);
+});
+
+test("more than one: a picker, and the choice is remembered", () => {
+  render(<AgentPicker agents={ready(AGENTS)} />);
+  const picker = screen.getByLabelText("Agent");
+  expect(picker).toHaveValue("helper");
+  fireEvent.change(picker, { target: { value: "writer" } });
+  expect(picker).toHaveValue("writer");
+  expect(kept()).toBe("writer");
+});
+
+test("what this browser chose is what it opens with", () => {
+  localStorage.setItem(`robinauts.${AGENT_KEY}`, "writer");
+  render(<AgentPicker agents={ready(AGENTS)} />);
+  expect(screen.getByLabelText("Agent")).toHaveValue("writer");
+});
+
+test("an agent the deployment no longer offers is not kept selected", () => {
+  localStorage.setItem(`robinauts.${AGENT_KEY}`, "gone");
+  render(<AgentPicker agents={ready(AGENTS)} />);
+  expect(screen.getByLabelText("Agent")).toHaveValue("helper");
+});
+
+test("while they are being fetched, and when they cannot be", () => {
+  const { unmount } = render(<AgentPicker agents={{ status: "loading" }} />);
+  expect(screen.getByText("Loading the agents…")).toBeVisible();
+  unmount();
+  render(<AgentPicker agents={{ status: "failed", detail: "no network" }} />);
+  expect(screen.getByRole("alert")).toHaveTextContent("no network");
+});
+
+test("the list is asked for once, and a re-render is not a second ask", async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+    new Response(JSON.stringify({ items: AGENTS }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+  );
+  vi.stubGlobal("fetch", fetch);
+  const { result, rerender } = renderHook(() => useAgents());
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(result.current).toEqual({ status: "ready", items: AGENTS });
+  // A re-render is not a second call: the shell holds this, so that "New
+  // chat" -- which remounts the picker -- costs nothing.
+  rerender();
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch.mock.calls[0]?.[0]).toBe("/api/agents");
+});
+
+test("a refusal becomes something to show, not a silence", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn<typeof globalThis.fetch>()
+      .mockRejectedValue(new TypeError("no network")),
+  );
+  const { result } = renderHook(() => useAgents());
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(result.current.status).toBe("failed");
+  expect(
+    result.current.status === "failed" ? result.current.detail : "",
+  ).toContain("no network");
+});
