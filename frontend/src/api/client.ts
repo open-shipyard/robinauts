@@ -42,6 +42,19 @@ export class ApiError extends Error {
 }
 
 /**
+ * The sentence to put in front of a person when a call did not work.
+ *
+ * Every failure a caller can meet is an `ApiError` (see `request`), and its
+ * `detail` is the backend's own sentence, written for a reader and already
+ * cleared of anything that came from outside (`api/errors.py`). The other
+ * branch is for what never came from a call at all -- a bug in a handler
+ * above this -- and is there so that nothing is ever shown an empty message.
+ */
+export function detailOf(failure: unknown): string {
+  return failure instanceof ApiError ? failure.detail : String(failure);
+}
+
+/**
  * What is told when a call is answered 401.
  *
  * A session ends between two requests, and the page finds out from whichever

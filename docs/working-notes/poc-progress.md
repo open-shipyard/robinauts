@@ -1531,8 +1531,8 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   render that throws from leaving a blank page — **outside everything**,
   the sign-in page included, since that is the only page somebody who is
   not signed in can reach. **No projects section**: projects are out of the
-  POC. **No routing**: only `#/`, and the hash is read for the sign-in
-  error and the return target alone.
+  POC. Routing came in the step after this one; until then the hash was read
+  for the sign-in error and the return target alone.
   Three packages, **adopted as one change** — they are the chat UI's
   styling stack, and the same reasoning `DEPENDENCIES.md` already allows for
   a framework and the client it is reached through applies: Tailwind without
@@ -1561,6 +1561,54 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   build rather than being skipped. A stylesheet that gains an `@import` or a
   `url()` naming a package adds the name there, and that line is what a
   reviewer looks at. What is still lost is a name nobody wrote down.
+- **The history, the routing and a conversation read.** No new dependency:
+  `src/router.ts` is hash routing written by hand over `hashchange` and
+  `useSyncExternalStore` — `#/` (the empty chat) and `#/c/<id>` (that
+  conversation), everything else the empty chat, and **reading a hash never
+  writes one**, so `#/sign-in?error=…` is left for the sign-in page, which
+  reads it itself. A conversation id is held to the UUID shape in one place
+  before it goes into a URL or a request path, so no `/` or `#` in one can
+  forge a route. The hash is the one part of a URL no server sees: the
+  static files need no fallback route and nothing depends on the `/ui/` they
+  are served under. `src/history/` is the panel's list: `useHistory` over
+  `GET /api/conversations`, thirty at a time, "Load more" with the opaque
+  cursor until `next_cursor` is `null`, folding by id because paging walks a
+  list that is changing (`docs/specs/conversations.md`, "Listing"), a
+  numbered ask so that a page arriving after a refresh is dropped rather than
+  spliced into a listing that no longer exists, and every write followed by a
+  fresh first page. `HistoryList` draws it as **links** (`#/c/<id>`, so a
+  conversation can be opened in a tab of its own), with the open one
+  `aria-current="page"` and an empty title shown as "Untitled" — a title is
+  the beginning of the first message, and a message with no text gives none.
+  Renaming is inline (Enter saves, Escape cancels, the focus follows the box
+  and comes back); deleting asks in the row — **no `window.confirm`** — with
+  the focus on "No"; a refusal is said in the row, and a 409 becomes "still
+  answering", because the API's own detail names a run for an operator's log.
+  Escape inside a row shuts that row rather than the drawer around it. The
+  keyboard is never left nowhere: a control in flight says `aria-disabled`
+  rather than `disabled`, since a disabled control drops the focus on
+  `<body>` — where Escape would reach the shell's listener instead of the
+  row — and a row that the fresh page no longer holds hands the focus to the
+  list itself, which carries `tabindex="-1"` for exactly that. A title is
+  bounded **in code points**, as `domain.MAX_TITLE_CHARS` is, rather than by
+  an HTML `maxlength`, which counts UTF-16 units and would cut 61 emoji the
+  route would have taken.
+  `src/conversation/` opens one: `useConversation` over
+  `GET /api/conversations/{id}`, the tree walked from `leaf_id` up the
+  `parent_id`s into the branch it opens on — the walk ends rather than loops
+  on rows that are not a tree — and `ConversationView`, **a stand-in until
+  step 21 replaces it through the seam**, showing the title as the `<h1>`
+  (there is no top bar to put it in), the branch read-only with role, time
+  and the answer's agent and engine, "Answering…" with a Cancel that posts to
+  the run and rereads, a sentence per state for a run that ended badly, and
+  one answer — "this conversation is not here" — for a 404, since a
+  conversation that never existed and one of somebody else's are the same
+  answer. `src/chat/index.ts` gained the **types** the chat will need from
+  the application (`ConversationId`, `AgentId`, `ChatProps`) and no
+  implementation: the seam is the vocabulary both sides already use.
+  `frontend/scripts/fixture-server.mjs` gained the conversation routes and
+  the `history` and `conversation` scenes, whose renames, deletes and cancels
+  really change what it serves.
 
 ## Steps
 
@@ -2577,3 +2625,42 @@ Important design decisions made / open questions:
   sign-out button.
 - `@import "tailwindcss" source(none)` with explicit `@source` lines, so the
   scan never reads the backend tree.
+
+### Step 19 — history   (feature/poc-19-history)
+
+Summary: hash routing by hand (`#/`, `#/c/<uuid>`; an unknown hash reads
+as the new chat without rewriting the address, so `#/sign-in?error=`
+survives; ids validated before any URL), the history in the panel over
+`GET /api/conversations` (thirty a page, "Load more" by cursor, folded by
+id, every answer numbered so a superseded ask is dropped, a refresh after
+every write and a refresh beating a later page), per-row rename (inline,
+Enter/Escape, code-point bound of 120, the backend's own sentence when
+over) and delete (inline confirm, a 409 as a fixed sentence), accessible
+names carrying the title, focus handed back to the list when a row is
+gone; opening a conversation (`useConversation`: the current branch walked
+from `leaf_id` up the `parent_id`s, siblings excluded, cycles ended;
+`run_id`/`resume`/`ended_badly`), a read-only `ConversationView` as the
+stand-in for the chat (title first, messages with time and provenance,
+"Answering…" with Cancel, one sentence per bad ending, "not here" for a
+404), the shell routing between the empty chat and a conversation, the
+seam types `AgentId`/`ChatProps`, fixture-server scenes and screenshots.
+
+Review: 1 round.
+- High: 0
+- Medium: 0
+- Low: 8 (8/0)
+
+Checks: `scripts/check-all.sh` without a database (2528 backend, 279
+frontend tests) and with one required (2718); the bundle 79.5 kB gzipped,
+no new dependency; nine screenshots (list, rename, confirm, conversation
+light/dark, answering, ended badly, phone).
+Not done / to watch: `PUT .../leaf` (branch switching) is the chat's;
+no streaming here; the row menu is a disclosure, not `role="menu"`; a
+refresh after a write goes back to page one. About 2,700 lines with tests
+and the fixture server.
+Important design decisions made / open questions:
+- Reading a hash never writes one.
+- `aria-disabled`/`readOnly` instead of `disabled` on a focused control
+  while a request is in flight, so focus and Escape keep working.
+- The conversation's heading follows the panel's list; a reread refreshes
+  the list too, so the two never disagree.

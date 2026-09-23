@@ -6,9 +6,10 @@
  * to show, and with nobody signed in the sign-in page stands in place of
  * every page (`docs/specs/sign-in.md`, `docs/specs/frontend.md`).
  *
- * There is no routing here. Hash routing arrives with the history
- * (`docs/working-notes/poc-scope.md`, step 19); what this step reads of
- * `location.hash` is the sign-in page's error code and where to return to.
+ * **The session is read before the route is.** Which page the hash names is
+ * the shell's business (`src/router.ts`), and it only ever has one while
+ * somebody is signed in; until then the hash is the sign-in page's, which
+ * reads its error code and its return target out of it for itself.
  */
 import type { ReactNode } from "react";
 

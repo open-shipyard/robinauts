@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright The Robinauts Authors
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { expect, test, vi } from "vitest";
 
 import type { Session } from "../session/session";
+import { json, stubFetch, type Call } from "../test/api";
+import { conversation, id, opened, page } from "../test/conversations";
 import { PANEL_KEY, Shell } from "./Shell";
 
 const SESSION: Session = {
@@ -13,24 +21,36 @@ const SESSION: Session = {
   user: { id: "u-1", provider: "google", name: "Ada", email: "ada@x.test" },
 };
 
-/** One agent, so the picker keeps out of the way of what is being tested. */
-function answering() {
-  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
-    new Response(
-      JSON.stringify({
-        items: [{ id: "helper", title: "Helper", engine: "langgraph" }],
-      }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    ),
-  );
-  vi.stubGlobal("fetch", fetch);
-  return fetch;
+/**
+ * One agent, so the picker keeps out of the way of what is being tested, and
+ * no conversations. A test that is about the history or a conversation
+ * answers those calls itself and falls through to these for the rest.
+ */
+function answering(
+  answer: (call: Call) => Response | undefined = () => undefined,
+) {
+  return stubFetch((call) => answer(call) ?? otherwise(call));
 }
 
-/** Render, and let the agent list arrive before anything is asserted. */
-async function shell(signOut = () => Promise.resolve()) {
-  const fetch = answering();
+function otherwise(call: Call): Response {
+  if (call.url.startsWith("/api/agents")) {
+    return json({
+      items: [{ id: "helper", title: "Helper", engine: "langgraph" }],
+    });
+  }
+  return json(page([]));
+}
+
+/** Render, and let the agents and the history arrive. */
+async function shell(
+  signOut = () => Promise.resolve(),
+  answer?: (call: Call) => Response | undefined,
+) {
+  const fetch = answering(answer);
   const drawn = render(<Shell session={SESSION} signOut={signOut} />);
+  await waitFor(() => {
+    expect(screen.queryByText("Loading the conversations…")).toBeNull();
+  });
   await act(async () => {
     await Promise.resolve();
   });
@@ -284,8 +304,8 @@ test("the sign-out button is not left disabled once it has finished", async () =
 test("the local mode banner is there only in the local mode", async () => {
   answering();
   const { rerender } = render(<Shell session={SESSION} />);
-  await act(async () => {
-    await Promise.resolve();
+  await waitFor(() => {
+    expect(screen.queryByText("Loading the conversations…")).toBeNull();
   });
   expect(screen.queryByRole("note")).toBeNull();
   rerender(<Shell session={{ ...SESSION, local_development: true }} />);
@@ -297,9 +317,102 @@ test("with no sign-in there is nothing to sign out of", async () => {
   render(
     <Shell session={{ ...SESSION, sign_in: false, local_development: true }} />,
   );
-  await act(async () => {
-    await Promise.resolve();
+  await waitFor(() => {
+    expect(screen.queryByText("Loading the conversations…")).toBeNull();
   });
   expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
   expect(screen.getByText("Sign-in is off")).toBeVisible();
+});
+
+/** Let the event loop run once, which is what a queued `hashchange` waits for. */
+const settled = () => new Promise((done) => setTimeout(done, 0));
+
+/** The routes a conversation being open needs answered. */
+function withConversation(call: Call): Response | undefined {
+  if (call.url === `/api/conversations/${id(1)}`) {
+    return json(opened(conversation(1, "Robins"), [], null));
+  }
+  if (call.url.startsWith("/api/conversations?")) {
+    return json(page([conversation(1, "Robins")]));
+  }
+  return undefined;
+}
+
+test("the hash decides which of the two the main area is", async () => {
+  location.hash = `#/c/${id(1)}`;
+  await shell(undefined, withConversation);
+
+  expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Robins");
+  expect(screen.queryByText("New chat", { selector: "h1" })).toBeNull();
+  // The panel's current item follows the route.
+  expect(screen.getByRole("link", { name: "Robins" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+});
+
+test("an unknown hash is the empty chat, and the hash is left as it is", async () => {
+  // The sign-in page reads this one for itself; nothing here may rewrite it.
+  location.hash = "#/sign-in?error=not_allowed";
+  await shell();
+  expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+    "New chat",
+  );
+  expect(location.hash).toBe("#/sign-in?error=not_allowed");
+});
+
+test("New chat goes to the empty chat's own hash", async () => {
+  location.hash = `#/c/${id(1)}`;
+  await shell(undefined, withConversation);
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    await settled();
+  });
+  expect(location.hash).toBe("#/");
+  expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+    "New chat",
+  );
+});
+
+test("opening a conversation from the panel is a navigation", async () => {
+  await shell(undefined, withConversation);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("link", { name: "Robins" }));
+    await settled();
+  });
+  expect(location.hash).toBe(`#/c/${id(1)}`);
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Robins",
+    );
+  });
+});
+
+test("deleting the conversation that is open leaves the page on the empty chat", async () => {
+  location.hash = `#/c/${id(1)}`;
+  let gone = false;
+  await shell(undefined, (call) => {
+    if (call.method === "DELETE") {
+      gone = true;
+      return json(null, 204);
+    }
+    if (gone) return json(page([]));
+    return withConversation(call);
+  });
+
+  fireEvent.click(screen.getByRole("button", { name: "Actions for Robins" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: /^Yes, delete/ }));
+    await settled();
+  });
+
+  expect(location.hash).toBe("#/");
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "New chat",
+    );
+  });
+  expect(screen.getByText("No conversations yet.")).toBeVisible();
 });

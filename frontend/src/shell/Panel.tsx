@@ -20,6 +20,9 @@ import { LogOut, PanelLeft, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { ApiError } from "../api/client";
+import type { ConversationId } from "../chat";
+import type { History } from "../history/history";
+import { HistoryList } from "../history/HistoryList";
 import type { User } from "../session/session";
 import { useWide } from "./breakpoint";
 import { ThemeToggle } from "./ThemeToggle";
@@ -98,6 +101,10 @@ export const PANEL_ID = "robinauts-panel";
 
 export interface PanelProps {
   user: User | null;
+  /** The conversations, and what can be done to one. */
+  history: History;
+  /** The conversation the page is on, so the list can mark it. */
+  current: ConversationId | null;
   /** Collapsed to a rail of icons. Only on a screen wide enough for one. */
   collapsed: boolean;
   onCollapse: (collapsed: boolean) => void;
@@ -114,6 +121,8 @@ export interface PanelProps {
 
 export function Panel({
   user,
+  history,
+  current,
   collapsed,
   onCollapse,
   drawer,
@@ -192,17 +201,20 @@ export function Panel({
         <span className={collapsed ? "md:hidden" : ""}>New chat</span>
       </button>
 
+      {/* The one part of the panel that scrolls: a long history must not
+          push the profile block off the bottom of the screen. */}
       <nav
         aria-label="History"
-        className={`min-w-0 ${collapsed ? "md:hidden" : ""}`}
+        className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto ${collapsed ? "md:hidden" : ""}`}
       >
         <h2 className="mt-2 mb-1 px-2 text-xs font-semibold tracking-wider text-muted uppercase">
           History
         </h2>
-        {/* Empty until the history lands; the list is labelled so that what
-            fills it needs no new structure around it. */}
-        <ul aria-label="Conversations" className="m-0 list-none p-0" />
-        <p className="px-2 text-sm text-muted">No conversations yet.</p>
+        <HistoryList
+          history={history}
+          current={current}
+          onOpened={onCloseDrawer}
+        />
       </nav>
 
       {/* Everything that is not the history sits at the foot of the panel,

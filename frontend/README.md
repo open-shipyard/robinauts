@@ -4,12 +4,32 @@ A single-page application: Vite, React, TypeScript, Vitest, ESLint. It is
 served by the backend under `/ui/`, and it ships inside the `robinauts` wheel
 ([../docs/specs/frontend.md](../docs/specs/frontend.md)).
 
-What is here is the shell: the design tokens and the Tailwind theme over
-them, the collapsible panel with the profile block, the session and the
-sign-in page, the theme toggle and the banner of the local development mode.
-The history, the routing and the chat arrive in the steps after this one
-([../docs/working-notes/poc-scope.md](../docs/working-notes/poc-scope.md)); the
-main area is a placeholder with the agent picker in it until they do.
+What is here is the shell and the conversations: the design tokens and the
+Tailwind theme over them, the collapsible panel with the profile block, the
+session and the sign-in page, the theme toggle and the banner of the local
+development mode, the hash routing, the history in the panel with renaming
+and deleting, and a conversation read on the branch it opens on. The chat
+itself -- the message box, the streaming, the agent picker's first message --
+arrives in the steps after this one
+([../docs/working-notes/poc-scope.md](../docs/working-notes/poc-scope.md)),
+behind `src/chat/`.
+
+## The routes
+
+Hash routing, written by hand in `src/router.ts`: no router library, and the
+hash is the one part of a URL no server sees, so the static files need no
+fallback route and nothing depends on the `/ui/` the backend serves them
+under.
+
+| hash                    | what it is                                  |
+| ----------------------- | ------------------------------------------- |
+| `#/`                    | the empty chat, with the agent picker       |
+| `#/c/<conversation id>` | that conversation, read                     |
+| anything else           | the empty chat, with the hash left as it is |
+
+`#/sign-in?error=<code>` is where the backend sends a failed sign-in; the
+sign-in page reads it for itself, and the router neither claims nor rewrites
+it.
 
 ## Running it
 
@@ -47,15 +67,20 @@ itself, use the fixture server below.
 
 ### Looking at the shell without a backend
 
-`scripts/fixture-server.mjs` serves a built `dist/` and answers
-`/auth/session` and `/api/agents` from fixtures, which is how the states that
-would otherwise take a real sign-in are looked at:
+`scripts/fixture-server.mjs` serves a built `dist/` and answers the session,
+the agents and the conversation routes from fixtures, which is how the states
+that would otherwise take a real sign-in and a database are looked at:
 
     npm run build
     node scripts/fixture-server.mjs signed-out 5173
 
-The scenes are `signed-in`, `signed-out`, `local`, `one-agent`, `no-agents`.
-It is a development tool: it is in no check, no bundle and no wheel.
+The scenes are `signed-in`, `signed-out`, `local`, `one-agent`, `no-agents`,
+`history` (enough conversations to page through) and `conversation` (three of
+them: a branch, a run in flight, and a run that ended badly). Which
+conversation is open is the hash, so both conversation scenes serve every
+route; renaming, deleting and cancelling really change what is served, for as
+long as the process runs. It is a development tool: it is in no check, no
+bundle and no wheel.
 
 ## The checks
 

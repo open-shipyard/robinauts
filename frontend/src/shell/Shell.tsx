@@ -20,6 +20,9 @@
 import { Menu } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { ConversationView } from "../conversation/ConversationView";
+import { conversationIn, useHistory } from "../history/history";
+import { navigate, NEW_CHAT, useRoute } from "../router";
 import type { Session } from "../session/session";
 import { signOut as endSession } from "../session/session";
 import { AgentPicker, useAgents, type Agents } from "./AgentPicker";
@@ -52,8 +55,12 @@ export function Shell({
 }) {
   const [collapsed, setCollapsed] = usePanelCollapsed();
   const [drawer, setDrawer] = useState(false);
-  // A new chat is a fresh empty one until the history and the routing exist;
-  // the count is what remounts the area, so nothing typed carries over.
+  // Where the interface is: `#/` or `#/c/<id>` (`src/router.ts`).
+  const route = useRoute();
+  const history = useHistory();
+  // "New chat" pressed while the empty chat is already up changes no hash
+  // and so re-renders nothing; the count is what remounts the area, so
+  // nothing typed into it carries over into the next one.
   const [chat, setChat] = useState(0);
   // Asked for here, not inside the empty chat: that is remounted on every
   // "New chat", and the agents do not change while the server is running.
@@ -88,15 +95,21 @@ export function Shell({
     if (drawer) closer.current?.focus();
   }, [drawer]);
 
+  const current = route.kind === "conversation" ? route.id : null;
+  const listed = conversationIn(history.items, current);
+
   return (
     <div className="flex min-h-screen bg-ground text-ink">
       <Panel
         user={session.user ?? null}
+        history={history}
+        current={current}
         collapsed={collapsed}
         onCollapse={setCollapsed}
         drawer={drawer}
         onCloseDrawer={close}
         onNewChat={() => {
+          navigate(NEW_CHAT);
           setChat((count) => count + 1);
           close();
         }}
@@ -131,9 +144,22 @@ export function Shell({
         >
           <Menu size={16} aria-hidden="true" />
         </button>
-        <main className="flex flex-1 flex-col items-center justify-center gap-4 px-4 pb-16">
-          <EmptyChat key={chat} agents={agents} />
-        </main>
+        {route.kind === "conversation" ? (
+          <main className="flex min-w-0 flex-1 flex-col">
+            {/* Keyed by the id: opening another conversation is another
+                page, not this one with different props. */}
+            <ConversationView
+              key={route.id}
+              id={route.id}
+              title={listed === null ? null : listed.title}
+              onReread={history.refresh}
+            />
+          </main>
+        ) : (
+          <main className="flex flex-1 flex-col items-center justify-center gap-4 px-4 pb-16">
+            <EmptyChat key={chat} agents={agents} />
+          </main>
+        )}
       </div>
     </div>
   );
