@@ -150,6 +150,32 @@ function url(
   return `${BASE_URL}${filled}${tail === "" ? "" : `?${tail}`}`;
 }
 
+/**
+ * A response that is not a 200, as the one failure a caller handles.
+ *
+ * Exported because `request` below is not the only thing that calls this API:
+ * the chat's own client opens the streaming routes with `fetch` directly --
+ * they answer server-sent events rather than JSON and are outside the OpenAPI
+ * document (`docs/specs/wire.md`) -- and a refusal there is a refusal like
+ * any other. One mapping from a `Response` to an `ApiError`, and one place
+ * where a 401 puts the interface back to signed-out.
+ */
+export async function refused(response: Response): Promise<ApiError> {
+  if (response.status === 401) {
+    // Told before the refusal is thrown, so that a caller catching it already
+    // sees an interface that knows the session is gone. A listener that
+    // throws is its own bug and must not swallow the refusal.
+    for (const listener of [...unauthorized]) {
+      try {
+        listener();
+      } catch {
+        // Nothing here can do anything about it.
+      }
+    }
+  }
+  return refusal(response);
+}
+
 async function refusal(response: Response): Promise<ApiError> {
   let body: unknown;
   try {
@@ -247,19 +273,7 @@ export async function request<M extends Method, P extends PathsWith<M>>(
     );
   }
   if (!response.ok) {
-    if (response.status === 401) {
-      // Told before the refusal is thrown, so that a caller catching it
-      // already sees an interface that knows the session is gone. A listener
-      // that throws is its own bug and must not swallow the refusal.
-      for (const listener of [...unauthorized]) {
-        try {
-          listener();
-        } catch {
-          // Nothing here can do anything about it.
-        }
-      }
-    }
-    throw await refusal(response);
+    throw await refused(response);
   }
   if (response.status === 204) {
     return undefined as Result<Operation<P, M>>;

@@ -129,7 +129,7 @@ export function SignInPage({ session }: { session: Session }) {
             {providers.map((provider) => (
               <li key={provider.id}>
                 <a
-                  className="block rounded-ui border border-accent bg-accent px-4 py-2 text-center font-semibold text-on-accent no-underline hover:opacity-90"
+                  className="block rounded-ui border border-primary bg-primary px-4 py-2 text-center font-semibold text-primary-foreground no-underline hover:opacity-90"
                   href={loginHref(provider.id, location.hash)}
                 >
                   Sign in with {provider.title}
@@ -138,7 +138,7 @@ export function SignInPage({ session }: { session: Session }) {
             ))}
           </ul>
         ) : (
-          <p className="text-muted">
+          <p className="text-muted-foreground">
             This deployment has no sign-in configured. Whoever runs it starts it
             with a configuration file naming an identity provider; until then
             there is no way in.

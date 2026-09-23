@@ -79,7 +79,7 @@ export function ThemeToggle() {
           className={`flex items-center justify-center border-l border-edge px-2 py-1.5 first:border-l-0 ${
             theme === id
               ? "bg-tint text-ink"
-              : "bg-paper text-muted hover:bg-hover hover:text-ink"
+              : "bg-paper text-muted-foreground hover:bg-hover hover:text-ink"
           }`}
         >
           <Icon size={16} aria-hidden="true" />

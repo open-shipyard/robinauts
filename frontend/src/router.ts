@@ -45,11 +45,22 @@ export const NEW_CHAT: Route = { kind: "new" };
  * and anything at all would become a path in an API call; this is the one
  * place either is judged, so neither can be decided twice and differently.
  */
-const CONVERSATION_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Every id the backend issues is one of these.
+ *
+ * Read by the chat as well: the run and the conversation a stream is of come
+ * back in response **headers**, which are as much "from outside" as a hash is
+ * (`src/chat/assistant-ui/agui/client.ts`), and both go straight into a
+ * request path. One shape, judged in one place.
+ */
+export function isUuid(value: string): boolean {
+  return UUID.test(value);
+}
 
 export function isConversationId(value: string): boolean {
-  return CONVERSATION_ID.test(value);
+  return isUuid(value);
 }
 
 /**

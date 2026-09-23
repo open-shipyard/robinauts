@@ -85,8 +85,13 @@ neorc's rules (`neorc/contributing/js-dependencies.md`):
   `@assistant-ui/react`; it is never configured.
 - The wheel carries `THIRD_PARTY_LICENSES.txt`, listed in its
   `license-files`.
-
-## Open
-
-- The bundle size budget. neorc's 500 KB does not fit a chat UI with
-  Markdown and syntax highlighting; it is set once a first bundle exists.
+- **The bundle size budget is 400 KB**, everything the browser downloads,
+  gzipped — which is what the build's own gate measures and the only number
+  this is about. neorc's 500 KB was never going to fit a chat UI with
+  Markdown in it, and the real one was left open until there was a bundle to
+  measure: with the chat in it that is 278.6 KB (step 21, 2026-09-23), so the
+  budget is that with room for the features named above and none for a
+  dependency an order of magnitude too big. It is `SIZE_BUDGET_BYTES` in
+  `frontend/vite.config.ts` and the build fails over it; raising it is a
+  reviewed change with its reason written down
+  ([contributing/js-dependencies.md](../contributing/js-dependencies.md)).

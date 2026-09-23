@@ -13,6 +13,7 @@ import {
   AGENT_KEY,
   AgentPicker,
   useAgents,
+  useChosenAgent,
   type Agent,
   type Agents,
 } from "./AgentPicker";
@@ -26,19 +27,31 @@ const ready = (items: Agent[]): Agents => ({ status: "ready", items });
 
 const kept = () => localStorage.getItem(`robinauts.${AGENT_KEY}`);
 
+/**
+ * The picker with the choice above it, which is where the choice lives.
+ *
+ * The shell holds it (`useChosenAgent`), because the chat needs the same
+ * answer to begin a conversation; drawing the pair together is what a test
+ * of the picker is really about.
+ */
+function Picking({ agents }: { agents: Agents }) {
+  const [chosen, choose] = useChosenAgent(agents);
+  return <AgentPicker agents={agents} chosen={chosen} onChoose={choose} />;
+}
+
 test("one agent is not a choice, so there is no picker", () => {
-  render(<AgentPicker agents={ready(AGENTS.slice(0, 1))} />);
+  render(<Picking agents={ready(AGENTS.slice(0, 1))} />);
   expect(screen.queryByLabelText("Agent")).toBeNull();
 });
 
 test("no agent at all: nothing to pick, and a reason why", () => {
-  render(<AgentPicker agents={ready([])} />);
+  render(<Picking agents={ready([])} />);
   expect(screen.getByLabelText("Agent")).toBeDisabled();
   expect(screen.getByRole("alert")).toHaveTextContent(/no agent configured/);
 });
 
 test("more than one: a picker, and the choice is remembered", () => {
-  render(<AgentPicker agents={ready(AGENTS)} />);
+  render(<Picking agents={ready(AGENTS)} />);
   const picker = screen.getByLabelText("Agent");
   expect(picker).toHaveValue("helper");
   fireEvent.change(picker, { target: { value: "writer" } });
@@ -46,23 +59,34 @@ test("more than one: a picker, and the choice is remembered", () => {
   expect(kept()).toBe("writer");
 });
 
+test("the agent a first message would go to is the chosen one", () => {
+  const { result } = renderHook(() => useChosenAgent(ready(AGENTS)));
+  expect(result.current[0]).toBe("helper");
+  // Nothing has arrived yet, and nothing has been chosen: there is no agent
+  // to begin a conversation with rather than a first one to guess at.
+  const loading = renderHook(() => useChosenAgent({ status: "loading" }));
+  expect(loading.result.current[0]).toBeNull();
+  const none = renderHook(() => useChosenAgent(ready([])));
+  expect(none.result.current[0]).toBeNull();
+});
+
 test("what this browser chose is what it opens with", () => {
   localStorage.setItem(`robinauts.${AGENT_KEY}`, "writer");
-  render(<AgentPicker agents={ready(AGENTS)} />);
+  render(<Picking agents={ready(AGENTS)} />);
   expect(screen.getByLabelText("Agent")).toHaveValue("writer");
 });
 
 test("an agent the deployment no longer offers is not kept selected", () => {
   localStorage.setItem(`robinauts.${AGENT_KEY}`, "gone");
-  render(<AgentPicker agents={ready(AGENTS)} />);
+  render(<Picking agents={ready(AGENTS)} />);
   expect(screen.getByLabelText("Agent")).toHaveValue("helper");
 });
 
 test("while they are being fetched, and when they cannot be", () => {
-  const { unmount } = render(<AgentPicker agents={{ status: "loading" }} />);
+  const { unmount } = render(<Picking agents={{ status: "loading" }} />);
   expect(screen.getByText("Loading the agents…")).toBeVisible();
   unmount();
-  render(<AgentPicker agents={{ status: "failed", detail: "no network" }} />);
+  render(<Picking agents={{ status: "failed", detail: "no network" }} />);
   expect(screen.getByRole("alert")).toHaveTextContent("no network");
 });
 

@@ -14,7 +14,8 @@
  *     node scripts/fixture-server.mjs signed-in 5173
  *
  * The scene is the first argument: `signed-in`, `one-agent`, `no-agents`,
- * `local`, `signed-out`, `history` or `conversation`. It binds loopback only.
+ * `local`, `signed-out`, `history`, `conversation`, `streaming`, `reattach`
+ * or `error`. It binds loopback only.
  *
  * A failed sign-in is the `signed-out` scene at the hash the backend
  * redirects to: `http://127.0.0.1:5173/#/sign-in?error=not_allowed`.
@@ -29,7 +30,23 @@
  * Renaming, deleting and cancelling really change what this serves, so the
  * states after them can be looked at too. Nothing is written to disk: a
  * restart is a fresh set of fixtures.
+ *
+ * **The three scenes with a stream in them** answer the streaming routes of
+ * `docs/specs/wire.md` for real -- server-sent events, a position on the last
+ * wire event derived from each of the run's own, and the two headers -- so
+ * that the chat can be looked at doing what it is for:
+ *
+ * - `streaming`: sending a message streams a stretch of thinking and then an
+ *   answer, a few words at a time;
+ * - `reattach`: conversation `…002` has a run going, so opening it attaches
+ *   to that run at the `resume.after` the conversation answered with, and the
+ *   rest of the answer arrives;
+ * - `error`: the same turn, ending in `RUN_ERROR`.
+ *
+ * A turn really writes its messages into the conversation, so the reread that
+ * follows one shows what the store would.
  */
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { extname, join, normalize, resolve, sep } from "node:path";
@@ -112,6 +129,14 @@ const conversationId = (n) =>
  *
  * @param {number} n
  * @param {string} title
+ * @returns {{
+ *   id: string,
+ *   title: string,
+ *   agent: string,
+ *   created_at: string,
+ *   updated_at: string,
+ *   active_leaf_id: string | null,
+ * }}
  */
 const summary = (n, title) => ({
   id: conversationId(n),
@@ -251,6 +276,9 @@ function tree(n) {
  *   session: unknown,
  *   agents: unknown[],
  *   conversations?: number,
+ *   stream?: "finishes" | "fails",
+ *   inFlight?: number,
+ *   dropAt?: number,
  * }>}
  */
 const SCENES = {
@@ -267,6 +295,43 @@ const SCENES = {
     session: SIGNED_IN,
     agents: AGENTS,
     conversations: 3,
+  },
+  /** A turn that really streams: a stretch of thinking, then an answer. */
+  streaming: {
+    session: SIGNED_IN,
+    agents: AGENTS,
+    conversations: 3,
+    stream: "finishes",
+  },
+  /** `…002` has a run going: opening it attaches at `resume.after`. */
+  reattach: {
+    session: SIGNED_IN,
+    agents: AGENTS,
+    conversations: 3,
+    stream: "finishes",
+    inFlight: 2,
+  },
+  /**
+   * The connection goes in the middle of the answer.
+   *
+   * The stream simply stops -- no event in it says the run is over -- which
+   * is what a proxy closing a connection looks like. The run is still in
+   * flight, so the chat reads the conversation and watches it again
+   * (`docs/specs/wire.md`; `src/chat/assistant-ui/runtime.tsx`).
+   */
+  drop: {
+    session: SIGNED_IN,
+    agents: AGENTS,
+    conversations: 3,
+    stream: "finishes",
+    dropAt: 7,
+  },
+  /** The same turn, ending in a `RUN_ERROR`. */
+  error: {
+    session: SIGNED_IN,
+    agents: AGENTS,
+    conversations: 3,
+    stream: "fails",
   },
   "one-agent": {
     session: SIGNED_IN,
@@ -398,6 +463,9 @@ const ONE = new RegExp(`^/api/conversations/(${UUID})$`);
 const CANCEL = new RegExp(
   `^/api/conversations/(${UUID})/runs/(${UUID})/cancel$`,
 );
+const LEAF = new RegExp(`^/api/conversations/(${UUID})/leaf$`);
+const TURNS = new RegExp(`^/api/conversations/(${UUID})/turns$`);
+const EVENTS = new RegExp(`^/api/runs/(${UUID})/events$`);
 
 /**
  * The conversation routes, as far as the interface uses them.
@@ -480,9 +548,92 @@ async function conversations(request, response, path, query) {
       return true;
     }
   }
+  const leaf = LEAF.exec(path);
+  if (leaf !== null && method === "PUT") {
+    // Where its author is reading. It deliberately does not date the
+    // conversation (`docs/specs/conversations.md`).
+    const id = leaf[1] ?? "";
+    const index = listed.findIndex((each) => each.id === id);
+    const held = trees.get(id);
+    const found = listed[index];
+    const asked = await body(request);
+    const messageId =
+      typeof asked?.message_id === "string" ? asked.message_id : "";
+    if (found === undefined || held === undefined) {
+      refuse(
+        response,
+        404,
+        "NotFoundError",
+        "there is nothing here of that id",
+      );
+      return true;
+    }
+    trees.set(id, { ...held, leaf_id: messageId });
+    const moved = { ...found, active_leaf_id: messageId };
+    listed[index] = moved;
+    json(response, 200, moved);
+    return true;
+  }
+  const turns = TURNS.exec(path);
+  if (turns !== null && method === "POST") {
+    const id = turns[1] ?? "";
+    const held = trees.get(id);
+    if (held === undefined) {
+      refuse(
+        response,
+        404,
+        "NotFoundError",
+        "there is nothing here of that id",
+      );
+      return true;
+    }
+    if (held.run_id !== null) {
+      refuse(
+        response,
+        409,
+        "RunAlreadyActiveError",
+        `run ${held.run_id} is running in conversation ${id}`,
+      );
+      return true;
+    }
+    const asked = await body(request);
+    if (typeof asked?.regenerate === "string") {
+      // A regeneration answers the question that turn already had: it hangs
+      // where the answer it replaces hung.
+      const replaced = held.messages.find(
+        (each) => each.id === asked.regenerate,
+      );
+      await follow(response, begin(id, replaced?.parent_id ?? null), 0);
+      return true;
+    }
+    const text = typeof asked?.text === "string" ? asked.text : "";
+    const parentId =
+      typeof asked?.parent_id === "string" ? asked.parent_id : null;
+    const question = message(newId(), parentId, "user", text);
+    trees.set(id, {
+      ...held,
+      messages: [...held.messages, question],
+      leaf_id: question.id,
+    });
+    await follow(response, begin(id, question.id), 0);
+    return true;
+  }
   const cancel = CANCEL.exec(path);
   if (cancel !== null && method === "POST") {
     const id = cancel[1] ?? "";
+    const going = runs.get(cancel[2] ?? "");
+    if (going !== undefined && going.conversationId === id) {
+      // A run this process is streaming: stopping it is what the stream's
+      // own ending then says, as the backend's cancel does.
+      going.cancelled = true;
+      json(response, 200, {
+        id: cancel[2],
+        state: "cancelled",
+        started_at: "2026-09-21T16:00:00Z",
+        ended_at: new Date().toISOString(),
+      });
+      return true;
+    }
     const held = trees.get(id);
     if (held === undefined || held.run_id !== cancel[2]) {
       refuse(
@@ -515,6 +666,310 @@ async function conversations(request, response, path, query) {
   return false;
 }
 
+/* ------------------------------------------------------------------ streams */
+
+/**
+ * One AG-UI event as a server-sent event (`api/agui.py`, `sse`).
+ *
+ * `id:` is the platform's own numbering of the run's events, and it goes on
+ * the **last** wire event derived from each of them; an event this layer made
+ * up carries none, so a client re-attaching after it asks from the last real
+ * position (`docs/specs/wire.md`).
+ *
+ * @param {string} type
+ * @param {Record<string, unknown>} body
+ * @param {number | null} position
+ */
+const sse = (type, body, position) =>
+  `${position === null ? "" : `id: ${position}\n`}event: ${type}\n` +
+  `data: ${JSON.stringify({ type, ...body })}\n\n`;
+
+/**
+ * A run's events: one step per event the platform numbered.
+ *
+ * Written out the way the backend really derives them. The brackets around
+ * thinking are derived from the sequence and are **not** numbered, so each of
+ * them travels with the step that produced it; the first text delta closes
+ * the stretch of thinking that came before it, and the error ending of a run
+ * that failed carries no position at all.
+ *
+ * @param {string} threadId
+ * @param {string} runId
+ * @param {string} messageId
+ * @param {"finishes" | "fails"} how
+ * @returns {{
+ *   steps: {position: number | null, events: string[]}[],
+ *   said: string,
+ * }}
+ */
+function script(threadId, runId, messageId, how) {
+  const thought = `${messageId}:reasoning:3`;
+  const said = [
+    "Because it is quiet then. ",
+    "A robin singing before dawn is heard further than one singing at noon, ",
+    "and a song that carries is a territory that is already claimed. ",
+    "Street lighting does the rest: a lamp post is as good as a sunrise ",
+    "to a bird that has never read an almanac.",
+  ];
+  /** @type {{position: number | null, events: string[]}[]} */
+  const steps = [
+    { position: 1, events: [sse("RUN_STARTED", { threadId, runId }, 1)] },
+    {
+      position: 2,
+      events: [sse("TEXT_MESSAGE_START", { messageId, role: "assistant" }, 2)],
+    },
+    {
+      position: 3,
+      events: [
+        sse("REASONING_MESSAGE_START", { messageId: thought }, null),
+        sse(
+          "REASONING_MESSAGE_CONTENT",
+          { messageId: thought, delta: "The question is about robins, " },
+          3,
+        ),
+      ],
+    },
+    {
+      position: 4,
+      events: [
+        sse(
+          "REASONING_MESSAGE_CONTENT",
+          {
+            messageId: thought,
+            delta: "and about what dawn is good for. Sound carries further ",
+          },
+          4,
+        ),
+      ],
+    },
+    {
+      position: 5,
+      events: [
+        sse(
+          "REASONING_MESSAGE_CONTENT",
+          { messageId: thought, delta: "in cold, still air." },
+          5,
+        ),
+      ],
+    },
+  ];
+  said.forEach((delta, index) => {
+    const position = 6 + index;
+    steps.push({
+      position,
+      events: [
+        // The first text delta is what closes the thinking.
+        ...(index === 0
+          ? [sse("REASONING_MESSAGE_END", { messageId: thought }, null)]
+          : []),
+        sse("TEXT_MESSAGE_CONTENT", { messageId, delta }, position),
+      ],
+    });
+  });
+  const ending = 6 + said.length;
+  if (how === "fails") {
+    // A run that ended in an error: the event this layer made up carries no
+    // position, and the answer it was producing is in no conversation.
+    steps.push({
+      position: null,
+      events: [
+        sse(
+          "RUN_ERROR",
+          { message: "the agent could not finish this answer", code: "failed" },
+          null,
+        ),
+      ],
+    });
+    return { steps, said: "" };
+  }
+  steps.push({
+    position: ending,
+    events: [sse("TEXT_MESSAGE_END", { messageId }, ending)],
+  });
+  steps.push({
+    position: ending + 1,
+    events: [sse("RUN_FINISHED", { threadId, runId }, ending + 1)],
+  });
+  return { steps, said: said.join("") };
+}
+
+/**
+ * The runs this process has started, by id.
+ *
+ * @type {Map<string, {
+ *   conversationId: string,
+ *   messageId: string,
+ *   parentId: string | null,
+ *   steps: {position: number | null, events: string[]}[],
+ *   said: string,
+ *   how: "finishes" | "fails",
+ *   cancelled: boolean,
+ *   dropped: boolean,
+ * }>}
+ */
+const runs = new Map();
+
+/** A uuid, because a run and a message need one and nothing else does. */
+const newId = () => randomUUID();
+
+/**
+ * Begin a run in that conversation, under that message.
+ *
+ * @param {string} conversationId
+ * @param {string | null} parentId
+ */
+function begin(conversationId, parentId) {
+  const how = fixture?.stream === "fails" ? "fails" : "finishes";
+  const runId = newId();
+  const messageId = newId();
+  const { steps, said } = script(conversationId, runId, messageId, how);
+  runs.set(runId, {
+    conversationId,
+    messageId,
+    parentId,
+    steps,
+    said,
+    how,
+    cancelled: false,
+    dropped: false,
+  });
+  const held = trees.get(conversationId);
+  if (held !== undefined) {
+    trees.set(conversationId, {
+      ...held,
+      run_id: runId,
+      resume: { after: 0, follows: parentId },
+      ended_badly: null,
+    });
+  }
+  return runId;
+}
+
+/** @param {number} ms */
+const delay = (ms) => new Promise((done) => setTimeout(done, ms));
+
+/**
+ * Write that run's events from `after`, a step at a time.
+ *
+ * @param {import("node:http").ServerResponse} response
+ * @param {string} runId
+ * @param {number} after
+ */
+async function follow(response, runId, after) {
+  const run = runs.get(runId);
+  if (run === undefined) {
+    refuse(response, 404, "NotFoundError", "there is nothing here of that id");
+    return;
+  }
+  response.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-store",
+    "x-accel-buffering": "no",
+    "x-robinauts-run-id": runId,
+    "x-robinauts-conversation-id": run.conversationId,
+  });
+  let stopped = false;
+  const dropAt = fixture?.dropAt;
+  for (const step of run.steps) {
+    if (step.position !== null && step.position <= after) continue;
+    await delay(220);
+    if (response.writableEnded) return;
+    if (
+      dropAt !== undefined &&
+      !run.dropped &&
+      step.position !== null &&
+      step.position > dropAt
+    ) {
+      // The connection goes, and the run does not: the stream stops with
+      // nothing in it saying the run is over, and the conversation still
+      // names it as in flight.
+      run.dropped = true;
+      const before = trees.get(run.conversationId);
+      if (before !== undefined) {
+        trees.set(run.conversationId, {
+          ...before,
+          run_id: runId,
+          resume: { after: dropAt, follows: run.parentId },
+        });
+      }
+      response.end();
+      return;
+    }
+    if (run.cancelled) {
+      // **A cancellation is not a failure**: `RUN_FINISHED` with AG-UI's
+      // `cancelled` outcome, and no position -- this layer made it up
+      // (`docs/specs/wire.md`).
+      response.write(
+        sse(
+          "RUN_FINISHED",
+          {
+            threadId: run.conversationId,
+            runId,
+            outcome: { type: "cancelled" },
+          },
+          null,
+        ),
+      );
+      stopped = true;
+      break;
+    }
+    for (const written of step.events) response.write(written);
+  }
+  response.end();
+  // A turn writes its messages, so the reread that follows one shows them.
+  // **The message in flight is not one of them**: a message enters the
+  // conversation when it is complete (`docs/specs/runs.md`), so a run that
+  // was stopped or that failed leaves the conversation as it was.
+  const held = trees.get(run.conversationId);
+  if (held === undefined) return;
+  const finished = !stopped && run.how === "finishes";
+  const badly = stopped ? "cancelled" : run.how === "fails" ? "failed" : null;
+  trees.set(run.conversationId, {
+    ...held,
+    messages: finished
+      ? [
+          ...held.messages,
+          message(run.messageId, run.parentId, "assistant", run.said, MADE_BY),
+        ]
+      : held.messages,
+    leaf_id: finished ? run.messageId : held.leaf_id,
+    run_id: null,
+    resume: null,
+    ended_badly:
+      badly === null
+        ? null
+        : { run_id: runId, state: badly, ended_at: new Date().toISOString() },
+  });
+}
+
+/**
+ * The `reattach` scene: a run already going when the page is first opened.
+ *
+ * So that opening that conversation does what step 21 is really about --
+ * reads it, sees a run in flight, and attaches to that run's stream at the
+ * position the conversation answered with (`docs/specs/runs.md`).
+ */
+if (fixture.inFlight !== undefined) {
+  const waiting = conversationId(fixture.inFlight);
+  const held = trees.get(waiting);
+  if (held !== undefined) {
+    const runId = begin(waiting, held.leaf_id);
+    const now = trees.get(waiting);
+    if (now !== undefined) {
+      // `resume.after` is the position of the run's last completed message,
+      // or of the event that started it where it has completed none
+      // (`docs/specs/runs.md`) -- so the answer still being produced is
+      // replayed **from its announcement**, and nothing already on the
+      // screen is sent twice.
+      trees.set(waiting, {
+        ...now,
+        run_id: runId,
+        resume: { after: 1, follows: held.leaf_id },
+      });
+    }
+  }
+}
+
 const server = createServer((request, response) => {
   const asked = new URL(request.url ?? "/", "http://127.0.0.1");
   const path = asked.pathname;
@@ -528,6 +983,33 @@ const server = createServer((request, response) => {
   }
   if (path === "/auth/logout") {
     response.writeHead(204).end();
+    return;
+  }
+  if (path === "/api/turns" && request.method === "POST") {
+    // A first message creates the conversation, and the response's headers
+    // are how the interface learns which one (`docs/specs/wire.md`).
+    void body(request).then((sent) => {
+      const text = typeof sent?.text === "string" ? sent.text : "";
+      const created = summary(listed.length + 1, text.slice(0, 60));
+      const question = message(newId(), null, "user", text);
+      listed.unshift(created);
+      trees.set(created.id, {
+        messages: [question],
+        leaf_id: question.id,
+        run_id: null,
+        resume: null,
+        ended_badly: null,
+      });
+      void follow(response, begin(created.id, question.id), 0);
+    });
+    return;
+  }
+  const events = EVENTS.exec(path);
+  if (events !== null && request.method === "GET") {
+    const after = Number(
+      request.headers["last-event-id"] ?? asked.searchParams.get("after") ?? 0,
+    );
+    void follow(response, events[1] ?? "", Number.isFinite(after) ? after : 0);
     return;
   }
   if (path.startsWith("/api/conversations")) {

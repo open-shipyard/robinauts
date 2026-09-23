@@ -1445,8 +1445,12 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   `THIRD_PARTY_LICENSES.txt` into `dist/` for the wheel to carry, writes
   `bundled-packages.txt` and — under `CHECK_BUNDLED`, which
   `scripts/check-frontend.sh` and CI set — compares it instead, and holds a
-  gzipped size budget that is **provisional** at 800 KB until a bundle with
-  the chat in it exists (`docs/specs/frontend.md`, "Open").
+  gzipped size budget. That budget was provisional at 800 KB until there was
+  a bundle with the chat in it to measure; **step 21 set it at 400 KB**
+  against a measured 278.6 KB — the gate's own rule, every file of `dist/`
+  gzipped with the licence text excepted (`docs/specs/frontend.md`) — which
+  leaves room for the features the specs already name and none for a
+  dependency an order of magnitude too big.
   **Known limit:** that record is written from rollup's module graph, so a
   package reached only through a stylesheet (`@import "pkg"`,
   `url(pkg/x.png)`, a package stylesheet's own imports) is invisible to it.
@@ -1596,16 +1600,14 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   `src/conversation/` opens one: `useConversation` over
   `GET /api/conversations/{id}`, the tree walked from `leaf_id` up the
   `parent_id`s into the branch it opens on — the walk ends rather than loops
-  on rows that are not a tree — and `ConversationView`, **a stand-in until
-  step 21 replaces it through the seam**, showing the title as the `<h1>`
-  (there is no top bar to put it in), the branch read-only with role, time
-  and the answer's agent and engine, "Answering…" with a Cancel that posts to
-  the run and rereads, a sentence per state for a run that ended badly, and
-  one answer — "this conversation is not here" — for a 404, since a
-  conversation that never existed and one of somebody else's are the same
-  answer. `src/chat/index.ts` gained the **types** the chat will need from
-  the application (`ConversationId`, `AgentId`, `ChatProps`) and no
-  implementation: the seam is the vocabulary both sides already use.
+  on rows that are not a tree — and `cancelRun`. The read-only
+  `ConversationView` that stood here was a stand-in, and step 21 deleted it:
+  what it showed, the chat shows, and one answer — "this conversation is not
+  here" — for a 404 moved there with it, since a conversation that never
+  existed and one of somebody else's are the same answer.
+  `src/chat/index.ts` gained the **types** the chat needs from the
+  application (`ConversationId`, `AgentId`, `ChatProps`): the seam is the
+  vocabulary both sides already use.
   `frontend/scripts/fixture-server.mjs` gained the conversation routes and
   the `history` and `conversation` scenes, whose renames, deletes and cancels
   really change what it serves.
@@ -1619,15 +1621,14 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   each package was judged and how to re-sync. A seventeenth file,
   `lib/utils.ts`, is **ours**: it replaces the registry's `utils` item, which
   now re-exports a `cn` package this project does not take, and it carries
-  our header and its own `REUSE.toml` line. **Nothing imports them yet**;
-  step 21 does. They are inside `src/`, so `tsc -b` and `eslint .` cover
-  them, and `src/test/vendor.test.ts` holds the README's file list, the
-  licence texts and the copy's imports to what is on disk. They are out of
-  the bundle both ways: rollup never reaches them, and `src/styles.css` says
-  `@source not "./chat/assistant-ui/vendor"`, because Tailwind's scan reads
-  files rather than imports and would otherwise compile 40 kB of utilities
-  (6.4 kB gzipped) for markup no page renders, taking the stylesheet from
-  18.0 kB to 58.2 kB — step 21 deletes that line.
+  our header and its own `REUSE.toml` line. They are inside `src/`, so
+  `tsc -b` and `eslint .` cover them, and `src/test/vendor.test.ts` holds the
+  README's file list, the licence texts and the copy's imports to what is on
+  disk. **Step 21 is what imports them**; until it did they were out of the
+  bundle both ways, rollup never reaching them and `src/styles.css` saying
+  `@source not "./chat/assistant-ui/vendor"` so that Tailwind's scan — which
+  reads files rather than imports — did not compile 40 kB of utilities for
+  markup no page rendered. That line is gone.
   Six modifications, listed in the README: relative paths instead of `@/`
   aliases (no `paths` in `tsconfig`, and the seam rules read one spelling per
   path), `lib/utils.ts` as the `clsx`/`tailwind-merge` `cn` rather than the
@@ -1652,6 +1653,160 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   was amended to say what is really required of each, and the judgement per
   package is in the README's vetting table. `assistant-cloud` 0.2.2 arrives
   under `@assistant-ui/react` and is configured by nothing.
+- **The chat**, behind `src/chat/index.ts`, which now exports a `<Chat>`
+  beside its types — a conversation id or `null`, the chosen agent, "this
+  conversation was created", "the turn is over, ask for the list again", and
+  a node to draw above the box on an empty chat (the shell's agent picker).
+  Nothing in those types names a chat library, and the shell imports that
+  file and nothing else (ADR 0001). Behind it: the client, the state, the
+  runtime that hands one to the other, and the styling that makes the copied
+  components and the shell one interface.
+  **The AG-UI client is ours**, `src/chat/assistant-ui/agui/`, and it added
+  **no dependency**: `sse.ts` is the format read off a `fetch` body as it
+  arrives (`\n`, `\r\n` and a bare `\r`, a chunk that ends between the two
+  halves of one of them, several `data:` lines, comments — the `: keep-alive`
+  is invisible — unknown fields ignored, abortable); `events.ts` decodes the
+  vocabulary `api/agui.py` really emits and **ignores what it does not know**,
+  so a newer deployment's events do not stop an answer arriving; `client.ts`
+  opens the three streaming routes, reads the run and the conversation out of
+  the response headers, and **carries on where it left off** when a
+  connection drops before the run ended — the last `id:` it saw as
+  `Last-Event-ID`, a bounded number of tries with a backoff, and a terminal
+  event stopping it, because every stream ends with one. **Opening is inside
+  that loop**, so a re-attach whose *request* never arrives — the likeliest
+  failure of a network that went — is retried like a stream that connected
+  and then ended; a **refusal** (404, 422, 401) is not, because asking again
+  asks the same question. The budget is spent on connections that do not
+  deliver rather than on time: a stream that delivered an event the platform
+  numbered resets it — **delivered**, meaning an id that moved the position
+  forward, since a block replayed at a position already seen is a delta that
+  would be said twice and a reconnection that would never stop. An event
+  saying the run is over is read whatever its id says: every stream ends with
+  one, and a watcher that dropped it would wait for an answer already given. A refusal before the stream is an `ApiError` through
+  `src/api/client.ts`'s own mapping, which grew one export (`refused`) so
+  that there is one of those and not two. Two bounds guard the reader: the
+  two ids a stream names itself by are held to the uuid shape
+  (`router.isUuid`) because both go straight into a request path, and a line
+  or a block longer than four mebibytes ends the stream rather than growing a
+  string without bound.
+  `@assistant-ui/react-ag-ui` was **not** taken: at 0.0.60 it is still pinned
+  to `@ag-ui/client ^0.0.59` while the protocol is at 1.0.0, so it would have
+  installed a second, pre-1.0 client beside the 1.0 one
+  (`docs/specs/wire.md`, "Details likely to change", where the decision is
+  recorded).
+  **The state is a reducer**, `src/chat/assistant-ui/state.ts`: no `fetch`,
+  no timers, no React, so the interesting half of the chat is a thing a test
+  drives one event at a time. It holds the conversation as last read **plus
+  the message the run is producing** — which is in no conversation until it
+  is complete — and the whole tree with every parent, because that is what a
+  branch picker is. The three no-ops of `docs/specs/wire.md` are written
+  there and tested by name: a `*_START` for a message already held open, a
+  `*_END` for one not held, and the terminal event of a run already seen to
+  end — and, defensively, a delta for a message that is already complete,
+  which is the store's now and would otherwise be said twice. Every message
+  is converted for assistant-ui at most once, keyed on its own identity: the
+  reducer builds a new object only for a message it touched, so a delta into
+  a long conversation costs one conversion and not all of them (measured at
+  400 messages: 46 ms for 200 deltas, 2 ms with the cache). Thinking is a part of its own per stretch (a turn may think twice, and
+  each stretch is a message of its own on the wire), and a `RUN_ERROR` is one
+  fixed sentence per code — never the backend's own sentence and never the
+  run's stored error.
+  **The runtime is `useExternalStoreRuntime`**, `runtime.tsx`: our messages,
+  our branches, and none of assistant-ui's persistence. Read from the
+  adapter's source: `messages` is a flat list the runtime relinks, so the
+  branches beside the one being read would exist only once it had been shown
+  them — `messageRepository` takes **every message with its parent and a
+  head**, which is the shape `GET /api/conversations/{id}` already answers
+  in, so the picker has the whole tree from the first render. Branch
+  switching is offered when `setMessages` is present, so it is present and
+  does nothing, and the switch itself is heard through
+  `unstable_onBranchChange`, which fires on a picker's click and on nothing
+  else; where it lands is written down with `PUT .../leaf`. `onNew`,
+  `onEdit` (a sibling under the parent of the message replaced), `onReload`
+  (`{regenerate: <the answer's id>}`) and `onCancel` are the wire's turns.
+  After a turn ends the conversation is read again — **the store is the
+  truth**: real ids, the answer's provenance, the branch its author is on —
+  and the panel's list is asked for again. Opening a conversation with a run
+  in flight attaches to it at `resume.after` — and so does **every** read,
+  including the one that ends a turn: another tab may have begun a run in the
+  meantime, and taking its id without watching it would leave the thread
+  answering with nothing reading the answer. A first message whose request
+  lands after its sender has opened another conversation reports nothing and
+  claims nothing: the shell is not taken to a conversation nobody asked to
+  see, and the one that *was* opened is read rather than skipped. A second
+  turn asked for while one is on its way is **told** rather than dropped
+  (`ONE_AT_A_TIME`) **and its text is put back into the box**, which empties
+  itself when it hands a message over; asking for an answer again is told the
+  same thing without the sentence about a message, since a regeneration
+  carries none. That notice is a field of its own and
+  not the sentence a run leaves behind: it is about what the person just
+  did, so a run starting milliseconds later must not wipe it, and what
+  clears it is their next turn or leaving the conversation. A turn the server
+  refuses takes off **the question that turn added and no other** -- a
+  question from a turn that is still going may be on the screen too, and an
+  answer may already hang under it, and taking that away would leave the
+  answer with a parent the tree has not got, which assistant-ui refuses with
+  an exception -- and puts the branch back exactly where it was, which is not
+  the refused message's parent: a retry of a turn that went wrong hangs under
+  the *parent* of the question nobody answered, and that question is a
+  message the conversation really has. **A stop whose request fails changes
+  nothing**: the run was not cancelled and its stream is still watching, so
+  what is said is that the stop did not arrive, and the answer carries on. **A connection that went is not
+  a run that ended**: the store is read once and, if the run is still in
+  flight there, it is watched again with the client's budget reset; only a
+  second loss is a sentence, and it leaves nothing "answering" — the box and
+  the answer's "try again" work. **One turn at a time**, refused here as well
+  as by the backend's 409, which is what keeps at most one question on the
+  screen that the server has not been told about, so a turn that *is* refused
+  can be taken back off it. The thread says it is running only for a run this
+  chat knows the id of: between the send and the response's headers there is
+  nothing to stop, and offering a stop there would have assistant-ui take the
+  question back out of the thread and put its text into the box. What the
+  runtime rewrites in its own repository — after a stop, after a branch it
+  resolved to nothing — is handed straight back through `setMessages`, since
+  the conversation is the server's and a head it has dropped and we still
+  name is an exception thrown from inside the library. A stop before the
+  first word is the one thing it cannot put right by itself: it moves the
+  trailing question's text into the box and takes it back only when it can
+  see that the store still holds that message, which it cannot when what it
+  moved is the branch's end — so the box is cleared from this side, after
+  every render, and only while it still holds exactly what was put there and
+  the box was empty before the stop -- a draft somebody had already typed is
+  theirs. Nothing is ever handed to the library naming a message it has not
+  been given: the tree it is built from drops a child whose parent is not
+  there and falls back to the branch that is, saying so once in the console,
+  because an exception from inside a render is the whole interface gone over
+  a message. A read of the store hands back the message objects this state
+  already holds
+  wherever the store still says the same thing about them, so the
+  conversions, and the `createdAt`s with them, survive the read that ends a
+  turn. One rule came out of running
+  this against the real backend rather than a fixture: where the branch ends
+  on a **question nobody answered** — which is what a run that failed, was
+  cancelled or was interrupted leaves, since the answer it was producing is
+  in no conversation — the next message hangs under that question's *parent*,
+  because the format refuses a question under a question and asking again is
+  how such a turn is retried. What the tree gains is a sibling, which the
+  branch picker then shows.
+  **The styling** is the copied components on Tailwind over the same tokens:
+  `styles.css` maps shadcn's palette names (`background`, `foreground`,
+  `muted`, `primary`, `border`, `ring`, …) onto `tokens.css` rather than
+  editing the copy, and where a name was already taken — `muted` was our grey
+  *ink* and is shadcn's subtle *surface*; `accent` was our primary button and
+  is shadcn's hover surface — **the shell gave it up**, so there is one
+  vocabulary over the tokens and not two. `dark:` is redefined as a variant
+  matching `tokens.css`'s two rules, since Tailwind's own reads
+  `prefers-color-scheme` alone and the interface has a toggle that overrules
+  it. The heading stays the shell's (there is no top bar), the picker is
+  drawn in the Thread's welcome slot, which on an empty chat sits directly
+  above the box, and the chat is **not keyed by the conversation**: a first
+  message creates one and the route follows it, and remounting on that would
+  throw the arriving stream away.
+  `frontend/scripts/fixture-server.mjs` gained four scenes that really
+  stream — `streaming`, `reattach` (a run already going when the page opens),
+  `drop` (the connection goes in the middle of an answer and the run does
+  not) and `error` — over the real format, positions and headers, so the chat
+  can be looked at doing what it is for.
 
 ## Steps
 
@@ -2760,3 +2915,75 @@ Important design decisions made / open questions:
 - The vetting rules were amended rather than silently bypassed.
 - The `utils` registry item now re-exports a three-week-old package on a
   squatted name; refused, the helper is ours.
+
+### Step 21 — chat   (feature/poc-21-chat)
+
+Summary: the chat behind the seam, with no new dependency. Our own AG-UI
+client under `src/chat/assistant-ui/agui/` — an SSE reader over `fetch`
+(any newline convention, multi-line data, comments, a 4 MiB cap, linear
+scanning), typed decoding of exactly the vocabulary the backend emits
+(unknown events ignored), and a client that starts a turn or a
+conversation, reads the run and conversation ids from the headers (UUIDs
+only), tracks the position from numbered events alone, re-attaches with
+`Last-Event-ID` on a dropped stream with bounded backoff (5xx and network
+retried, 4xx not, the budget reset when the position advances, a replayed
+block skipped unless terminal). A pure reducer (`state.ts`) over the whole
+tree, the in-flight answer, thinking per stretch, the three re-attach
+no-ops, fixed sentences per `RUN_ERROR` code, `RUN_FINISHED cancelled` not
+an error, a refused turn taking back only what it added, a lost stream
+reading the store once and re-watching, a `notice` for a second send that
+keeps the text. The assistant-ui external-store runtime over it
+(`messageRepository` with `headId` for the branch picker,
+`unstable_onBranchChange` → `PUT .../leaf`, `setMessages` re-syncing our
+state, edit → `parent_id`, regenerate → `{regenerate}`, sending under an
+unanswered question → its parent, cancel → `POST .../cancel`, every read
+attaching to a run in flight, `isRunning` only when a run exists, the
+composer's draft put back or cleared exactly where the library moves it).
+`Chat.tsx` renders the vendored Thread; `src/chat/index.ts` exports `Chat`
+and three types. The read-only `ConversationView` is deleted. Tailwind's
+palette names mapped onto our tokens (`muted`/`accent` collisions renamed
+in the shell); `@source not` removed; the bundle budget set to 400 KB
+gzipped (278.6 KB measured). Verified against the real backend in local
+mode from a real browser: sending, thinking collapsed, streaming,
+re-attaching after a tab went away, a `RUN_ERROR`, a retry.
+
+Review: 4 rounds (three full, one short).
+- High: 5
+  - a stream lost after the retries fell through to a re-read that set
+    the run again with nothing watching (stuck "answering");
+  - a first turn resolving after the person had moved on still routed the
+    shell to it while the state held another conversation;
+  - the post-turn re-read adopted another tab's run with nothing watching;
+  - a refused turn removed every unsent message and orphaned a running
+    answer, crashing the interface;
+  - a send during the sending window lost the text and its notice was
+    wiped within milliseconds.
+- Medium: 9 (9/0) — re-attach requests not retried; an early stop putting
+  a sent question back in the composer; stop inert before the run exists;
+  the whole tree relinked per delta (now a `WeakMap` cache, 46 → 2 ms
+  over 400 messages); `tries` reset by a replay; a lost stream leaving a
+  message spinning; a failed cancel showing the browser's words; a
+  whitespace draft defeating the stop guard; and one more.
+- Low: 20 (20/0)
+
+Checks: `scripts/check-all.sh` without a database (2528 backend, 381
+frontend tests) and with one required (2718); the bundle 278.6 KB gzipped
+of 400 KB; `bundled-packages.txt` +129 (the Thread's tree, all allowed;
+`assistant-cloud` absent from the bundle); nine live-backend screenshots
+and fourteen fixture-scene ones.
+Not done / to watch: no tool-call or `STATE_*`/`STEP_*` events; no
+delete/feedback/speech/attachment adapters; `unstable_onBranchChange` is
+an unstable API inside the seam; the `useChat` → `runtime.thread.composer`
+bridge (read on cancel, write on refusal/stop) is the fragile edge — it
+acts only on text it put there or found empty; the reducer's third no-op
+is reachable only from a re-attach at the end. About 5,400 lines with
+tests; the runtime is 2,400 non-test lines with comments.
+Important design decisions made / open questions:
+- `@assistant-ui/react-ag-ui`/`@ag-ui/client` not used: the bridge pins a
+  pre-1.0 client; the spec foresaw our own.
+- One turn at a time: a second send is refused with a notice and its
+  text put back, rather than a Stop that could stop nothing.
+- Every read attaches to a run it finds in flight (a run begun elsewhere
+  is watched here too).
+- A refused turn takes back only the message it added; a message with a
+  child is never removed.

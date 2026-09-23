@@ -11,8 +11,11 @@ import { expect, test, vi } from "vitest";
 
 import type { Session } from "../session/session";
 import { json, stubFetch, type Call } from "../test/api";
-import { conversation, id, opened, page } from "../test/conversations";
+import { conversation, id, message, opened, page } from "../test/conversations";
+import { event, streamHeaders, streamed } from "../test/stream";
 import { PANEL_KEY, Shell } from "./Shell";
+
+const RUN = "11111111-2222-4333-8444-555555555555";
 
 const SESSION: Session = {
   sign_in: true,
@@ -349,6 +352,70 @@ test("the hash decides which of the two the main area is", async () => {
     "aria-current",
     "page",
   );
+});
+
+test("the chat stands where the placeholder stood, on both routes", async () => {
+  // The empty chat: the box, and the agent picker above it. What used to be
+  // here was a sentence saying the box arrives with the chat.
+  const { unmount } = await shell();
+  expect(screen.getByRole("textbox", { name: "Message input" })).toBeVisible();
+  expect(screen.queryByText(/The message box arrives/)).toBeNull();
+  unmount();
+
+  location.hash = `#/c/${id(1)}`;
+  await shell(undefined, (call) => {
+    if (call.url === `/api/conversations/${id(1)}`) {
+      return json(
+        opened(
+          conversation(1, "Robins"),
+          [
+            message("m1", null, "user", "Why do robins sing?"),
+            message("m2", "m1", "assistant", "Because it is quiet."),
+          ],
+          "m2",
+        ),
+      );
+    }
+    return withConversation(call);
+  });
+  await waitFor(() => {
+    expect(screen.getByText("Because it is quiet.")).toBeInTheDocument();
+  });
+  expect(screen.getByRole("textbox", { name: "Message input" })).toBeVisible();
+});
+
+test("a first message routes to the conversation it created", async () => {
+  const created = id(9);
+  await shell(undefined, (call) => {
+    if (call.url === "/api/turns") {
+      return streamed(
+        [event("RUN_FINISHED", { threadId: created, runId: RUN }, 2)],
+        { headers: streamHeaders(RUN, created) },
+      );
+    }
+    if (call.url === `/api/conversations/${created}`) {
+      return json(opened(conversation(9, "Robins"), [], null));
+    }
+    if (call.url.startsWith("/api/conversations?")) {
+      return json(page([conversation(9, "Robins")]));
+    }
+    return undefined;
+  });
+
+  const box = screen.getByRole("textbox", { name: "Message input" });
+  fireEvent.change(box, { target: { value: "Why do robins sing?" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await settled();
+  });
+  expect(location.hash).toBe(`#/c/${created}`);
+  // The chat is not remounted by the route following it: the answer that is
+  // arriving would be thrown away.
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Robins",
+    );
+  });
 });
 
 test("an unknown hash is the empty chat, and the hash is left as it is", async () => {

@@ -18,14 +18,15 @@
  * `docs/legal/ip-clearance.md`.
  */
 import { Menu } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ConversationView } from "../conversation/ConversationView";
+import { Chat } from "../chat";
 import { conversationIn, useHistory } from "../history/history";
 import { navigate, NEW_CHAT, useRoute } from "../router";
 import type { Session } from "../session/session";
 import { signOut as endSession } from "../session/session";
-import { AgentPicker, useAgents, type Agents } from "./AgentPicker";
+import { shownTitle } from "../conversation/conversation";
+import { AgentPicker, useAgents, useChosenAgent } from "./AgentPicker";
 import { LocalModeBanner } from "./LocalModeBanner";
 import { PANEL_ID, Panel } from "./Panel";
 import { remember, remembered } from "./storage";
@@ -64,7 +65,10 @@ export function Shell({
   const [chat, setChat] = useState(0);
   // Asked for here, not inside the empty chat: that is remounted on every
   // "New chat", and the agents do not change while the server is running.
+  // The choice is held here too, because the chat needs it to begin a
+  // conversation and the picker is what the chat draws above its box.
   const agents = useAgents();
+  const [agentId, chooseAgent] = useChosenAgent(agents);
   const opener = useRef<HTMLButtonElement>(null);
   const closer = useRef<HTMLButtonElement>(null);
 
@@ -97,9 +101,30 @@ export function Shell({
 
   const current = route.kind === "conversation" ? route.id : null;
   const listed = conversationIn(history.items, current);
+  // Held across renders: the chat memoises what it is given, so that a
+  // keystroke in the message box does not remount the picker under it.
+  const welcome = useMemo(
+    () => (
+      <AgentPicker agents={agents} chosen={agentId} onChoose={chooseAgent} />
+    ),
+    // `chooseAgent` is made afresh on every render and does the same thing
+    // each time; what the picker draws is the two values above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [agents, agentId],
+  );
+  const startedConversation = useCallback(
+    (id: string) => {
+      navigate({ kind: "conversation", id });
+      // A conversation that has just been created is not in the panel's
+      // list, and its title is the beginning of the message that created it
+      // (`docs/specs/conversations.md`).
+      history.refresh();
+    },
+    [history],
+  );
 
   return (
-    <div className="flex min-h-screen bg-ground text-ink">
+    <div className="flex h-screen bg-ground text-ink">
       <Panel
         user={session.user ?? null}
         history={history}
@@ -125,7 +150,7 @@ export function Shell({
           className="fixed inset-0 z-10 bg-scrim md:hidden"
         />
       )}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <LocalModeBanner local={session.local_development ?? false} />
         {/* The one thing above the chat, and only where the panel is a
             drawer: `docs/specs/frontend.md` says there is no top bar, so
@@ -140,48 +165,39 @@ export function Shell({
           onClick={() => {
             setDrawer(true);
           }}
-          className="m-2 self-start rounded-ui p-1.5 text-muted hover:bg-hover hover:text-ink md:hidden"
+          className="m-2 self-start rounded-ui p-1.5 text-muted-foreground hover:bg-hover hover:text-ink md:hidden"
         >
           <Menu size={16} aria-hidden="true" />
         </button>
-        {route.kind === "conversation" ? (
-          <main className="flex min-w-0 flex-1 flex-col">
-            {/* Keyed by the id: opening another conversation is another
-                page, not this one with different props. */}
-            <ConversationView
-              key={route.id}
-              id={route.id}
-              title={listed === null ? null : listed.title}
-              onReread={history.refresh}
-            />
-          </main>
-        ) : (
-          <main className="flex flex-1 flex-col items-center justify-center gap-4 px-4 pb-16">
-            <EmptyChat key={chat} agents={agents} />
-          </main>
-        )}
+        {/* The heading is the first line of the page, because
+            `docs/specs/frontend.md` leaves no top bar to put it in. It is the
+            shell's and not the chat's: the title comes from the panel's list,
+            which is where renaming happens.
+
+            **The chat is not keyed by the conversation.** A first message
+            creates the conversation and the route follows it, and remounting
+            on that would throw away the stream that is arriving. Which
+            conversation is on the screen is a prop it handles itself; the
+            `chat` count is what "New chat" remounts it by, so that nothing
+            typed into one carries over into the next. */}
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <h1 className="mx-auto w-full max-w-3xl px-6 pt-4 text-xl font-semibold">
+            {route.kind === "conversation"
+              ? listed === null
+                ? "…"
+                : shownTitle(listed.title)
+              : "New chat"}
+          </h1>
+          <Chat
+            key={chat}
+            conversationId={current}
+            agentId={agentId}
+            onConversationStarted={startedConversation}
+            onTurnEnded={history.refresh}
+            welcome={welcome}
+          />
+        </main>
       </div>
     </div>
-  );
-}
-
-/**
- * Where the chat goes.
- *
- * The chat itself is step 21, behind `src/chat/` (ADR 0001); what stands
- * here until then is the part of an empty chat that is ours anyway -- the
- * invitation and the agent picker -- so that the shell can be seen and used
- * without it.
- */
-function EmptyChat({ agents }: { agents: Agents }) {
-  return (
-    <>
-      <h1 className="text-2xl font-semibold">New chat</h1>
-      <AgentPicker agents={agents} />
-      <p className="max-w-prose text-center text-muted">
-        The message box arrives with the chat. Until then this is where a
-        conversation will start.
-      </p>
-    </>
   );
 }

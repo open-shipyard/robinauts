@@ -171,7 +171,7 @@ export function Panel({
           onClick={() => {
             onCollapse(!collapsed);
           }}
-          className="rounded-ui p-1.5 text-muted hover:bg-hover hover:text-ink max-md:hidden"
+          className="rounded-ui p-1.5 text-muted-foreground hover:bg-hover hover:text-ink max-md:hidden"
         >
           <PanelLeft size={16} aria-hidden="true" />
         </button>
@@ -181,7 +181,7 @@ export function Panel({
           title="Close the panel"
           aria-label="Close the panel"
           onClick={onCloseDrawer}
-          className="rounded-ui p-1.5 text-muted hover:bg-hover hover:text-ink md:hidden"
+          className="rounded-ui p-1.5 text-muted-foreground hover:bg-hover hover:text-ink md:hidden"
         >
           <X size={16} aria-hidden="true" />
         </button>
@@ -195,7 +195,7 @@ export function Panel({
         type="button"
         title="New chat"
         onClick={onNewChat}
-        className="my-2 flex items-center justify-center gap-2 rounded-ui border border-accent bg-accent px-3 py-2 font-semibold text-on-accent hover:opacity-90"
+        className="my-2 flex items-center justify-center gap-2 rounded-ui border border-primary bg-primary px-3 py-2 font-semibold text-primary-foreground hover:opacity-90"
       >
         <Plus size={16} aria-hidden="true" />
         <span className={collapsed ? "md:hidden" : ""}>New chat</span>
@@ -207,7 +207,7 @@ export function Panel({
         aria-label="History"
         className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto ${collapsed ? "md:hidden" : ""}`}
       >
-        <h2 className="mt-2 mb-1 px-2 text-xs font-semibold tracking-wider text-muted uppercase">
+        <h2 className="mt-2 mb-1 px-2 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
           History
         </h2>
         <HistoryList
@@ -349,7 +349,7 @@ function ProfileBlock({
         role="img"
         aria-label={name}
         title={name}
-        className="grid size-8 shrink-0 place-items-center rounded-pill bg-accent text-sm font-semibold text-on-accent"
+        className="grid size-8 shrink-0 place-items-center rounded-pill bg-primary text-sm font-semibold text-primary-foreground"
       >
         {name.slice(0, 1).toUpperCase()}
       </span>
@@ -360,7 +360,10 @@ function ProfileBlock({
           {name}
         </span>
         {user.email !== undefined && user.email !== null && (
-          <span className="truncate text-xs text-muted" title={user.email}>
+          <span
+            className="truncate text-xs text-muted-foreground"
+            title={user.email}
+          >
             {user.email}
           </span>
         )}
@@ -378,14 +381,14 @@ function ProfileBlock({
           disabled={leaving}
           title="Sign out"
           aria-label="Sign out"
-          className="flex shrink-0 items-center gap-1 rounded-ui p-1 text-xs text-muted hover:bg-hover hover:text-ink disabled:opacity-60"
+          className="flex shrink-0 items-center gap-1 rounded-ui p-1 text-xs text-muted-foreground hover:bg-hover hover:text-ink disabled:opacity-60"
         >
           <LogOut size={14} aria-hidden="true" />
           <span className={collapsed ? "md:hidden" : ""}>Sign out</span>
         </button>
       ) : (
         <span
-          className={`shrink-0 text-xs text-muted ${collapsed ? "md:hidden" : ""}`}
+          className={`shrink-0 text-xs text-muted-foreground ${collapsed ? "md:hidden" : ""}`}
         >
           Sign-in is off
         </span>

@@ -104,10 +104,14 @@ export function HistoryList({ history, current, onOpened }: HistoryListProps) {
         ))}
       </ul>
       {status === "loading" && (
-        <p className="px-2 text-sm text-muted">Loading the conversations…</p>
+        <p className="px-2 text-sm text-muted-foreground">
+          Loading the conversations…
+        </p>
       )}
       {status === "ready" && items.length === 0 && (
-        <p className="px-2 text-sm text-muted">No conversations yet.</p>
+        <p className="px-2 text-sm text-muted-foreground">
+          No conversations yet.
+        </p>
       )}
       {/* Already a sentence: which ask failed is known where it failed, not
           here (`history.ts`). */}
@@ -134,7 +138,7 @@ export function HistoryList({ history, current, onOpened }: HistoryListProps) {
           // A page cannot be added to a list that is being replaced: the
           // cursor belongs to the listing the refresh is throwing away.
           disabled={loadingMore || refreshing}
-          className="mt-1 self-start rounded-ui px-2 py-1 text-sm text-muted hover:bg-hover hover:text-ink disabled:opacity-60"
+          className="mt-1 self-start rounded-ui px-2 py-1 text-sm text-muted-foreground hover:bg-hover hover:text-ink disabled:opacity-60"
         >
           {loadingMore ? "Loading…" : "Load more"}
         </button>
@@ -340,7 +344,7 @@ function HistoryItem({
             title="Save the title"
             aria-label="Save the title"
             aria-disabled={busy}
-            className="rounded-ui p-1 text-muted hover:bg-tint hover:text-ink aria-disabled:opacity-60"
+            className="rounded-ui p-1 text-muted-foreground hover:bg-tint hover:text-ink aria-disabled:opacity-60"
           >
             <Check size={16} aria-hidden="true" />
           </button>
@@ -349,7 +353,7 @@ function HistoryItem({
             title="Cancel the rename"
             aria-label="Cancel the rename"
             onClick={close}
-            className="rounded-ui p-1 text-muted hover:bg-tint hover:text-ink"
+            className="rounded-ui p-1 text-muted-foreground hover:bg-tint hover:text-ink"
           >
             <X size={16} aria-hidden="true" />
           </button>
@@ -377,7 +381,7 @@ function HistoryItem({
               setRefused(null);
               setMode(mode === "idle" ? "menu" : "idle");
             }}
-            className="mr-1 shrink-0 rounded-ui p-1 text-muted hover:bg-tint hover:text-ink"
+            className="mr-1 shrink-0 rounded-ui p-1 text-muted-foreground hover:bg-tint hover:text-ink"
           >
             <MoreHorizontal size={16} aria-hidden="true" />
           </button>
@@ -399,7 +403,7 @@ function HistoryItem({
               setDraft(conversation.title);
               setMode("rename");
             }}
-            className="flex items-center gap-1 rounded-ui px-2 py-1 text-sm text-muted hover:bg-tint hover:text-ink"
+            className="flex items-center gap-1 rounded-ui px-2 py-1 text-sm text-muted-foreground hover:bg-tint hover:text-ink"
           >
             <Pencil size={14} aria-hidden="true" />
             Rename
@@ -409,7 +413,7 @@ function HistoryItem({
             onClick={() => {
               setMode("confirm");
             }}
-            className="flex items-center gap-1 rounded-ui px-2 py-1 text-sm text-muted hover:bg-tint hover:text-ink"
+            className="flex items-center gap-1 rounded-ui px-2 py-1 text-sm text-muted-foreground hover:bg-tint hover:text-ink"
           >
             <Trash2 size={14} aria-hidden="true" />
             Delete

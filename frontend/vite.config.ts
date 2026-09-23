@@ -39,13 +39,21 @@ const CSS_MODULE =
 /**
  * Everything shipped, gzipped, must fit in this.
  *
- * Provisional. docs/specs/frontend.md leaves the real number open until a
- * bundle with the chat in it exists: neorc's 500 KB does not fit a chat UI
- * with Markdown and syntax highlighting. Until then the budget is set
- * generously, so that it catches a dependency that is an order of magnitude
- * too big and nothing else. It is tightened, once, when step 21 lands.
+ * **Set, not provisional.** It was 800 KB while the chat did not exist and
+ * there was nothing to measure (docs/specs/frontend.md left the real number
+ * open; neorc's 500 KB was never going to fit a chat UI with Markdown in
+ * it). The bundle with the chat in it measures **278.6 KB**, by the rule
+ * `gzippedSize` below applies and no other -- every file of `dist/` gzipped,
+ * the licence text excepted -- on 2026-09-23. So this is that, with room for
+ * the features the specs already name (tool calls, attachments, a second
+ * engine's UI) and none for a dependency that is an order of magnitude too
+ * big.
+ *
+ * Raising it is a reviewed change, and the reason goes in the pull request
+ * (docs/contributing/js-dependencies.md: the budget is not loosened to make
+ * a library fit).
  */
-const SIZE_BUDGET_BYTES = 800 * 1024;
+const SIZE_BUDGET_BYTES = 400 * 1024;
 
 const here = import.meta.dirname;
 

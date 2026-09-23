@@ -4,15 +4,24 @@ A single-page application: Vite, React, TypeScript, Vitest, ESLint. It is
 served by the backend under `/ui/`, and it ships inside the `robinauts` wheel
 ([../docs/specs/frontend.md](../docs/specs/frontend.md)).
 
-What is here is the shell and the conversations: the design tokens and the
-Tailwind theme over them, the collapsible panel with the profile block, the
-session and the sign-in page, the theme toggle and the banner of the local
+What is here is the whole interface: the design tokens and the Tailwind
+theme over them, the collapsible panel with the profile block, the session
+and the sign-in page, the theme toggle and the banner of the local
 development mode, the hash routing, the history in the panel with renaming
-and deleting, and a conversation read on the branch it opens on. The chat
-itself -- the message box, the streaming, the agent picker's first message --
-arrives in the steps after this one
-([../docs/working-notes/poc-scope.md](../docs/working-notes/poc-scope.md)),
-behind `src/chat/`.
+and deleting, and **the chat** -- the message box, the answer arriving a
+word at a time, re-attaching to a run that is already going, stopping one,
+editing a question, asking for an answer again, and the branch picker over
+the tree that makes.
+
+The chat is behind `src/chat/index.ts` and nothing outside
+`src/chat/assistant-ui/` knows what draws it
+([../docs/adr/0001-chat-ui-assistant-ui-with-tailwind.md](../docs/adr/0001-chat-ui-assistant-ui-with-tailwind.md)).
+Behind that seam: the vendored assistant-ui components, a runtime that hands
+them our own state, and **our own AG-UI client** --
+`src/chat/assistant-ui/agui/`, about two hundred lines over `fetch` and a
+`ReadableStream`, because assistant-ui's bridge to AG-UI is still pinned to a
+pre-1.0 protocol client ([../docs/specs/wire.md](../docs/specs/wire.md),
+"Details likely to change").
 
 ## The routes
 
@@ -24,7 +33,7 @@ under.
 | hash                    | what it is                                  |
 | ----------------------- | ------------------------------------------- |
 | `#/`                    | the empty chat, with the agent picker       |
-| `#/c/<conversation id>` | that conversation, read                     |
+| `#/c/<conversation id>` | that conversation                           |
 | anything else           | the empty chat, with the hash left as it is |
 
 `#/sign-in?error=<code>` is where the backend sends a failed sign-in; the
@@ -82,6 +91,21 @@ route; renaming, deleting and cancelling really change what is served, for as
 long as the process runs. It is a development tool: it is in no check, no
 bundle and no wheel.
 
+Three more scenes **really stream**, over server-sent events, with a position
+on the last wire event derived from each of the run's own and the two headers
+a client re-attaches by ([../docs/specs/wire.md](../docs/specs/wire.md)):
+
+| scene       | what it does                                                                  |
+| ----------- | ----------------------------------------------------------------------------- |
+| `streaming` | sending a message streams a stretch of thinking and then an answer            |
+| `reattach`  | `…002` has a run going: opening it attaches to that run at its `resume.after` |
+| `drop`      | the connection goes in the middle of the answer and the run does not          |
+| `error`     | the same turn, ending in a `RUN_ERROR`                                        |
+
+A turn really writes its messages into the conversation, and stopping one
+really ends its stream with `RUN_FINISHED` and AG-UI's `cancelled` outcome,
+so the state after either is what is served next.
+
 ## The checks
 
     scripts/check-frontend.sh   # from the root of the repository: all of it
@@ -133,13 +157,18 @@ Two of these are generated and thrown away; one is generated and committed.
   anything in there: edits are kept to the list it holds, each with its
   reason, so that a re-sync stays a small merge, and
   `src/test/vendor.test.ts` fails when the directory and that list disagree.
-  Our own code goes outside it. Nothing imports it yet.
+  Our own code goes outside it, and what imports it is
+  `src/chat/assistant-ui/Chat.tsx` and nothing else.
 - Styling: `src/tokens.css` holds the design tokens as CSS custom properties
   and is the source of truth for every colour and radius; `src/styles.css`
   imports Tailwind and maps its theme onto them, so a component is written in
-  Tailwind utilities (`bg-panel`, `text-muted`, `rounded-ui`) and the tokens
-  survive a change of Tailwind. Plain `.css` only: no CSS Modules, no
-  preprocessor, no `<style>` in `index.html`.
+  Tailwind utilities (`bg-panel`, `text-muted-foreground`, `rounded-ui`) and
+  the tokens survive a change of Tailwind. The vendored components are
+  shadcn/ui-shaped, so `styles.css` maps **their** palette onto the same
+  tokens as well (`background`, `foreground`, `muted`, `primary`, `border`,
+  …); where a name was already taken the shell gave it up rather than the
+  copy, so there is one vocabulary over the tokens and not two. Plain `.css`
+  only: no CSS Modules, no preprocessor, no `<style>` in `index.html`.
 - Nothing from a third-party origin: no CDN, no external font, no inline
   script. An air-gapped install has to work. Icons come from `lucide-react`,
   the one allowlisted icon package, imported by name so that the bundle

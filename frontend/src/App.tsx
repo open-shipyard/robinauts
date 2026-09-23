@@ -69,7 +69,7 @@ function Pages() {
 
 function Centred({ children }: { children: ReactNode }) {
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-3 px-4 text-muted">
+    <main className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center gap-3 px-4 text-muted-foreground">
       {children}
     </main>
   );

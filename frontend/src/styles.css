@@ -34,19 +34,37 @@
 @import "./tokens.css";
 
 @source "../index.html";
-@source "./**/*.{ts,tsx}";
 /*
- * Not the vendored copy, until something imports it.
- *
- * Tailwind's scan is not rollup's module graph: it reads files, not imports,
- * so every class name in `chat/assistant-ui/vendor/` would compile into the
- * bundle although no module there is reachable from `main.tsx`. Measured, the
- * stylesheet goes from 18.0 kB to 58.2 kB (4.6 kB to 11.0 kB gzipped): 40 kB
- * of utilities for markup no page renders. **Step 21 deletes
- * this line** when it wires the chat up behind `src/chat/index.ts`, and the
- * utilities arrive then, with the components that use them.
+ * The vendored copy is in this glob and is meant to be: the chat renders it
+ * (`./chat/assistant-ui/Chat.tsx`), so its utilities ship with it. Until it
+ * was rendered there was an `@source not` here keeping 40 kB of utilities
+ * for markup no page drew; step 21 took it out.
  */
-@source not "./chat/assistant-ui/vendor";
+@source "./**/*.{ts,tsx}";
+
+/*
+ * Dark, as this project decides it rather than as Tailwind's default does.
+ *
+ * Tailwind's own `dark:` is `prefers-color-scheme` alone, and the interface
+ * has a toggle that overrules the machine (`./tokens.css`). The vendored
+ * components carry a dozen `dark:` utilities, and with the default variant
+ * every one of them would disagree with the tokens beside it the moment
+ * somebody chose light on a dark machine. The two rules below are the two in
+ * `tokens.css`, said again as a variant.
+ */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    &:where(
+      :root:not([data-theme="light"]),
+      :root:not([data-theme="light"]) *
+    ) {
+      @slot;
+    }
+  }
+  &:where(:root[data-theme="dark"], :root[data-theme="dark"] *) {
+    @slot;
+  }
+}
 
 /*
  * The rest of what the registry items declare for the stylesheet, copied from
@@ -103,11 +121,8 @@
   --color-tint: var(--tint);
   --color-hover: var(--hover);
   --color-ink: var(--ink);
-  --color-muted: var(--muted);
   --color-line: var(--line);
   --color-edge: var(--edge);
-  --color-accent: var(--accent);
-  --color-on-accent: var(--on-accent);
   --color-link: var(--link);
   --color-bad: var(--bad);
   --color-warn-bg: var(--warn-bg);
@@ -120,6 +135,44 @@
 
   --font-sans: var(--sans);
   --font-mono: var(--mono);
+
+  /*
+   * The vendored components' palette, over the same tokens (ADR 0001).
+   *
+   * They are shadcn/ui-shaped, so they are written in `bg-background`,
+   * `text-muted-foreground`, `border-border` and a dozen more -- names this
+   * project does not use and did not choose. Rather than edit the copy,
+   * which would be a change to re-apply at every re-sync, the names are
+   * **mapped here** onto the tokens the rest of the interface is built from.
+   * That is what makes the chat and the shell one look, and it is the whole
+   * of the styling this step needed.
+   *
+   * **Two of these names were already taken**, and the shell gave them up
+   * rather than the copy: `muted` was this project's grey *ink* and is
+   * shadcn's subtle *surface* (the grey ink is `muted-foreground`), and
+   * `accent` was the primary button and is shadcn's hover surface (the
+   * primary button is `primary`). One vocabulary over our tokens is a
+   * smaller thing to keep straight than two, and the tokens themselves --
+   * which is what outlives Tailwind -- did not move.
+   *
+   * Everything flips with the tokens, so there is one palette and not two.
+   */
+  --color-background: var(--ground);
+  --color-foreground: var(--ink);
+  --color-popover: var(--paper);
+  --color-popover-foreground: var(--ink);
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--on-accent);
+  --color-secondary: var(--panel);
+  --color-secondary-foreground: var(--ink);
+  --color-muted: var(--tint);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--hover);
+  --color-accent-foreground: var(--ink);
+  --color-destructive: var(--bad);
+  --color-border: var(--line);
+  --color-input: var(--edge);
+  --color-ring: var(--link);
 }
 
 @layer base {
