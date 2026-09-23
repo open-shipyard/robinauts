@@ -19,10 +19,69 @@
  * what else happens to be in the tree.
  */
 @import "tailwindcss" source(none);
+/*
+ * Two more packages, and two more names in `CSS_PACKAGES`. Both are Tailwind
+ * plugins written as CSS, and both are asked for by the vendored assistant-ui
+ * components rather than by anything of ours
+ * (./chat/assistant-ui/vendor/README.md): `tw-animate-css` defines the
+ * `animate-in`, `fade-in-*`, `zoom-in-*` and `slide-in-from-*` utilities the
+ * copied components are written in, and `tw-shimmer` the `shimmer` one. Both
+ * imports sit where the registries' own install instructions put them: at the
+ * top of the stylesheet Tailwind is imported in.
+ */
+@import "tw-animate-css";
+@import "tw-shimmer";
 @import "./tokens.css";
 
 @source "../index.html";
 @source "./**/*.{ts,tsx}";
+/*
+ * Not the vendored copy, until something imports it.
+ *
+ * Tailwind's scan is not rollup's module graph: it reads files, not imports,
+ * so every class name in `chat/assistant-ui/vendor/` would compile into the
+ * bundle although no module there is reachable from `main.tsx`. Measured, the
+ * stylesheet goes from 18.0 kB to 58.2 kB (4.6 kB to 11.0 kB gzipped): 40 kB
+ * of utilities for markup no page renders. **Step 21 deletes
+ * this line** when it wires the chat up behind `src/chat/index.ts`, and the
+ * utilities arrive then, with the components that use them.
+ */
+@source not "./chat/assistant-ui/vendor";
+
+/*
+ * The rest of what the registry items declare for the stylesheet, copied from
+ * their `css` blocks (see ./chat/assistant-ui/vendor/README.md): the two
+ * variants and the two keyframes that the copied collapsible components --
+ * the reasoning panel and the tool group -- are written against. `shadcn add`
+ * merges these into the project's stylesheet; here they are written out, so
+ * that what they are and where they came from is readable.
+ */
+@custom-variant data-open (&:where([data-state="open"], [data-open]:not([data-open="false"])));
+@custom-variant data-closed (&:where([data-state="closed"], [data-closed]:not([data-closed="false"])));
+
+@keyframes collapsible-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(
+      --radix-collapsible-content-height,
+      var(--collapsible-panel-height, auto)
+    );
+  }
+}
+
+@keyframes collapsible-up {
+  from {
+    height: var(
+      --radix-collapsible-content-height,
+      var(--collapsible-panel-height, auto)
+    );
+  }
+  to {
+    height: 0;
+  }
+}
 
 /*
  * The Tailwind theme, over our tokens (docs/specs/frontend.md, ADR 0001).

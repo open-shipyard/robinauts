@@ -149,17 +149,29 @@ checks as every other write.
 
 ## Details likely to change
 
-State of the packages, checked 2026-09-21:
+State of the packages, checked again on 2026-09-22 (publication dates from
+`npm view <pkg> time --json`; the frontend pins the newest version published
+at least ten days before that day, `contributing/js-dependencies.md`):
 
 | package | version | licence | note |
 |---|---|---|---|
 | `ag-ui-protocol` (PyPI) | 1.0.0 | MIT | event types and encoder; depends on pydantic only. Imported only in `api` |
-| `@ag-ui/core`, `@ag-ui/client` (npm) | 1.0.0, released 2026-09-17 | MIT | |
-| `@assistant-ui/react-ag-ui` (npm) | 0.0.60 | MIT | still pinned to `@ag-ui/client ^0.0.59` |
+| `@ag-ui/core`, `@ag-ui/client` (npm) | 1.0.0, published 2026-09-17 | MIT | |
+| `@assistant-ui/react-ag-ui` (npm) | 0.0.60, published 2026-09-18 | MIT | **still** pinned to `@ag-ui/client ^0.0.59`, as is 0.0.59 (2026-09-11), which is what the cooldown allows |
+| `@assistant-ui/react` (npm) | 0.15.19, published 2026-09-11 — **pinned**, step 20 | MIT | 0.15.21 (2026-09-18) is newer than the cooldown allows |
 
 - The protocol is at 1.0. The immature piece is assistant-ui's bridge, and
   it sits inside `src/chat/assistant-ui/`, the place that is cheapest to
   replace. If it proves too immature, a small AG-UI client of our own
   takes its place behind the same seam; the wire does not change.
+- A month on, the bridge has not caught up: it would install a second,
+  pre-1.0 `@ag-ui/client` beside the 1.0 one. Step 21 decides between living
+  with that and writing the small client; nothing about the wire turns on
+  the answer.
+- The copy of the styled components is a release behind the registry for the
+  same reason — the registry serves files written against the newest
+  library, and the cooldown pins the one before it. What that cost is one
+  optional field, written down in
+  `frontend/src/chat/assistant-ui/vendor/README.md`.
 - Same-origin SSE passes the Content-Security-Policy
   (`connect-src 'self'`).

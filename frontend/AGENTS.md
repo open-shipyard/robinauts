@@ -36,6 +36,23 @@ Do not:
   template, and `import.meta.glob`, are refused outside
   `src/chat/assistant-ui/` precisely because nothing could clear them, and
   `require` is refused everywhere.
+- edit anything under `src/chat/assistant-ui/vendor/` beyond the
+  modifications its `README.md` already lists. That directory is somebody
+  else's MIT source, copied from two registries rather than installed
+  ([ADR 0001](../docs/adr/0001-chat-ui-assistant-ui-with-tailwind.md)); every
+  edit in it is a change to re-apply at every re-sync, for ever. Fix it
+  outside, or list the edit there with its reason. `src/test/vendor.test.ts`
+  fails when the list and the directory disagree. **Do not "tidy" the two
+  ESLint relaxations** scoped to `src/chat/assistant-ui/vendor/**` in
+  `eslint.config.js`, or satisfy them by editing the copy: they are there so
+  that the copy stays a copy. Re-sync by the procedure in that README —
+  `curl` the registry JSON, never the `shadcn` or `assistant-ui` CLI, which
+  installs packages, runs install scripts and rewrites configuration — and
+  **record every copy and re-sync in
+  [../docs/legal/ip-clearance.md](../docs/legal/ip-clearance.md)**, where
+  entries are appended and never edited. A package that the copy newly needs
+  is still a dependency change of its own, vetted by the rules above, with
+  the judgement written into that README's vetting table.
 - write a path any way but plainly. `//`, `/./`, a `..` that is not the
   leading prefix and a trailing `/` are refused, as is any path through
   `node_modules/`: a package is imported by its name. One spelling per path

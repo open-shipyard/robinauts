@@ -74,10 +74,15 @@ neorc's rules (`neorc/contributing/js-dependencies.md`):
 - Design tokens are CSS custom properties carried over from neorc; the
   Tailwind theme refers to them, so they survive a change of either
   Tailwind or the chat library.
-- Packages the styled components bring: `clsx`, `tailwind-merge`,
-  `class-variance-authority`, `lucide-react`, `tw-animate-css`, Radix.
-  `assistant-cloud` arrives as a dependency of `@assistant-ui/react`; it
-  is never configured.
+- Packages the styled components bring, as pinned on 2026-09-22 when they
+  were copied in: `clsx`, `tailwind-merge`, `class-variance-authority`,
+  `lucide-react`, `tw-animate-css`, Radix (the `radix-ui` package, which
+  `@assistant-ui/react` depends on anyway), and two the list did not expect —
+  `remark-gfm`, for the Markdown, and `tw-shimmer`, a second Tailwind plugin
+  the copied components are written against. The two Tailwind plugins are
+  reached only through `src/styles.css`, so they are named by hand in
+  `CSS_PACKAGES`. `assistant-cloud` arrives as a dependency of
+  `@assistant-ui/react`; it is never configured.
 - The wheel carries `THIRD_PARTY_LICENSES.txt`, listed in its
   `license-files`.
 

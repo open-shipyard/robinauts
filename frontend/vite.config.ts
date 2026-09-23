@@ -84,7 +84,7 @@ const BUNDLED_PACKAGES = resolve(here, "bundled-packages.txt");
  *
  * `src/styles.css` says the same thing from the other side.
  */
-const CSS_PACKAGES = ["tailwindcss"];
+const CSS_PACKAGES = ["tailwindcss", "tw-animate-css", "tw-shimmer"];
 
 /** Where the packages above are read from, which is what npm installed. */
 const NODE_MODULES = resolve(here, "node_modules");

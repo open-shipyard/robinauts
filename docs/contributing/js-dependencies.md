@@ -41,10 +41,20 @@ this file says how it is applied to npm.
 
 ## Vet before adding
 
-- Maintained: recent releases, issues answered, more than one maintainer.
+- Maintained: recent releases, issues answered, and **more than one
+  maintainer — or a single maintainer with years of settled releases and wide
+  adoption**. The second half is not a loophole; it is the truth about a
+  handful of packages everything depends on, `clsx` among them. What makes it
+  a rule rather than a shrug is that the judgement is **written down** where
+  the package is adopted: which of the two it is, and why.
 - Small: `npm view <pkg> dependencies` is short, and the size fits the budget.
 - Licensed on the list below.
-- Published with provenance, `npm view <pkg> dist.attestations`.
+- Published with provenance, `npm view <pkg> dist.attestations` — **required
+  of a release published after npm had provenance, which is April 2023**. An
+  older release cannot carry one and is not refused for that; it is accepted
+  when the package has years of settled history behind it, and, again, the
+  judgement is written down. A package whose first release is later than that
+  date and which publishes without attestations is refused.
 - Needs no install script, `npm view <pkg> hasInstallScript`. A package that
   does is a reason to pick another.
 - Read what npm serves, `npm pack <pkg>` and look inside; the GitHub

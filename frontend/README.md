@@ -123,9 +123,17 @@ Two of these are generated and thrown away; one is generated and committed.
   dependency change per pull request — never a version published fewer than
   ten days ago, first pin included.
 - The chat seam: [../docs/adr/0001-chat-ui-assistant-ui-with-tailwind.md](../docs/adr/0001-chat-ui-assistant-ui-with-tailwind.md).
-  assistant-ui will live only under `src/chat/assistant-ui/`; the rest of the
+  assistant-ui lives only under `src/chat/assistant-ui/`; the rest of the
   application imports `src/chat/index.ts`. `eslint.config.js` refuses anything
   else, and `src/test/seam-rule.test.ts` proves the rule still fires.
+- Vendored code: `src/chat/assistant-ui/vendor/` is somebody else's MIT
+  source, copied from two shadcn-style registries rather than installed, which
+  is how the styled chat components are distributed. Read
+  [its README](src/chat/assistant-ui/vendor/README.md) before touching
+  anything in there: edits are kept to the list it holds, each with its
+  reason, so that a re-sync stays a small merge, and
+  `src/test/vendor.test.ts` fails when the directory and that list disagree.
+  Our own code goes outside it. Nothing imports it yet.
 - Styling: `src/tokens.css` holds the design tokens as CSS custom properties
   and is the source of truth for every colour and radius; `src/styles.css`
   imports Tailwind and maps its theme onto them, so a component is written in

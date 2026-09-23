@@ -305,4 +305,26 @@ export default tseslint.config(
     files: ["src/chat/assistant-ui/**"],
     rules: confine([], { unjudgeable: false }),
   },
+  {
+    // The vendored copy (ADR 0001, src/chat/assistant-ui/vendor/README.md).
+    // Two rules are turned off for it, and only for it, because they are
+    // about how upstream wrote its code rather than about anything this
+    // project decides. Editing the copy to satisfy them would put a change on
+    // every re-sync for ever, which is the cost the vendoring rules exist to
+    // keep down. Everything else -- the hygiene rules, `no-restricted-globals`,
+    // the refusal of `require` -- still applies here.
+    //
+    // `no-empty`: four `catch {}` that discard a failure on purpose, so only
+    // the empty catch is allowed, not an empty block anywhere.
+    //
+    // `react-hooks/refs`: `markdown-text.tsx` memoises its component table by
+    // comparing it with a ref during render. React's rule is right in general
+    // and this is a deliberate exception upstream makes; it is their call to
+    // make in their file.
+    files: ["src/chat/assistant-ui/vendor/**"],
+    rules: {
+      "no-empty": ["error", { allowEmptyCatch: true }],
+      "react-hooks/refs": "off",
+    },
+  },
 );

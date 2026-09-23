@@ -320,9 +320,18 @@ describe("the packages a stylesheet reaches", () => {
     // where a name that was written down without the package being there
     // stops the build.
     const named = cssPackagesIn(resolve(here, "node_modules"));
-    expect(named.map((one) => one.name)).toEqual(["tailwindcss"]);
-    expect(named[0]?.license).toBe("MIT");
-    expect(named[0]?.text).toContain("MIT License");
+    // Tailwind, and the two plugins the vendored chat components are written
+    // against (src/chat/assistant-ui/vendor/README.md). All three are
+    // `@import`ed by src/styles.css and reached by no module.
+    expect(named.map((one) => one.name)).toEqual([
+      "tailwindcss",
+      "tw-animate-css",
+      "tw-shimmer",
+    ]);
+    for (const one of named) {
+      expect(one.license).toBe("MIT");
+      expect(one.text).toContain("MIT License");
+    }
   });
 });
 

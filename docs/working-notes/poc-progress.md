@@ -1609,6 +1609,49 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   `frontend/scripts/fixture-server.mjs` gained the conversation routes and
   the `history` and `conversation` scenes, whose renames, deletes and cancels
   really change what it serves.
+- **The vendored chat components**, in
+  `frontend/src/chat/assistant-ui/vendor/`: sixteen files copied from two
+  shadcn-style registries — eleven from assistant-ui's
+  (`https://r.assistant-ui.com/`) and the five shadcn/ui components they
+  import — both MIT, both recorded in `docs/legal/ip-clearance.md` and
+  `third-party.md`, with their licence texts beside them and `README.md`
+  there saying which file came from which item, what was changed in it, how
+  each package was judged and how to re-sync. A seventeenth file,
+  `lib/utils.ts`, is **ours**: it replaces the registry's `utils` item, which
+  now re-exports a `cn` package this project does not take, and it carries
+  our header and its own `REUSE.toml` line. **Nothing imports them yet**;
+  step 21 does. They are inside `src/`, so `tsc -b` and `eslint .` cover
+  them, and `src/test/vendor.test.ts` holds the README's file list, the
+  licence texts and the copy's imports to what is on disk. They are out of
+  the bundle both ways: rollup never reaches them, and `src/styles.css` says
+  `@source not "./chat/assistant-ui/vendor"`, because Tailwind's scan reads
+  files rather than imports and would otherwise compile 40 kB of utilities
+  (6.4 kB gzipped) for markup no page renders, taking the stylesheet from
+  18.0 kB to 58.2 kB — step 21 deletes that line.
+  Six modifications, listed in the README: relative paths instead of `@/`
+  aliases (no `paths` in `tsconfig`, and the seam rules read one spelling per
+  path), `lib/utils.ts` as the `clsx`/`tailwind-merge` `cn` rather than the
+  three-week-old `cn` package, the attachment composer taken out (the POC has
+  no attachments), one field read as optional because the cooldown pins
+  `@assistant-ui/react` a release behind what the registry is written
+  against, this repository's Prettier, and two ESLint rules off for that
+  directory alone.
+  **One dependency change** — the chat library and what its styled components
+  import, adopted together with the copy because the copy cannot type-check
+  without them, so they are the change rather than a feature's side effect.
+  Each is the newest version published on or before 2026-09-12, which is the
+  ten-day cooldown: `@assistant-ui/react` 0.15.19 and
+  `@assistant-ui/react-markdown` 0.14.15 (both 2026-09-11), `remark-gfm`
+  4.0.1 (2025-02-10), `radix-ui` 1.6.7 (2026-07-24),
+  `class-variance-authority` 0.7.1 (2024-11-26), `clsx` 2.1.1 (2024-04-23),
+  `tailwind-merge` 3.7.0 (2026-09-12), and the two Tailwind plugins the copy
+  is written against, `tw-animate-css` 1.4.0 (2025-09-24) and `tw-shimmer`
+  0.4.13 (2026-09-11), which are reached only through `src/styles.css` and so
+  are named by hand in `CSS_PACKAGES`. Three of the nine carry no provenance
+  attestation and four have a single maintainer; `docs/contributing/js-dependencies.md`
+  was amended to say what is really required of each, and the judgement per
+  package is in the README's vetting table. `assistant-cloud` 0.2.2 arrives
+  under `@assistant-ui/react` and is configured by nothing.
 
 ## Steps
 
@@ -2664,3 +2707,56 @@ Important design decisions made / open questions:
   while a request is in flight, so focus and Escape keep working.
 - The conversation's heading follows the panel's list; a reread refreshes
   the list too, so the two never disagree.
+
+### Step 20 — vendor-assistant-ui   (feature/poc-20-vendor-assistant-ui)
+
+Summary: the assistant-ui styled components copied into
+`frontend/src/chat/assistant-ui/vendor/` from the two shadcn-style
+registries (eleven assistant-ui items, five shadcn/ui items; the
+attachment items skipped; the CLI never run), with the upstream commits at
+fetch time, both MIT texts beside the code, a README listing every file,
+the six local modifications (`@/` → relative paths, our own `lib/utils.ts`
+in place of the squatted `cn` package, the attachment composer removed
+from `thread`, one field read as optional against the pinned release,
+Prettier, two ESLint rules relaxed for `vendor/**` only), the re-sync
+procedure, and a vetting-judgement table for the nine packages the copy
+imports (all under the ten-day cooldown; `assistant-cloud` and `zustand`
+arrive transitively and nothing configures them). `tw-animate-css` and
+`tw-shimmer` are CSS packages, named in `CSS_PACKAGES`. Records in
+`ip-clearance.md`, `third-party.md`, `REUSE.toml` (three copyright
+groups), `LICENSES/MIT.txt`. Nothing imports the copy yet; Tailwind's
+scan excludes it (`@source not`) until step 21 wires it, so the step
+costs 345 bytes gzipped. A test keeps the README's file list, the licence
+texts and the copy's imports honest.
+
+Review: 1 round (about provenance): the copy is byte-exact against the
+registries, every difference one of the listed modifications; commits
+unchanged; licence texts exact.
+- High: 1
+  - three pins predate npm provenance and four are single-maintainer while
+    the contributor rule stated both as requirements (and the same change
+    refused `cn` by that rule) — fixed as a records change: the rule now
+    says what is true (provenance required for releases after April 2023;
+    a single maintainer accepted with years of settled history), and the
+    judgement per package is written down in the vendor README.
+- Medium: 4 (4/0) — "absent from the bundle" was false for CSS (40 kB of
+  utilities compiled for unrendered markup; now excluded); `lib/utils.ts`
+  was attributed to upstream though written here; `AGENTS.md` lacked the
+  vendor do-nots; publish dates not recorded.
+- Low: 5 (5/0)
+
+Checks: `scripts/check-all.sh` without a database (2528 backend, 289
+frontend tests) and with one required (2718); `reuse lint` 294/294; the
+licence gate over 483 installed packages with no new exception.
+Not done / to watch: tools and reasoning components kept though the POC
+has neither (cutting them would fork `thread`); `@assistant-ui/react-ag-ui`
+0.0.60 is still pinned to `@ag-ui/client ^0.0.59` while the protocol is
+at 1.0.0 — step 21 decides between the bridge and a small client of our
+own. The registries carry no version; the recorded commit is each
+default branch's head at fetch time. The implementer once ran Prettier
+over `docs/` by mistake and restored it — `docs/` is not
+Prettier-formatted.
+Important design decisions made / open questions:
+- The vetting rules were amended rather than silently bypassed.
+- The `utils` registry item now re-exports a three-week-old package on a
+  squatted name; refused, the helper is ours.

@@ -185,5 +185,58 @@ Entries are never edited after the fact; a correction is a new entry.
 - Attribution added to: this entry. Same authors and the same licence; no
   notice is required.
 
+### 2026-09-22 — the assistant-ui styled chat components, vendored
+
+- Source: two shadcn-style registries, fetched with `curl` on 2026-09-22
+  (01:14 UTC on 2026-09-23). Neither registry states a version or a commit of
+  its own — each is served from its project's default branch — so the commit
+  recorded is that branch's head at the moment of the fetch, read with
+  `git ls-remote`.
+- From `https://r.assistant-ui.com/<item>.json`, out of
+  https://github.com/assistant-ui/assistant-ui at commit
+  `92d16d77a684cff61e6812c0803ea698a8db8b2f`: the items `thread`,
+  `markdown-text`, `tooltip-icon-button`, `use-copy-to-clipboard`,
+  `follow-up-suggestions`, `file`, `image`, `reasoning`, `elements-reasoning`,
+  `tool-fallback` and `tool-group` — one file each, eleven in all, which is
+  what `thread` needs less the attachment items. The `utils` item was read and
+  **not** copied: it now re-exports a `cn` package this project does not take,
+  so `frontend/src/chat/assistant-ui/vendor/lib/utils.ts` is written here
+  instead and is this project's own work under Apache-2.0.
+- From `https://ui.shadcn.com/r/styles/new-york-v4/<item>.json`, out of
+  https://github.com/shadcn-ui/ui at commit
+  `98a1fe67b439324ddc857f47fbdce056600a4329`: `button`, `skeleton`, `tooltip`,
+  `textarea` and `collapsible`, the five components the assistant-ui items
+  import.
+- Their licences: MIT, Copyright (c) 2025 AgentbaseAI Inc. (assistant-ui);
+  MIT, Copyright (c) 2023 shadcn (shadcn/ui). Both texts were fetched from
+  their repositories at the commits above.
+- Landed as: sixteen files under `frontend/src/chat/assistant-ui/vendor/`, at
+  the paths the registry items name, beside `vendor/lib/utils.ts`, which is
+  ours. Upstream's licence texts sit beside them as `vendor/LICENSE` and
+  `vendor/LICENSE.shadcn-ui`; `vendor/README.md` is this project's and holds
+  the file list, the modifications, the per-package vetting judgements and the
+  re-sync procedure; `frontend/src/test/vendor.test.ts` holds the list and the
+  directory to each other.
+- Modifications, six, each with its reason in `vendor/README.md`: the `@/`
+  path aliases rewritten to relative paths (this package has no `paths`, and
+  adding them would give every path a second spelling the seam rules of
+  ADR 0001 refuse); `lib/utils.ts` written here as the `clsx`/`tailwind-merge`
+  implementation of `cn` rather than a re-export of the three-week-old `cn`
+  package, and the five shadcn components pointed at it; the attachment
+  composer removed from `thread.aui.tsx` (the POC has no attachments); one
+  field read as optional in `tool-fallback.aui.tsx`, because the registry's
+  copy is written against a newer `@assistant-ui/react` than the ten-day
+  cooldown allows pinning; formatting with this repository's Prettier; and two
+  ESLint rules turned off for that directory alone (`no-empty` relaxed to
+  allow an empty `catch`, `react-hooks/refs` off), in
+  `frontend/eslint.config.js` with the reasons written there. Nothing else was
+  touched. The CLI (`npx shadcn@latest add`) was **not** run: it installs
+  packages, runs install scripts and rewrites configuration, none of which
+  this repository lets a tool do.
+- Attribution added to: this entry, `docs/legal/third-party.md`, the two
+  licence texts beside the code, `LICENSES/MIT.txt` and the annotations for
+  the directory in `REUSE.toml`. The copy was made by The Robinauts Authors
+  via Claude Code, reviewed by the maintainers.
+
 <!-- Entries go above this line. -->
 <!-- REUSE-IgnoreEnd -->
