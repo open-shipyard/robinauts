@@ -15,6 +15,7 @@ path = [
     ".gitignore",
     ".gitattributes",
     "docs/**",
+    "demo/README.md",
     "backend/uv.lock",
     "backend/openapi.json",
     "scripts/licence-fixtures.json",

@@ -117,6 +117,13 @@ runs every turn the same way:
 - The operator declares providers and models; agents refer to a model by
   the platform's own id for it. The configuration is the platform's, not
   either framework's.
+- A provider's `kind` names either a **vendor** — `anthropic`, `openai` —
+  or a **protocol at an address the operator gives**:
+  `anthropic-compatible` is an endpoint that speaks Anthropic's Messages
+  API, `openai-compatible` one that speaks OpenAI's. The protocol kinds
+  are the ones that carry a `base_url`, and the only ones: a vendor has one
+  endpoint, the engine pins it, and a second answer to "where is it" would
+  be a way to send the operator's key somewhere else.
 - Both engines report tokens in the platform's terms — input, output,
   model — taken from the provider's response.
 - **Nothing phones home.** The engines never enable a framework's hosted
@@ -167,8 +174,11 @@ runs every turn the same way:
     `langchain-google-genai`, `langchain-aws`;
   - Pydantic AI: `pydantic-ai-slim` with the provider extras needed, not
     the all-inclusive `pydantic-ai`.
-  - OpenRouter, and any self-hosted OpenAI-compatible endpoint, go through
-    the OpenAI-compatible client with a base URL.
+  - An OpenAI-compatible endpoint goes through the OpenAI-compatible
+    client with a base URL. **OpenRouter does not have to**: it also serves
+    Anthropic's Messages API, and an `anthropic-compatible` provider
+    reaches it with the Anthropic client both engines already have, which
+    is how it is reached in this build (below).
 - Every one of these packages passes the licence and vulnerability gates
   at its pinned version, with its transitive tree
   ([open-source.md](open-source.md)). A provider whose client fails is not
@@ -201,17 +211,45 @@ engine = "langgraph"
 system_prompt = "Play fair."
 ```
 
-  The other two kinds are written the same way. **This build refuses them**
-  at start-up, naming the provider, because the client that reaches them
-  does not pass the dependency policy (see "Known findings" below); the
-  shape is settled all the same, and `base_url` belongs to
-  `openai-compatible` and to nothing else:
+  An `anthropic-compatible` provider is the same thing with the endpoint
+  written down. **This is how OpenRouter is reached in this build**: it
+  serves Anthropic's Messages API and takes the key in the same
+  `x-api-key` header, so both engines reach it with the Anthropic client
+  they already have and no OpenAI client is needed. `base_url` is a
+  **prefix** the client appends the protocol's own path to, so it stops at
+  `/api` and the request goes to
+  `https://openrouter.ai/api/v1/messages`; the model names are
+  OpenRouter's, `<vendor>/<model>`:
 
 ```toml
 [model_providers.openrouter]
-kind = "openai-compatible"
-base_url = "https://openrouter.ai/api/v1"
+kind = "anthropic-compatible"
+base_url = "https://openrouter.ai/api"
 api_key_env = "ROBINAUTS_OPENROUTER_KEY"
+
+[models.sonnet-via-openrouter]
+provider = "openrouter"
+name = "anthropic/claude-sonnet-5"
+
+[agents.assistant-openrouter]
+title = "Assistant (OpenRouter)"
+model = "sonnet-via-openrouter"
+engine = "pydantic-ai"
+```
+
+  The other two kinds are written the same way — here a self-hosted
+  gateway speaking OpenAI's protocol, which is a different provider from
+  the two above and not another spelling of one. **This build refuses
+  them** at start-up, naming the provider, because the client that reaches
+  them does not pass the dependency policy (see "Known findings" below);
+  the shape is settled all the same, and `base_url` belongs to the two
+  protocol kinds and to nothing else:
+
+```toml
+[model_providers.gateway]
+kind = "openai-compatible"
+base_url = "https://gateway.example.com/v1"
+api_key_env = "ROBINAUTS_GATEWAY_KEY"
 ```
 
 ## Known findings
@@ -222,15 +260,19 @@ api_key_env = "ROBINAUTS_OPENROUTER_KEY"
 - `langchain-openai` requires `tiktoken`, which states its licence as the
   licence *text* and no identifier, and which in turn requires `regex`,
   `Apache-2.0 AND CNRI-Python`. Neither resolves under the policy, so the
-  client is not adopted and the LangGraph engine offers **Anthropic alone**
-  for now: OpenAI, OpenRouter and every other OpenAI-compatible endpoint
-  wait for a tree that passes ([DEPENDENCIES.md](../../DEPENDENCIES.md),
-  "Known exclusions"). The configuration still names the three kinds — the
+  client is not adopted and `openai` and `openai-compatible` wait for a
+  tree that passes ([DEPENDENCIES.md](../../DEPENDENCIES.md), "Known
+  exclusions"). The configuration still names all four kinds — the
   vocabulary is the platform's — and a deployment asking for a kind this
   build cannot reach is refused at start-up, saying so.
-- The same tree keeps the same kinds out of the **Pydantic AI** engine:
-  `pydantic-ai-slim[openai]` requires `tiktoken` too. So both engines offer
-  Anthropic alone, and the swap holds for every model either of them has.
+- The same tree keeps the same two kinds out of the **Pydantic AI** engine:
+  `pydantic-ai-slim[openai]` requires `tiktoken` too.
+- So both engines reach **`anthropic` and `anthropic-compatible`**, with
+  one client each and nothing else added, and the swap holds for every
+  model either of them has. OpenRouter is reached as an
+  `anthropic-compatible` provider, which is what the exclusion above costs
+  and does not cost: a vendor behind an OpenAI-only endpoint is still out
+  of reach, and one that also speaks the Messages API is not.
 - `langsmith` is a hard dependency of `langchain-core`, and the LangGraph
   adapter imports it for **one call**: `langsmith.configure(enabled=False)`,
   made when the engine is constructed, which is the switch langchain-core

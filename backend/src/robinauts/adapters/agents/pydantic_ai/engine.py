@@ -144,9 +144,10 @@ Anthropic SDK falls back to ``ANTHROPIC_BASE_URL`` when no base URL is passed,
 so one variable inherited from a shell, a unit file or a container image would
 send every turn -- and the operator's key with it -- to any host that variable
 named. The operator says where a provider is in the configuration
-(``base_url``, and only for an ``openai-compatible`` provider), or it is this
-constant; there is no third answer, and no way for the environment to be one
-(``docs/specs/operations.md``).
+(``base_url``, and only for a kind that names a protocol rather than a vendor),
+or it is this constant; there is no third answer, and no way for the
+environment to be one (``docs/specs/operations.md``). ``endpoint_of`` is where
+the choice between the two is made, and it is the whole of it.
 
 Spelt out again here rather than imported from the LangGraph adapter: the two
 adapters do not import each other (``docs/layout.md``), and deleting either
@@ -362,6 +363,46 @@ def quiet_client_logging() -> None:
             logger.setLevel(QUIET_CLIENT_LEVEL)
 
 
+def endpoint_of(provider: ModelProviderConfig) -> str:
+    """Where that provider is: the address the operator gave, or Anthropic's own.
+
+    The two kinds this engine reaches are a **vendor** and a **protocol**
+    (``PydanticAIAgent.kinds``). ``anthropic`` is Anthropic, at
+    ``ANTHROPIC_ENDPOINT`` and nowhere else, and it has no ``base_url`` to
+    offer. ``anthropic-compatible`` is an endpoint the operator names that
+    speaks the same Messages API -- OpenRouter's is one -- so the address is
+    theirs, checked where every configured endpoint is
+    (``domain.is_endpoint_url``: https, or http on the loopback interface, no
+    query, no fragment and no credential written into it).
+
+    **A base URL is a prefix the client appends the protocol's own path to**,
+    so an operator reaching OpenRouter writes ``https://openrouter.ai/api``
+    and the request goes to ``https://openrouter.ai/api/v1/messages``
+    (``docs/specs/agents.md``).
+
+    A provider of any other kind should not arrive here: the configuration was
+    held to ``PydanticAIAgent.kinds`` at start-up. One that does -- a kind added to
+    that set without a branch here, a caller that built a definition by hand --
+    gets a refusal naming it, and never a turn sent to whichever endpoint
+    happened to be nearest. The tests ask it of every kind the engine does not
+    offer, so this is a branch that is exercised rather than merely written.
+
+    Spelt out again here rather than imported from the LangGraph adapter: the
+    two adapters do not import each other (``docs/layout.md``), and deleting
+    either must leave the other whole.
+    """
+    if provider.kind is ProviderKind.ANTHROPIC:
+        return ANTHROPIC_ENDPOINT
+    if provider.kind is ProviderKind.ANTHROPIC_COMPATIBLE and provider.base_url:
+        return provider.base_url
+    raise ConfigError(
+        [
+            f"model_providers.{provider.id}: this build of the Pydantic AI engine cannot"
+            f" reach a {provider.kind.value} provider"
+        ]
+    )
+
+
 def chat_model(model: ModelConfig, provider: ModelProviderConfig, key: str) -> Model:
     """The model that model's configuration describes.
 
@@ -381,9 +422,10 @@ def chat_model(model: ModelConfig, provider: ModelProviderConfig, key: str) -> M
     configured for that provider -- an explicit credential also switches the
     SDK's auto-discovery off outright, so a profile on disk, a federation
     token or an ``ANTHROPIC_PROFILE`` cannot supply one either; and the
-    endpoint (``ANTHROPIC_ENDPOINT``), so that ``ANTHROPIC_BASE_URL`` cannot
-    redirect a turn and a key to another host, nor a profile quietly fill one
-    in. There is no vendor-specific proxy variable in this SDK to pin off: an
+    endpoint (``endpoint_of``), so that ``ANTHROPIC_BASE_URL`` cannot redirect
+    a turn and a key to another host, nor a profile quietly fill one in -- the
+    configuration is the only thing that decides where a turn goes. There is
+    no vendor-specific proxy variable in this SDK to pin off: an
     operator's proxy is ``HTTPS_PROXY``, which is theirs and is how every other
     outbound call of this process is proxied.
 
@@ -398,38 +440,39 @@ def chat_model(model: ModelConfig, provider: ModelProviderConfig, key: str) -> M
     request, as ``ModelSettings`` (``_runner``), which is where the model's
     configuration reaches a turn.
     """
-    if provider.kind is ProviderKind.ANTHROPIC:
-        client = AsyncAnthropic(
-            api_key=key,
-            base_url=ANTHROPIC_ENDPOINT,
-            max_retries=MAX_RETRIES,
-            default_headers={ANTHROPIC_KEY_HEADER: key},
-        )
-        return AnthropicModel(model.name, provider=AnthropicProvider(anthropic_client=client))
-    raise ConfigError(  # pragma: no cover -- `PydanticAIAgent.kinds` refuses first
-        [
-            f"model_providers.{provider.id}: this build of the Pydantic AI engine cannot"
-            f" reach a {provider.kind.value} provider"
-        ]
+    client = AsyncAnthropic(
+        api_key=key,
+        base_url=endpoint_of(provider),
+        max_retries=MAX_RETRIES,
+        default_headers={ANTHROPIC_KEY_HEADER: key},
     )
+    return AnthropicModel(model.name, provider=AnthropicProvider(anthropic_client=client))
 
 
 class PydanticAIAgent(Agent):
     """The Pydantic AI engine: one turn, one agent, built and thrown away."""
 
-    kinds: frozenset[ProviderKind] = frozenset({ProviderKind.ANTHROPIC})
+    kinds: frozenset[ProviderKind] = frozenset(
+        {ProviderKind.ANTHROPIC, ProviderKind.ANTHROPIC_COMPATIBLE}
+    )
     """The provider kinds this build of the engine has a client for.
 
-    Anthropic alone, and not because the engine cannot do more: OpenAI,
-    OpenRouter and every other OpenAI-compatible endpoint are reached through
-    ``pydantic-ai-slim[openai]``, which requires ``tiktoken`` and through it
-    ``regex`` -- the same tree that keeps the kind out of the LangGraph engine,
-    and that does not pass the licence policy (``DEPENDENCIES.md``, "Known
-    exclusions"). A provider whose client fails the gate is not offered until
-    it passes (``docs/specs/agents.md``), so the configuration refuses the kind
-    at start-up rather than the engine failing at the first turn. Adding it
-    back is this set, the branch in ``chat_model`` and the dependency --
-    nothing else.
+    One client, two kinds: ``AsyncAnthropic`` reaches Anthropic itself and any
+    endpoint that speaks Anthropic's Messages API at an address the operator
+    gives (``endpoint_of``). **That is how OpenRouter is reached in this
+    build**: it serves the Messages API and takes the key in the same
+    ``x-api-key`` header, so nothing about the client changes but where it
+    sends the request.
+
+    What is still not here is ``openai`` and ``openai-compatible``, which are
+    reached through ``pydantic-ai-slim[openai]``, which requires ``tiktoken``
+    and through it ``regex`` -- the same tree that keeps those kinds out of the
+    LangGraph engine, and that does not pass the licence policy
+    (``DEPENDENCIES.md``, "Known exclusions"). A provider whose client fails
+    the gate is not offered until it passes (``docs/specs/agents.md``), so the
+    configuration refuses the kind at start-up rather than the engine failing
+    at the first turn. Adding it back is this set, a branch in ``chat_model``
+    and the dependency -- nothing else.
 
     It is declared by the port (``robinauts.ports.Agent.kinds``) and answered
     here, so that the composition root asks the engine what it can reach

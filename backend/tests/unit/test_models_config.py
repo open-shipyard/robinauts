@@ -23,6 +23,7 @@ import pytest
 from robinauts.core import parse_models_config
 from robinauts.domain import (
     DEFAULT_MODEL_TIMEOUT_SECONDS,
+    KINDS_WITH_BASE_URL,
     LOOPBACK_HOSTS,
     MAX_AGENT_TITLE_CHARS,
     MAX_ENV_NAME_CHARS,
@@ -33,6 +34,7 @@ from robinauts.domain import (
     AgentDefinition,
     ConfigError,
     Engine,
+    InvalidValueError,
     ModelConfig,
     ModelProviderConfig,
     ProviderKind,
@@ -45,6 +47,8 @@ ASSISTANT = {"title": "Assistant", "model": "sonnet", "engine": "langgraph"}
 
 LANGGRAPH_ONLY = frozenset({Engine.LANGGRAPH})
 ANTHROPIC_ONLY = frozenset({ProviderKind.ANTHROPIC})
+ANTHROPIC_KINDS = frozenset({ProviderKind.ANTHROPIC, ProviderKind.ANTHROPIC_COMPATIBLE})
+"""The two kinds one Anthropic client reaches, which is what this build has."""
 
 
 def data(**changes: Any) -> dict[str, Any]:
@@ -258,7 +262,8 @@ def test_a_provider_says_what_kind_it_is(kind: Any) -> None:
 
 def test_a_kind_is_one_of_the_kinds_there_are() -> None:
     assert only(provider(kind="antropic")) == (
-        "model_providers.anthropic.kind: one of anthropic, openai, openai-compatible,"
+        "model_providers.anthropic.kind: one of anthropic, anthropic-compatible, openai,"
+        " openai-compatible,"
         " not 'antropic'"
     )
 
@@ -306,24 +311,69 @@ def test_a_variable_name_is_bounded() -> None:
     )
 
 
-def test_only_an_openai_compatible_provider_has_a_base_url() -> None:
+def test_only_a_kind_that_names_a_protocol_has_a_base_url() -> None:
+    # A vendor's endpoint is the engine's own constant, and a second answer to
+    # "where is it" would be a way to send the operator's key somewhere else.
     assert only(provider(base_url="https://example.invalid/v1")) == (
-        "model_providers.anthropic.base_url: only an openai-compatible provider has one;"
-        " anthropic has one endpoint of its own"
+        "model_providers.anthropic.base_url: only these kinds have one:"
+        " anthropic-compatible, openai-compatible; anthropic has one endpoint of its own"
     )
 
 
-def test_an_openai_compatible_provider_needs_a_base_url() -> None:
+@pytest.mark.parametrize("kind", sorted(kind.value for kind in KINDS_WITH_BASE_URL))
+def test_a_kind_that_names_a_protocol_needs_a_base_url(kind: str) -> None:
     assert only(
         problems(
-            model_providers={"local": {"kind": "openai-compatible", "api_key_env": "K"}},
+            model_providers={"local": {"kind": kind, "api_key_env": "K"}},
             models=...,
             agents=...,
         )
     ) == (
-        "model_providers.local.base_url: an openai-compatible provider needs one; there"
-        " is no endpoint to guess"
+        f"model_providers.local.base_url: a provider of kind {kind} needs one; there is"
+        f" no endpoint to guess"
     )
+
+
+def test_an_anthropic_compatible_provider_carries_the_endpoint_it_is_reached_at() -> None:
+    # How OpenRouter is reached in this build: the vendor's Messages API at an
+    # address the operator gives (docs/specs/agents.md). The base URL is a
+    # prefix the client appends `/v1/messages` to, so it stops at `/api`.
+    table = {
+        "kind": "anthropic-compatible",
+        "api_key_env": "ROBINAUTS_OPENROUTER_KEY",
+        "base_url": "https://openrouter.ai/api",
+    }
+
+    config = parse_models_config(
+        data(model_providers={"openrouter": table}, models=..., agents=...)
+    )
+
+    assert config.providers["openrouter"] == ModelProviderConfig(
+        id="openrouter",
+        kind=ProviderKind.ANTHROPIC_COMPATIBLE,
+        api_key_env="ROBINAUTS_OPENROUTER_KEY",
+        base_url="https://openrouter.ai/api",
+    )
+
+
+def test_a_refusal_names_every_kind_that_could_be_used_instead() -> None:
+    # What an operator who wrote `openai` is told to use instead. The set is
+    # the deployment's own answer; what this build's really is, and that the
+    # sentence reads as the guide prints it, is asserted where `app` may be
+    # imported (tests/integration/test_config_file.py).
+    with pytest.raises(ConfigError) as raised:
+        parse_models_config(
+            data(
+                model_providers={"openai": {"kind": "openai", "api_key_env": "K"}},
+                models={"sonnet": {"provider": "openai", "name": "a-model"}},
+            ),
+            kinds=ANTHROPIC_KINDS,
+        )
+
+    assert list(raised.value.problems) == [
+        "model_providers.openai.kind: this build cannot reach 'openai' providers;"
+        " it was built with anthropic, anthropic-compatible"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -385,7 +435,8 @@ def test_a_provider_with_a_mistake_in_it_does_not_bury_it_under_a_cascade() -> N
     found = problems(model_providers={"anthropic": {**ANTHROPIC, "kind": "antropic"}})
 
     assert found == [
-        "model_providers.anthropic.kind: one of anthropic, openai, openai-compatible,"
+        "model_providers.anthropic.kind: one of anthropic, anthropic-compatible, openai,"
+        " openai-compatible,"
         " not 'antropic'"
     ]
 
@@ -583,3 +634,52 @@ def test_the_loopback_hosts_are_spelt_the_way_a_split_url_reports_them() -> None
     assert all(host == host.lower() for host in LOOPBACK_HOSTS)
     assert not [host for host in LOOPBACK_HOSTS if "[" in host or "]" in host]
     assert LOOPBACK_HOSTS == {"localhost", "127.0.0.1", "::1"}
+
+
+# --- the record's own rules about base_url -----------------------------------
+#
+# The parser says where in the file the mistake is; the **record** is the rule
+# (``core.models_config._built``), and it is what a caller building one by hand
+# -- a test, the demo, a later step -- meets. Both are checked: a record that
+# let a base_url through for a kind that names a vendor would be a way around
+# the parser's refusal and a way to send the operator's key elsewhere.
+
+
+@pytest.mark.parametrize("kind", sorted(KINDS_WITH_BASE_URL))
+def test_a_record_of_a_kind_that_names_a_protocol_needs_its_base_url(kind: ProviderKind) -> None:
+    with pytest.raises(InvalidValueError) as raised:
+        ModelProviderConfig(id="gateway", kind=kind, api_key_env="K")
+
+    assert str(raised.value) == (
+        f"a provider of kind {kind.value} needs its base_url: there is no endpoint" f" to guess"
+    )
+
+
+@pytest.mark.parametrize("kind", sorted(frozenset(ProviderKind) - KINDS_WITH_BASE_URL))
+def test_a_record_of_a_kind_that_names_a_vendor_refuses_a_base_url(kind: ProviderKind) -> None:
+    # `anthropic` among them, and that is the one that matters: the engines
+    # reach it and an `anthropic-compatible` endpoint with the same client, so
+    # only this refusal keeps the vendor's own endpoint the engine's constant.
+    with pytest.raises(InvalidValueError) as raised:
+        ModelProviderConfig(
+            id="vendor", kind=kind, api_key_env="K", base_url="https://evil.example/v1"
+        )
+
+    assert str(raised.value) == (
+        f"only these kinds have a base_url: anthropic-compatible, openai-compatible;"
+        f" {kind.value} has one endpoint of its own"
+    )
+
+
+def test_a_record_holds_a_configured_endpoint_to_the_same_rule_as_the_parser() -> None:
+    # Plain text to another machine is the key given away, wherever the record
+    # was built (`is_endpoint_url`).
+    with pytest.raises(InvalidValueError) as raised:
+        ModelProviderConfig(
+            id="openrouter",
+            kind=ProviderKind.ANTHROPIC_COMPATIBLE,
+            api_key_env="K",
+            base_url="http://openrouter.ai/api",
+        )
+
+    assert str(raised.value).startswith("base_url is an https:// endpoint")

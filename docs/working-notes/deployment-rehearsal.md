@@ -147,7 +147,7 @@ credential that matters there, not the host and the database name after the
 |---|---|---|
 | 1 | two people sign in, Google and Okta, over https; a third is refused | **rehearsed** against two stand-in providers over https, with the `__Host-` cookie and the `not_allowed` page. **Needs the real deployment** for Google and Okta themselves: their client registrations, the redirect URIs, and Google's `hd` rules |
 | 2 | each sees only their own conversations | **rehearsed** in full: 404 by id, and absent from the other's history |
-| 3 | engine and vendor swapped in the configuration, across a restart | **partly**, and the vendor half is blocked on more than a key. The **engine** swap across a restart is rehearsed (`langgraph` → `pydantic-ai`, the conversation survives it); a model key would finish it by having the next turn really answer. The **vendor** swap cannot be done at all in this build: it reaches Anthropic alone, because no other provider's client passes `DEPENDENCIES.md`. It needs a second `kind` admitted first |
+| 3 | engine and vendor swapped in the configuration, across a restart | **partly**. The **engine** swap across a restart is rehearsed (`langgraph` → `pydantic-ai`, the conversation survives it); a model key would finish it by having the next turn really answer. The **vendor** swap could not be done at all when this was rehearsed: the build reached Anthropic alone, because no other provider's client passes `DEPENDENCIES.md`. **Since then** the `anthropic-compatible` kind was added, which reaches OpenRouter with the Anthropic client (`docs/specs/agents.md`), so there are now two vendors to swap between and only a key stands in the way. This was not rehearsed again |
 | 4 | tab closed mid-answer, re-attach | **partly**: the stream, the drop and the re-attach by `Last-Event-ID` are rehearsed, on a run that fails rather than answers. A long answer to watch arrive **needs a model key** |
 | 5 | keys removed → start-up names the variables; keys nowhere | **rehearsed** in full: every variable named at once, and no secret in any log line, in any of the answers the driver read, or in any database row |
 | 6 | a clean machine from nothing, by the guide alone | **partly**: every step of the guide was run here, in its order, from a wheel into an empty virtual environment. This machine is not clean, there is no systemd unit and no nginx or Caddy on it, so the unit and the two proxy snippets are **prose that has not been run**. **Needs the real deployment** |
@@ -168,10 +168,12 @@ credential that matters there, not the host and the database name after the
    engine, restart, and carry the same conversation on; and close a tab in
    the middle of a long answer. That finishes item 4 and the engine half of
    item 3.
-5. The **vendor** half of item 3 waits on something else entirely: this
-   build reaches Anthropic alone, because no other provider's client passes
-   `DEPENDENCIES.md`. A second `kind` has to be admitted before a vendor can
-   be swapped at all — a key does not help.
+5. The **vendor** half of item 3 waited on something else entirely when this
+   was written: the build reached Anthropic alone, because no other
+   provider's client passes `DEPENDENCIES.md`. The `anthropic-compatible`
+   kind has since been added and reaches OpenRouter, so this now needs a key
+   like the rest — one for each of the two vendors — and no longer a
+   dependency decision.
 6. Take **both** files of the artifact, and install the
    `requirements.txt` before the wheel. Installing the wheel alone is a
    deployment running versions no gate has judged.

@@ -14,6 +14,7 @@ robinauts/
   .github/                    # the CI workflow and Dependabot
   docs/
   scripts/                    # one script per check; CI runs these
+  demo/                       # one command to run the whole thing on one machine
   frontend/                   # the UI (ADR 0001)
   backend/
     pyproject.toml

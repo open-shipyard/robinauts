@@ -63,13 +63,16 @@ from robinauts.adapters.agents.langgraph import (
     TRACING_VARIABLES_REMOVED,
     LangGraphAgent,
     chat_model,
+    endpoint_of,
 )
 from robinauts.domain import (
+    KINDS_WITH_BASE_URL,
     AgentDefinition,
     AnswerCompleted,
     AnswerReasoningDelta,
     AnswerStarted,
     AnswerTextDelta,
+    ConfigError,
     Engine,
     EngineEvent,
     Message,
@@ -97,6 +100,21 @@ PIECES = 3
 
 ANTHROPIC_PROVIDER = ModelProviderConfig(
     id=PROVIDER, kind=ProviderKind.ANTHROPIC, api_key_env="ROBINAUTS_ANTHROPIC_KEY"
+)
+
+COMPATIBLE_ENDPOINT = "https://openrouter.ai/api"
+"""An endpoint that speaks Anthropic's Messages API, at the address of one.
+
+OpenRouter's, spelt as an operator writes it: a **prefix** the client appends
+``/v1/messages`` to, which is why it stops at ``/api``
+(``docs/specs/agents.md``).
+"""
+
+COMPATIBLE_PROVIDER = ModelProviderConfig(
+    id="openrouter",
+    kind=ProviderKind.ANTHROPIC_COMPATIBLE,
+    api_key_env="ROBINAUTS_OPENROUTER_KEY",
+    base_url=COMPATIBLE_ENDPOINT,
 )
 
 
@@ -529,6 +547,74 @@ def test_the_endpoint_and_the_key_come_from_the_configuration_and_never_the_envi
     assert str(built._async_client.base_url).rstrip("/") == ANTHROPIC_ENDPOINT
     assert str(built._client.base_url).rstrip("/") == ANTHROPIC_ENDPOINT
     assert built._async_client.api_key == KEY
+
+
+def test_an_anthropic_compatible_provider_is_reached_at_the_configured_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The kind that names a protocol: the address is the operator's, and it is
+    # still the **configuration** that decides it and never the environment.
+    for name, value in REDIRECTING_VARIABLES.items():
+        monkeypatch.setenv(name, value)
+
+    built = chat_model(
+        ModelConfig(id=MODEL, provider=COMPATIBLE_PROVIDER.id, name="anthropic/claude-sonnet-5"),
+        COMPATIBLE_PROVIDER,
+        KEY,
+    )
+
+    assert isinstance(built, ChatAnthropic)
+    assert built.anthropic_api_url == COMPATIBLE_ENDPOINT
+    assert str(built._async_client.base_url).rstrip("/") == COMPATIBLE_ENDPOINT
+    assert str(built._client.base_url).rstrip("/") == COMPATIBLE_ENDPOINT
+    assert built._async_client.api_key == KEY
+    assert built.anthropic_proxy is None
+    assert built.max_retries == MAX_RETRIES
+
+
+def test_the_endpoint_is_the_vendors_or_the_operators_and_there_is_no_third_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `endpoint_of` is the whole of the choice, and this is the whole of it:
+    # the pinned constant for the vendor's kind, the configured address for the
+    # protocol's, whatever the environment has been told to say.
+    for name, value in REDIRECTING_VARIABLES.items():
+        monkeypatch.setenv(name, value)
+
+    assert endpoint_of(ANTHROPIC_PROVIDER) == ANTHROPIC_ENDPOINT
+    assert endpoint_of(COMPATIBLE_PROVIDER) == COMPATIBLE_ENDPOINT
+
+
+def test_both_kinds_the_engine_offers_have_an_endpoint_and_nothing_else_does() -> None:
+    # A kind added to `kinds` without a branch in `endpoint_of` would be a turn
+    # sent to a guess; a branch without the kind would be unreachable.
+    assert LangGraphAgent.kinds == {ProviderKind.ANTHROPIC, ProviderKind.ANTHROPIC_COMPATIBLE}
+
+
+@pytest.mark.parametrize(
+    "kind", sorted(frozenset(ProviderKind) - LangGraphAgent.kinds), ids=lambda kind: kind.value
+)
+def test_a_kind_this_engine_does_not_reach_is_refused_rather_than_guessed_at(
+    kind: ProviderKind,
+) -> None:
+    # The configuration is held to `kinds` at start-up, so nothing should ever
+    # get here. If something does -- a kind added to the set without a branch,
+    # a caller that built a definition by hand -- it must be a refusal naming
+    # the provider and never a turn sent to whatever endpoint happened to be
+    # nearest.
+    # `openai-compatible` is among them and needs its base_url like any other
+    # kind that names a protocol, so the record is built the way that kind's
+    # own rules require rather than one way for all of them.
+    endpoint = COMPATIBLE_ENDPOINT if kind in KINDS_WITH_BASE_URL else None
+    provider = ModelProviderConfig(id="vendor", kind=kind, api_key_env="K", base_url=endpoint)
+
+    with pytest.raises(ConfigError) as raised:
+        endpoint_of(provider)
+
+    assert list(raised.value.problems) == [
+        f"model_providers.vendor: this build of the LangGraph engine cannot reach"
+        f" a {kind.value} provider"
+    ]
 
 
 # --- nothing phones home ----------------------------------------------------

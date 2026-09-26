@@ -125,10 +125,11 @@ Anthropic SDK and ``ChatAnthropic`` fall back to ``ANTHROPIC_BASE_URL`` /
 ``ANTHROPIC_API_URL`` when no base URL is passed, so one variable inherited
 from a shell, a unit file or a container image would send every turn -- and
 the operator's key with it -- to any host that variable named. The operator
-says where a provider is in the configuration (``base_url``, and only for an
-``openai-compatible`` provider), or it is this constant; there is no third
-answer, and no way for the environment to be one
-(``docs/specs/operations.md``).
+says where a provider is in the configuration (``base_url``, and only for a
+kind that names a protocol rather than a vendor), or it is this constant; there
+is no third answer, and no way for the environment to be one
+(``docs/specs/operations.md``). ``endpoint_of`` is where the choice between the
+two is made, and it is the whole of it.
 """
 
 TRACING_VARIABLES_REMOVED = ("LANGCHAIN_TRACING", "LANGCHAIN_HANDLER")
@@ -341,6 +342,42 @@ def quiet_client_logging() -> None:
             logger.setLevel(QUIET_CLIENT_LEVEL)
 
 
+def endpoint_of(provider: ModelProviderConfig) -> str:
+    """Where that provider is: the address the operator gave, or Anthropic's own.
+
+    The two kinds this engine reaches are a **vendor** and a **protocol**
+    (``LangGraphAgent.kinds``). ``anthropic`` is Anthropic, at
+    ``ANTHROPIC_ENDPOINT`` and nowhere else, and it has no ``base_url`` to
+    offer. ``anthropic-compatible`` is an endpoint the operator names that
+    speaks the same Messages API -- OpenRouter's is one -- so the address is
+    theirs, checked where every configured endpoint is
+    (``domain.is_endpoint_url``: https, or http on the loopback interface, no
+    query, no fragment and no credential written into it).
+
+    **A base URL is a prefix the client appends the protocol's own path to**,
+    so an operator reaching OpenRouter writes ``https://openrouter.ai/api``
+    and the request goes to ``https://openrouter.ai/api/v1/messages``
+    (``docs/specs/agents.md``).
+
+    A provider of any other kind should not arrive here: the configuration was
+    held to ``LangGraphAgent.kinds`` at start-up. One that does -- a kind added to
+    that set without a branch here, a caller that built a definition by hand --
+    gets a refusal naming it, and never a turn sent to whichever endpoint
+    happened to be nearest. The tests ask it of every kind the engine does not
+    offer, so this is a branch that is exercised rather than merely written.
+    """
+    if provider.kind is ProviderKind.ANTHROPIC:
+        return ANTHROPIC_ENDPOINT
+    if provider.kind is ProviderKind.ANTHROPIC_COMPATIBLE and provider.base_url:
+        return provider.base_url
+    raise ConfigError(
+        [
+            f"model_providers.{provider.id}: this build of the LangGraph engine cannot"
+            f" reach a {provider.kind.value} provider"
+        ]
+    )
+
+
 def chat_model(model: ModelConfig, provider: ModelProviderConfig, key: str) -> BaseChatModel:
     """The chat model that model's configuration describes.
 
@@ -351,9 +388,10 @@ def chat_model(model: ModelConfig, provider: ModelProviderConfig, key: str) -> B
     **Everything the client would otherwise take from the environment is
     passed.** The key, so that ``ANTHROPIC_API_KEY`` is never consulted and
     the key a turn spends is the one the operator configured for that
-    provider; the endpoint (``ANTHROPIC_ENDPOINT``), so that
-    ``ANTHROPIC_BASE_URL`` / ``ANTHROPIC_API_URL`` cannot redirect a turn and
-    a key to another host; and the proxy, as ``None``, so that
+    provider; the endpoint (``endpoint_of``), so that ``ANTHROPIC_BASE_URL`` /
+    ``ANTHROPIC_API_URL`` cannot redirect a turn and a key to another host --
+    the configuration is the only thing that decides where a turn goes; and
+    the proxy, as ``None``, so that
     ``ANTHROPIC_PROXY`` -- a variable only this one client would obey -- is
     not a second way to do the same thing. An operator who needs a proxy sets
     ``HTTPS_PROXY``, which is theirs and is how every other outbound call of
@@ -370,39 +408,40 @@ def chat_model(model: ModelConfig, provider: ModelProviderConfig, key: str) -> B
     credential auto-discovery, which is not consulted at all once a key is
     passed.
     """
-    if provider.kind is ProviderKind.ANTHROPIC:
-        return ChatAnthropic(
-            model=model.name,  # type: ignore[call-arg]  # `model_name`'s alias
-            api_key=key,  # type: ignore[call-arg]  # `anthropic_api_key`'s alias
-            base_url=ANTHROPIC_ENDPOINT,  # type: ignore[call-arg]
-            anthropic_proxy=None,
-            default_headers={ANTHROPIC_KEY_HEADER: key},
-            timeout=model.timeout_seconds,  # type: ignore[call-arg]
-            max_retries=MAX_RETRIES,
-            max_tokens=model.max_output_tokens or DEFAULT_ANTHROPIC_OUTPUT_TOKENS,
-        )
-    raise ConfigError(  # pragma: no cover -- `LangGraphAgent.kinds` refuses first
-        [
-            f"model_providers.{provider.id}: this build of the LangGraph engine cannot"
-            f" reach a {provider.kind.value} provider"
-        ]
+    return ChatAnthropic(
+        model=model.name,  # type: ignore[call-arg]  # `model_name`'s alias
+        api_key=key,  # type: ignore[call-arg]  # `anthropic_api_key`'s alias
+        base_url=endpoint_of(provider),  # type: ignore[call-arg]
+        anthropic_proxy=None,
+        default_headers={ANTHROPIC_KEY_HEADER: key},
+        timeout=model.timeout_seconds,  # type: ignore[call-arg]
+        max_retries=MAX_RETRIES,
+        max_tokens=model.max_output_tokens or DEFAULT_ANTHROPIC_OUTPUT_TOKENS,
     )
 
 
 class LangGraphAgent(Agent):
     """The LangGraph engine: one turn, one graph, compiled and thrown away."""
 
-    kinds: frozenset[ProviderKind] = frozenset({ProviderKind.ANTHROPIC})
+    kinds: frozenset[ProviderKind] = frozenset(
+        {ProviderKind.ANTHROPIC, ProviderKind.ANTHROPIC_COMPATIBLE}
+    )
     """The provider kinds this build of the engine has a client for.
 
-    Anthropic alone, and not because the engine cannot do more: OpenAI,
-    OpenRouter and every other OpenAI-compatible endpoint are reached through
-    ``langchain-openai``, whose dependency tree does not pass the licence
-    policy (``DEPENDENCIES.md``, "Known exclusions"). A provider whose client
-    fails the gate is not offered until it passes
+    One client, two kinds: ``ChatAnthropic`` reaches Anthropic itself and any
+    endpoint that speaks Anthropic's Messages API at an address the operator
+    gives (``endpoint_of``). **That is how OpenRouter is reached in this
+    build**: it serves the Messages API and takes the key in the same
+    ``x-api-key`` header, so nothing about the client changes but where it
+    sends the request.
+
+    What is still not here is ``openai`` and ``openai-compatible``, which are
+    reached through ``langchain-openai``, whose dependency tree does not pass
+    the licence policy (``DEPENDENCIES.md``, "Known exclusions"). A provider
+    whose client fails the gate is not offered until it passes
     (``docs/specs/agents.md``), so the configuration refuses the kind at
     start-up rather than the engine failing at the first turn. Adding it back
-    is this set, the branch in ``chat_model`` and the dependency -- nothing
+    is this set, a branch in ``chat_model`` and the dependency -- nothing
     else.
 
     It is declared by the port (``robinauts.ports.Agent.kinds``) and answered

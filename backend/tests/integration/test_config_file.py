@@ -352,22 +352,24 @@ def test_the_keys_hold_a_copy_of_what_they_were_given() -> None:
 # The model half of the documented example, read through both halves.
 
 
-def models_examples() -> tuple[str, str]:
-    """The two TOML blocks of ``docs/specs/agents.md``, as they are written there.
+def models_examples() -> tuple[str, str, str]:
+    """The three TOML blocks of ``docs/specs/agents.md``, as they are written there.
 
-    The first is a configuration this build runs; the second shows the shape
-    of an OpenAI-compatible provider, which it refuses. Both are read here, and
-    each is held to the thing it is an example of.
+    The first two are configurations this build runs -- the vendor's own
+    endpoint, and an ``anthropic-compatible`` one, which is how OpenRouter is
+    reached here. The third shows the shape of an OpenAI-compatible provider,
+    which this build refuses. All three are read here, and each is held to the
+    thing it is an example of.
     """
     blocks = re.findall(r"```toml\n(.*?)```", AGENTS_SPEC.read_text(encoding="utf-8"), re.DOTALL)
-    assert len(blocks) == 2, f"{AGENTS_SPEC} should hold two TOML examples, not {len(blocks)}"
-    return blocks[0], blocks[1]
+    assert len(blocks) == 3, f"{AGENTS_SPEC} should hold three TOML examples, not {len(blocks)}"
+    return blocks[0], blocks[1], blocks[2]
 
 
 def test_the_model_example_in_the_specification_reads_and_parses(tmp_path: Path) -> None:
     # With the kinds and engines a deployment really passes, so that the
     # documented example is one an operator can start a server with.
-    deployable, _ = models_examples()
+    deployable, _, _ = models_examples()
 
     config = parse_models_config(
         read_toml(written(tmp_path, deployable)),
@@ -387,27 +389,53 @@ def test_the_second_example_is_the_shape_this_build_refuses(tmp_path: Path) -> N
     # It is in the spec because the configuration language is settled; it is
     # refused because the client that reaches it does not pass the licence
     # policy (DEPENDENCIES.md, "Known exclusions").
-    _, not_buildable = models_examples()
+    _, _, not_buildable = models_examples()
     tables = read_toml(written(tmp_path, not_buildable))
 
     parsed = parse_models_config(tables)
     with pytest.raises(ConfigError) as raised:
         parse_models_config(tables, engines=WIRED_ENGINES, kinds=BUILDABLE_KINDS)
 
-    assert parsed.providers["openrouter"].kind is ProviderKind.OPENAI_COMPATIBLE
-    assert parsed.providers["openrouter"].base_url == "https://openrouter.ai/api/v1"
-    assert "this build cannot reach" in raised.value.problems[0]
+    assert parsed.providers["gateway"].kind is ProviderKind.OPENAI_COMPATIBLE
+    assert parsed.providers["gateway"].base_url == "https://gateway.example.com/v1"
+    assert raised.value.problems[0] == (
+        "model_providers.gateway.kind: this build cannot reach 'openai-compatible'"
+        " providers; it was built with anthropic, anthropic-compatible"
+    )
+
+
+def test_the_openrouter_example_is_one_this_build_runs(tmp_path: Path) -> None:
+    # The kind the exclusion above does **not** cost: OpenRouter serves
+    # Anthropic's Messages API, so it is reached with the client both engines
+    # already have. `base_url` is the prefix the client appends `/v1/messages`
+    # to, which is why the documented value stops at `/api`.
+    _, openrouter, _ = models_examples()
+
+    config = parse_models_config(
+        read_toml(written(tmp_path, openrouter)),
+        engines=WIRED_ENGINES,
+        kinds=BUILDABLE_KINDS,
+    )
+
+    provider = config.providers["openrouter"]
+    assert provider.kind is ProviderKind.ANTHROPIC_COMPATIBLE
+    assert provider.base_url == "https://openrouter.ai/api"
+    assert config.models["sonnet-via-openrouter"].name == "anthropic/claude-sonnet-5"
+    assert config.agents["assistant-openrouter"].engine is Engine.PYDANTIC_AI
 
 
 def test_the_model_example_names_the_variables_rather_than_the_keys(tmp_path: Path) -> None:
-    deployable, not_buildable = models_examples()
-    config = parse_models_config(read_toml(written(tmp_path, deployable + not_buildable)))
+    # All three blocks at once, which is also how it is known that the three
+    # declare three different providers rather than two spellings of one: the
+    # file would not parse if two `[model_providers.x]` tables collided.
+    config = parse_models_config(read_toml(written(tmp_path, "".join(models_examples()))))
 
     assert config.providers["anthropic"].api_key_env == "ROBINAUTS_ANTHROPIC_KEY"
     assert config.providers["openrouter"].api_key_env == "ROBINAUTS_OPENROUTER_KEY"
+    assert config.providers["gateway"].api_key_env == "ROBINAUTS_GATEWAY_KEY"
     with pytest.raises(ConfigError) as raised:
         check_api_keys(config, secret_for=lambda name: None)
-    assert len(raised.value.problems) == 2
+    assert len(raised.value.problems) == 3
 
 
 # The deployment guide's file, read through both halves at once.

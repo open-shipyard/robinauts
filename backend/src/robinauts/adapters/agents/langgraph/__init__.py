@@ -29,6 +29,7 @@ from robinauts.adapters.agents.langgraph.engine import (
     LangGraphAgent,
     chat_model,
     clear_client_overrides,
+    endpoint_of,
     force_tracing_off,
     quiet_client_logging,
 )
@@ -49,6 +50,7 @@ __all__ = [
     "LangGraphAgent",
     "chat_model",
     "clear_client_overrides",
+    "endpoint_of",
     "force_tracing_off",
     "quiet_client_logging",
 ]

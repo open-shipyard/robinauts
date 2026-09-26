@@ -30,6 +30,12 @@ problem is reported at once**, so that a deployment is fixed in one pass.
 providers people sign in with, and the two live in one file
 (``docs/specs/agents.md``).
 
+``base_url`` belongs to the kinds that name a **protocol** rather than a vendor
+(``domain.KINDS_WITH_BASE_URL``): it is required there, because there is no
+endpoint to guess, and refused everywhere else, because a vendor's endpoint is
+the engine's own constant and a second answer to "where is it" would be a way
+to send the operator's key somewhere else.
+
 **No key is in the file.** A provider names the environment variable its key
 is read from; reading it belongs to ``robinauts.adapters.config_file``, which
 is the layer that may touch the environment, and which reports every unset
@@ -56,6 +62,7 @@ from typing import Any
 
 from robinauts.core.sign_in_config import TOP_LEVEL_KEYS
 from robinauts.domain import (
+    KINDS_WITH_BASE_URL,
     MAX_AGENT_TITLE_CHARS,
     MAX_BASE_URL_CHARS,
     MAX_CONFIG_ID_CHARS,
@@ -200,10 +207,11 @@ def _provider(
         base_url = _string(table, "base_url", where, problems, limit=MAX_BASE_URL_CHARS) or None
         if base_url is None:
             pass
-        elif kind is not None and kind is not ProviderKind.OPENAI_COMPATIBLE:
+        elif kind is not None and kind not in KINDS_WITH_BASE_URL:
             problems.append(
-                f"{where}.base_url: only an openai-compatible provider has one;"
-                f" {kind.value} has one endpoint of its own"
+                f"{where}.base_url: only these kinds have one:"
+                f" {_named(KINDS_WITH_BASE_URL)}; {kind.value} has one endpoint of"
+                f" its own"
             )
             base_url = None
         elif not is_endpoint_url(base_url):
@@ -214,10 +222,10 @@ def _provider(
                 f" names and is never in this file"
             )
             base_url = None
-    elif kind is ProviderKind.OPENAI_COMPATIBLE:
+    elif kind is not None and kind in KINDS_WITH_BASE_URL:
         problems.append(
-            f"{where}.base_url: an openai-compatible provider needs one; there is no"
-            f" endpoint to guess"
+            f"{where}.base_url: a provider of kind {kind.value} needs one; there is"
+            f" no endpoint to guess"
         )
 
     if len(problems) > before or kind is None:

@@ -27,6 +27,7 @@ from robinauts.adapters.agents.pydantic_ai.engine import (
     PydanticAIAgent,
     chat_model,
     clear_client_overrides,
+    endpoint_of,
     force_tracing_off,
     quiet_client_logging,
 )
@@ -45,6 +46,7 @@ __all__ = [
     "PydanticAIAgent",
     "chat_model",
     "clear_client_overrides",
+    "endpoint_of",
     "force_tracing_off",
     "quiet_client_logging",
 ]

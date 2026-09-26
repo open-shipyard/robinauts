@@ -25,9 +25,11 @@ configured does not quietly start spending its key. It is the **same** variable
 the LangGraph live test reads: it is one key for one vendor, and running both
 files is then one export.
 
-**Anthropic only**, for the same reason as the other engine: OpenAI and every
-other OpenAI-compatible endpoint need ``pydantic-ai-slim[openai]``, whose tree
-this build does not have (``DEPENDENCIES.md``, "Known exclusions").
+**Anthropic's own endpoint only**, for the same reasons as the other engine:
+the ``anthropic-compatible`` route is covered without a key by
+``tests/live/test_vendor_routing.py``, and ``openai`` and
+``openai-compatible`` need ``pydantic-ai-slim[openai]``, whose tree this build
+does not have (``DEPENDENCIES.md``, "Known exclusions").
 """
 
 from __future__ import annotations

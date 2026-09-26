@@ -23,11 +23,15 @@ The key is read from a variable of its own rather than from the one a
 deployment uses, so that running the suite on a machine that has a deployment
 configured does not quietly start spending its key.
 
-**Anthropic only.** OpenAI and every other OpenAI-compatible endpoint go
-through ``langchain-openai``, which this build does not have
-(``DEPENDENCIES.md``, "Known exclusions"); there is no
-``ROBINAUTS_LIVE_OPENAI_KEY`` test to write until there is a client to write
-it against.
+**Anthropic's own endpoint only.** The engine also reaches an
+``anthropic-compatible`` provider -- any endpoint that speaks the same Messages
+API at a configured ``base_url``, OpenRouter's among them -- and that route has
+a test of its own that needs no key at all
+(``tests/live/test_vendor_routing.py``), so there is nothing here to repeat.
+What is still out of reach is ``openai`` and ``openai-compatible``, through
+``langchain-openai``, which this build does not have (``DEPENDENCIES.md``,
+"Known exclusions"): there is no ``ROBINAUTS_LIVE_OPENAI_KEY`` test to write
+until there is a client to write it against.
 """
 
 from __future__ import annotations

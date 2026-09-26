@@ -136,20 +136,47 @@ class ProviderKind(StrEnum):
 
     The platform's own vocabulary, not a framework's: an engine translates
     these into whichever client it reaches the vendor with
-    (``docs/specs/agents.md``). ``OPENAI_COMPATIBLE`` is how OpenRouter and
-    any self-hosted endpoint speaking the same protocol are named, and it is
-    the one kind that carries a ``base_url``.
+    (``docs/specs/agents.md``). Two of them are a *protocol at an address the
+    operator gives* rather than a vendor: ``ANTHROPIC_COMPATIBLE`` is an
+    endpoint that speaks Anthropic's Messages API, and ``OPENAI_COMPATIBLE``
+    one that speaks OpenAI's. They are the kinds that carry a ``base_url``
+    (``KINDS_WITH_BASE_URL``); the vendors' own kinds have one endpoint each
+    and their engines pin it.
 
     **Not every kind is reachable from every build.** A kind whose client does
     not pass the dependency policy is not offered until it does
     (``DEPENDENCIES.md``), which is why ``robinauts.core.parse_models_config``
     is told which kinds the deployment can build rather than assuming all of
-    them.
+    them. This build reaches ``ANTHROPIC`` and ``ANTHROPIC_COMPATIBLE``, which
+    is how OpenRouter is reached here: it serves Anthropic's Messages API at
+    ``https://openrouter.ai/api/v1/messages`` and takes the key in the same
+    ``x-api-key`` header, so the Anthropic client the engines already have is
+    the client for it and no OpenAI tree is needed.
     """
 
     ANTHROPIC = "anthropic"
+    ANTHROPIC_COMPATIBLE = "anthropic-compatible"
     OPENAI = "openai"
     OPENAI_COMPATIBLE = "openai-compatible"
+
+
+KINDS_WITH_BASE_URL: frozenset[ProviderKind] = frozenset(
+    {ProviderKind.ANTHROPIC_COMPATIBLE, ProviderKind.OPENAI_COMPATIBLE}
+)
+"""The kinds whose ``base_url`` is required, and the only ones that may have one.
+
+A kind that names a *protocol* needs the address to speak it to; a kind that
+names a *vendor* has one endpoint, pinned in the engine, and a ``base_url``
+there would be either a mistake or a way to send the operator's key somewhere
+else (``ModelProviderConfig``).
+"""
+
+_KINDS_WITH_BASE_URL_NAMED = ", ".join(sorted(kind.value for kind in KINDS_WITH_BASE_URL))
+"""Those kinds' names, for a refusal that says which they are.
+
+Built from the set, so that a kind added to it is named by every message
+without anybody remembering to edit one.
+"""
 
 
 MAX_ENV_NAME_CHARS = 120
@@ -163,7 +190,7 @@ MAX_MODEL_NAME_CHARS = 200
 """The longest a vendor's name for a model may be, such as ``claude-sonnet-5``."""
 
 MAX_BASE_URL_CHARS = 500
-"""The longest an OpenAI-compatible endpoint's URL may be."""
+"""The longest a configured endpoint's URL may be (``KINDS_WITH_BASE_URL``)."""
 
 DEFAULT_MODEL_TIMEOUT_SECONDS = 120.0
 """How long one call to a model may take when the configuration does not say.
@@ -275,11 +302,16 @@ class ModelProviderConfig:
     api_key_env: str
     """The name of the environment variable the key is read from."""
     base_url: str | None = None
-    """Where an OpenAI-compatible endpoint lives; ``None`` for the other kinds.
+    """Where the endpoint lives; ``None`` for a kind that names a vendor.
 
-    Required for ``OPENAI_COMPATIBLE`` and refused for the rest, because a
-    base URL for a vendor with one endpoint is either a mistake or a way to
-    send the operator's key somewhere else.
+    Required for every kind in ``KINDS_WITH_BASE_URL`` and refused for the
+    rest, because a base URL for a vendor with one endpoint is either a
+    mistake or a way to send the operator's key somewhere else.
+
+    **It is a prefix, not a path**: the client appends the vendor protocol's
+    own path to it, so an ``anthropic-compatible`` provider at OpenRouter is
+    written ``https://openrouter.ai/api`` and the request goes to
+    ``https://openrouter.ai/api/v1/messages`` (``docs/specs/agents.md``).
     """
 
     def __post_init__(self) -> None:
@@ -294,11 +326,11 @@ class ModelProviderConfig:
                 f"api_key_env is the NAME of an environment variable holding the key,"
                 f" not {describe(self.api_key_env)}"
             )
-        if self.kind is ProviderKind.OPENAI_COMPATIBLE:
+        if self.kind in KINDS_WITH_BASE_URL:
             if not self.base_url:
                 raise InvalidValueError(
-                    "an openai-compatible provider needs its base_url: there is no"
-                    " endpoint to guess"
+                    f"a provider of kind {self.kind.value} needs its base_url: there"
+                    f" is no endpoint to guess"
                 )
             checked_line(self.base_url, "a model provider's base_url", MAX_BASE_URL_CHARS)
             if not is_endpoint_url(self.base_url):
@@ -310,8 +342,8 @@ class ModelProviderConfig:
                 )
         elif self.base_url is not None:
             raise InvalidValueError(
-                f"only an openai-compatible provider has a base_url; {self.kind.value}"
-                f" has one endpoint of its own"
+                f"only these kinds have a base_url: {_KINDS_WITH_BASE_URL_NAMED};"
+                f" {self.kind.value} has one endpoint of its own"
             )
 
 

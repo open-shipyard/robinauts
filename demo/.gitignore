@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+#
+# What the demo makes while it runs, and the one file that may hold a key.
+# .state/ holds the PostgreSQL data directory, the generated robinauts.toml,
+# the server's log and its pid file: everything demo/stop.sh --reset deletes.
+.state/
+
+# demo/start.sh reads OPENROUTER_API_KEY or ANTHROPIC_API_KEY from here when it
+# is mode 0600. A key is never committed, and never written into a file by the
+# demo itself.
+.env

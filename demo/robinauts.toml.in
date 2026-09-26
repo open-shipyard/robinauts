@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+#
+# The template demo/config.py fills in for demo/start.sh, writing
+# demo/.state/robinauts.toml. The @-marked names below are the only things it
+# replaces, and the base_url one is a whole line: it goes altogether for a kind
+# that has no endpoint to write. The file it writes is not committed
+# (demo/.gitignore) and is read back before it is kept. Nothing above this line
+# may spell one of those names, since a name left unreplaced anywhere is how
+# config.py knows the template and it have drifted apart.
+#
+# The **model half alone**. The demo runs the local development mode, which may
+# be given a configuration file and reads only its model tables; a file holding
+# any sign-in table -- public_url, session_hours, providers, allow, admin -- is
+# a start-up refusal there (docs/specs/sign-in.md). So there is none here, and
+# there is no key here either: a provider names the environment variable its
+# key is read from, and nothing else (docs/specs/agents.md).
+
+[model_providers.@PROVIDER_ID@]
+kind = "@PROVIDER_KIND@"
+api_key_env = "@KEY_VARIABLE@"
+@BASE_URL@
+
+[models.demo]
+provider = "@PROVIDER_ID@"
+name = "@MODEL_NAME@"
+
+# Two agents, one per engine, on the one model: the picker shows the swap the
+# project exists to prove (docs/specs/agents.md). An agent is chosen when a
+# conversation is started and stays with it, so seeing both means starting a
+# chat with each.
+[agents.assistant-langgraph]
+title = "Assistant (LangGraph)"
+model = "demo"
+engine = "langgraph"
+system_prompt = "You are the Robinauts demo assistant. Answer briefly, and play fair."
+
+[agents.assistant-pydantic-ai]
+title = "Assistant (Pydantic AI)"
+model = "demo"
+engine = "pydantic-ai"
+system_prompt = "You are the Robinauts demo assistant. Answer briefly, and play fair."

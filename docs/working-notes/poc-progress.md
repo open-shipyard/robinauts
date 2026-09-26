@@ -1953,6 +1953,63 @@ For a reader with no memory of it. Kept short; rewritten as the steps land.
   people signing in, private conversations, a dropped and re-attached stream,
   and a grep of the log, of every answer it read and of every database row
   for the secrets.
+- The **`anthropic-compatible` provider kind**, and with it **OpenRouter in
+  this build**. `ProviderKind.ANTHROPIC_COMPATIBLE` is an endpoint that speaks
+  Anthropic's Messages API at an address the operator gives, as against
+  `anthropic`, which is the vendor at the constant both engines pin. The two
+  kinds that name a *protocol* rather than a vendor --- this one and
+  `openai-compatible` --- are `domain.KINDS_WITH_BASE_URL`: `base_url` is
+  **required** for them, checked by the same `is_endpoint_url` (https, or http
+  on loopback, no query, no fragment, no userinfo), and refused for the rest,
+  so a vendor's endpoint is never a second answer to "where is it". Both
+  engines gained the kind in `kinds` and one function, `endpoint_of`, which is
+  the whole of the choice; the client is otherwise identical --- key pinned,
+  proxy `None`, the key as a header, `max_retries=0`. The SDK appends
+  `/v1/messages`, so an operator reaching OpenRouter writes
+  `base_url = "https://openrouter.ai/api"` and model names like
+  `anthropic/claude-sonnet-5`. `BUILDABLE_KINDS` therefore holds two kinds and
+  the refusal reads *"this build cannot reach 'openai' providers; it was built
+  with anthropic, anthropic-compatible"*. What the licence exclusion still
+  costs is a vendor reachable over OpenAI's protocol alone, which OpenRouter is
+  not (`DEPENDENCIES.md`, `docs/specs/agents.md`, `docs/deployment.md`).
+  `backend/tests/live/test_vendor_routing.py` proves where a turn's request
+  really goes: one turn per engine at OpenRouter with a **bogus, key-shaped
+  key**, asserting that it arrived at `https://openrouter.ai/api/v1/messages`
+  and came back as that vendor's own `User not found` 401. It costs nothing
+  and needs no key -- so, unlike its neighbours there, it is marked `io` and
+  not `live` -- and it skips rather than fails when there is no route to the
+  vendor or when the answer is any status but the 401, with that status in the
+  reason. It is in `tests/live/` behind `ROBINAUTS_LIVE_ROUTING=1`, which keeps
+  the property the engine steps recorded: **no ordinary test run reaches a
+  provider**, CI included.
+- **`demo/`**, beside `backend/` and `frontend/`: `demo/start.sh` brings the
+  whole platform up on one machine and `demo/stop.sh` takes it down
+  (`--reset` deletes the data too). It is the **local development mode** and
+  says so everywhere --- no sign-in, one local user, loopback only, never a
+  deployment. `start.sh` refuses to run as root, checks `uv` and Node (asking
+  nvm for `frontend/.nvmrc`'s version), says so and stops if the demo is
+  already up, and reads **one key** --- `OPENROUTER_API_KEY` or
+  `ANTHROPIC_API_KEY`, from the environment or from a mode-0600 `demo/.env`
+  that is **read and never sourced**; neither is ever printed or written into a
+  file. Then: a throwaway PostgreSQL under `demo/.state/pgdata`
+  (`demo/pg.py`, driving the binaries `pgserver` ships, run as a *tool* with
+  `uv run --with pgserver==0.1.4` and not a dependency), the configuration
+  written from `demo/robinauts.toml.in` by `demo/config.py` --- which
+  substitutes literally, refuses what a TOML string cannot hold and reads the
+  finished file back, because the model name is a value a person types and
+  `sed` would read a `&` or a backslash in it as its own language --- one
+  provider, one model, and **two agents, one per engine**, so the picker shows
+  the swap; the interface built if `frontend/dist` has none; the platform
+  installed from the lock **non-editably into `demo/.state/venv`**, `--no-dev`
+  and on the CPython 3.12 every gate is judged on (an editable install has no
+  `robinauts/ui/`, so `/ui/` would answer "not built"; `backend/.venv` is left
+  alone); `robinauts db init`; and the server in the background with its pid
+  and its log in `demo/.state`. **The key reaches the server and nothing
+  else**: both variables are taken out of the environment as soon as they are
+  read, and the one in use is put back on the server's own invocation, so
+  PostgreSQL, npm and uv never hold it. Every failure is one line and a non-zero exit,
+  and a server that would not start prints the end of its own log.
+  `scripts/check-lint.sh` now reads `demo/` as well as `scripts/`.
 
 ## Steps
 
@@ -3242,3 +3299,55 @@ What remains for the real deployment ("Done when"):
 4. item 3's vendor half needs a second provider kind admitted through
    `DEPENDENCIES.md` (this build reaches Anthropic alone);
 5. what breaks on the real machine written into the rehearsal note.
+
+### Step 24 — demo   (feature/poc-24-demo)
+
+Summary (requested after the plan): a `demo/` folder beside `backend/` and
+`frontend/` with one entry point that starts everything and one that
+stops it. `demo/start.sh` refuses root, checks `uv` and Node (via nvm),
+reads `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY` from the environment or a
+mode-0600 `demo/.env` (OpenRouter preferred; the key is unset again at
+once and handed only to the server's own invocation, never printed),
+starts a throwaway PostgreSQL 16 with `pgserver` 0.1.4 run as a tool under
+`demo/.state/pgdata`, writes `demo/.state/robinauts.toml` from a template
+through `demo/config.py` (literal substitution, validated by a `tomllib`
+round trip: one provider, one model, two agents — one per engine), builds
+the frontend if missing, installs the platform non-editable into
+`demo/.state/venv` on CPython 3.12 (`uv sync --locked --no-dev`, so the
+packaged UI is inside the package), `db init`, `robinauts start
+--dev-no-sign-in` in the background with a bounded health wait, prints
+the URL and opens it when a display exists. `demo/stop.sh` stops the
+server and the cluster; `--reset` removes the state. To reach OpenRouter
+without the excluded OpenAI client, the backend gained the
+`anthropic-compatible` provider kind: a `base_url` (required, validated
+by `is_endpoint_url`) at an endpoint speaking Anthropic's Messages API —
+OpenRouter's `https://openrouter.ai/api` does — through the same client,
+key and headers pinned as before; `endpoint_of` is the one place both
+engines choose the endpoint. A routing proof under `tests/live/`
+(`ROBINAUTS_LIVE_ROUTING=1`, no key needed) shows both engines' requests
+reach `openrouter.ai/api/v1/messages`.
+
+Review: 1 round.
+- High: 0
+- Medium: 4 (4/0) — the key was exported to every subprocess (pgserver,
+  npm, uv); the routing test reached a vendor on ordinary runs; it failed
+  rather than skipped on a non-401; the demo venv was on Python 3.14.
+- Low: 12 (12/0)
+
+Checks: `scripts/check-all.sh` without a database (2698 backend, 381
+frontend) and with one required (2895); the demo run from nothing with a
+bogus key: the bundle served, both agents listed, a turn on each failing
+with OpenRouter's `User not found` 401 in the log (the request reached
+it), the key in no log line and no file; `start` twice, `stop` twice,
+`--reset`, and the same with a bogus Anthropic key against
+`api.anthropic.com`.
+Not done / to watch: no real key exists here, so no live answer was seen
+— the first real run is the user's. `pgserver` publishes no licence
+metadata (recorded under "Known exclusions"; it is a demo tool, not a
+dependency). The demo cluster uses trust auth on loopback (contained by
+the 0700 data directory; a demo, not a way to run anything). No automated
+test of the shell scripts.
+Important design decisions made / open questions:
+- OpenRouter is reached through the Anthropic-compatible kind, not the
+  excluded OpenAI client; `openai`/`openai-compatible` stay out.
+- No ordinary test run reaches a provider; the routing proof is opt-in.

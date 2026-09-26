@@ -157,6 +157,16 @@ email = "contractor@partner.example"
 kind = "anthropic"
 api_key_env = "ROBINAUTS_ANTHROPIC_KEY"
 
+# Or reach OpenRouter, which serves Anthropic's Messages API too. The kind
+# names the protocol rather than the vendor, so the endpoint is written down;
+# base_url is the PREFIX the client appends /v1/messages to, which is why it
+# stops at /api. A model reached this way carries OpenRouter's own name for
+# it, such as name = "anthropic/claude-sonnet-5".
+# [model_providers.openrouter]
+# kind = "anthropic-compatible"
+# base_url = "https://openrouter.ai/api"
+# api_key_env = "ROBINAUTS_OPENROUTER_KEY"
+
 [models.sonnet]
 provider = "anthropic"
 name = "claude-sonnet-5"
@@ -180,9 +190,12 @@ Notes on what is and is not there:
   who may sign in is a user, and a file with an `admin` table does not
   start ([specs/sign-in.md](specs/sign-in.md)).
 - **Engines**: `langgraph` and `pydantic-ai`, both wired. **Provider
-  kinds**: `anthropic` alone in this build — the clients that reach the
-  others do not pass the dependency policy, and a file naming one is
-  refused at start-up saying so ([../DEPENDENCIES.md](../DEPENDENCIES.md)).
+  kinds**: `anthropic` and `anthropic-compatible` in this build, which one
+  Anthropic client reaches between them — the second is any endpoint that
+  speaks Anthropic's Messages API at a `base_url` you give, and is how
+  OpenRouter is reached. `openai` and `openai-compatible` are refused at
+  start-up saying so: the client that reaches them does not pass the
+  dependency policy ([../DEPENDENCIES.md](../DEPENDENCIES.md)).
 - `token_endpoint_auth` is `client_secret_basic` by default, or
   `client_secret_post`.
 - A file with no `[agents]` table is a deployment with no agents: it
@@ -591,7 +604,7 @@ engine = "pydantic-ai"
 | `unknown key 'sessions_hours'` | a misspelt key | spell it as the example does; unknown keys are never ignored |
 | `providers.<id>: the client secret is read from the environment variable X, which is unset or empty` | the variable is unset, empty, or not in the unit's `EnvironmentFile` | set it; an empty variable counts as unset |
 | `model_providers.<id>: the API key is read from the environment variable X, which is unset or empty` | as above, for a model provider | set it; every *declared* provider needs its key, used or not |
-| `model_providers.<id>.kind: this build cannot reach 'openai' providers; it was built with anthropic` | the client for that kind does not pass the dependency policy | use `anthropic`, or wait for a tree that passes |
+| `model_providers.<id>.kind: this build cannot reach 'openai' providers; it was built with anthropic, anthropic-compatible` | the client for that kind does not pass the dependency policy | use `anthropic`, or `anthropic-compatible` with the endpoint's `base_url`; otherwise wait for a tree that passes |
 | `agents.<id>.engine: one of langgraph, pydantic-ai, not '…'` | a misspelt engine | `langgraph` or `pydantic-ai`; both are wired in this build |
 | `admin: roles are not in this release …` | an `[[admin]]` table | remove it; roles are deferred |
 | `allow: no entry, so nobody could sign in` | providers configured, allow list empty | add at least one `[[allow]]` |

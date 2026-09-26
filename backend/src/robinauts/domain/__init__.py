@@ -12,6 +12,7 @@ and what a running turn streams.
 from robinauts.domain.access import Permission
 from robinauts.domain.agents import (
     DEFAULT_MODEL_TIMEOUT_SECONDS,
+    KINDS_WITH_BASE_URL,
     LOOPBACK_HOSTS,
     MAX_AGENT_TITLE_CHARS,
     MAX_BASE_URL_CHARS,
@@ -194,6 +195,7 @@ __all__ = [
     "GOOGLE_HOST",
     "GOOGLE_ISSUER",
     "JOINERS",
+    "KINDS_WITH_BASE_URL",
     "LATEST_YEAR",
     "LOCAL_PROVIDER",
     "LOCAL_SUBJECT",
