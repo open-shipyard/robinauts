@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 #
-# What demo/start.sh and demo/stop.sh both need: where the demo keeps its
+# What demo/local/start.sh and demo/local/stop.sh both need: where the demo keeps its
 # state, how it borrows a PostgreSQL, and how it says something went wrong.
 # Sourced, never run --- there is one entry point for starting the demo and one
 # for stopping it, and this is neither.
@@ -11,7 +11,10 @@
 
 # shellcheck shell=sh
 
-root=$(CDPATH= cd -- "$demo/.." && pwd)
+shared=$(CDPATH= cd -- "$demo/.." && pwd)
+# demo/, where what both demos use lives: demo/.env, config.py and the
+# template it fills in.
+root=$(CDPATH= cd -- "$shared/.." && pwd)
 state="$demo/.state"
 
 CONFIG="$state/robinauts.toml"
@@ -32,12 +35,12 @@ ROBINAUTS="$VENV/bin/robinauts"
 # - a developer's backend/.venv is what the tests and `uv run` use, and a demo
 #   is no reason to turn it into something else.
 #
-# `demo/stop.sh --reset` deletes it with the rest of demo/.state, so a demo
+# `demo/local/stop.sh --reset` deletes it with the rest of demo/local/.state, so a demo
 # started again from nothing really is.
 
 PGSERVER_VERSION=0.1.4
 # The exact version of the PostgreSQL-in-a-wheel the demo borrows a server
-# from, pinned here and recorded with its licence in demo/README.md. It is a
+# from, pinned here and recorded with its licence in demo/local/README.md. It is a
 # demo-only tool, fetched by `uv run --with`, and deliberately not a dependency
 # of the platform: nothing under backend/ imports it and it is not in
 # backend/uv.lock (DEPENDENCIES.md).
@@ -81,7 +84,7 @@ file_mode() {
 }
 
 pg() {
-    # demo/pg.py, with the PostgreSQL binaries `uv` fetched for it. Everything
+    # demo/local/pg.py, with the PostgreSQL binaries `uv` fetched for it. Everything
     # about where the server lives is here, so the two scripts cannot disagree
     # about which cluster they mean.
     uv run --no-project --python "$PYTHON" \

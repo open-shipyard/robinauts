@@ -558,7 +558,7 @@ tools = ["github", "jira", "learn"]
   newer; nothing more than the sources above is claimed for any of them. The
   demo's OpenAI models are GPT-5.5 and the GPT-5.4 family, which carry no
   such note and whose smaller models do not reason unless asked
-  (`demo/README.md`).
+  (`demo/local/README.md`).
 - **The two engines do not send one request for one conversation**, and are
   not held to: each keeps a memory of its own, in its own format, and writes
   the request from it as its framework does

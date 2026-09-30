@@ -16,6 +16,8 @@ path = [
     ".gitattributes",
     "docs/**",
     "demo/README.md",
+    "demo/local/README.md",
+    "demo/compose/README.md",
     "backend/uv.lock",
     "backend/openapi.json",
     "scripts/licence-fixtures.json",

@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+#
+# The build context is demo/compose/, and the image takes one file from it:
+# the entrypoint. Everything else stays out, so that nothing but that file can
+# change what the image is. demo/.env, which holds the keys and the database's
+# password, is outside the context altogether.
+*
+!container-entrypoint.sh

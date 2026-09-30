@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 #
-# The template demo/config.py fills in for demo/start.sh, writing
-# demo/.state/robinauts.toml. The @-marked names below are the only things it
+# The template demo/config.py fills in for demo/local/start.sh, writing
+# demo/local/.state/robinauts.toml. The @-marked names below are the only things it
 # replaces, and the base_url one is a whole line: it goes altogether for a kind
 # that has no endpoint to write. The file it writes is not committed
 # (demo/.gitignore) and is read back before it is kept. Nothing above this line
@@ -23,14 +23,14 @@ api_key_env = "@KEY_VARIABLE@"
 
 # Three models through the one provider, so that the model picker has
 # something to switch to. Which three depends on the provider's kind, and
-# demo/start.sh chooses them: through OpenRouter, Claude, GPT and Gemini, since
+# demo/local/start.sh chooses them: through OpenRouter, Claude, GPT and Gemini, since
 # OpenRouter serves every vendor's models behind the one Messages API; through
 # Anthropic itself, three Claude models, and through OpenAI itself, three GPT
 # models, since that is all each serves. Each id names its default model,
 # whichever key reaches it, so that a conversation on one another key does
 # not offer is refused as not offered rather than answered by another. A model
 # an operator chose instead keeps the default's id, which then no longer names
-# it (demo/README.md, "What you can change"). A title is what the picker shows,
+# it (demo/local/README.md, "What you can change"). A title is what the picker shows,
 # and is the vendor's name for a model an operator chose.
 [models.@MODEL_ID@]
 provider = "@PROVIDER_ID@"
@@ -67,12 +67,12 @@ engine = "pydantic-ai"
 system_prompt = "You are the Robinauts demo assistant. Answer briefly, and play fair."
 @TOOLS@
 
-# Tools. GitHub's server is on when demo/start.sh found a GitHub token, and its
+# Tools. GitHub's server is on when demo/local/start.sh found a GitHub token, and its
 # table and each agent's `tools = ["github"]` line are then written in place of
 # the @-marked lines; with no token both lines go, and the agents have no tools.
 # The token itself is never in this file: the platform reads it from the
-# variable `secret_env` names, which demo/start.sh sets on the server's
-# invocation alone (demo/README.md, "Tools").
+# variable `secret_env` names, which demo/local/start.sh sets on the server's
+# invocation alone (demo/local/README.md, "Tools").
 #
 # Microsoft Learn's public server needs no credential: take the `#` off its
 # table, and add "learn" to an agent's `tools` (or add the line), and that

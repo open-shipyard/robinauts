@@ -17,7 +17,7 @@ cd "$root/backend"
 # backend/pyproject.toml holds the only ruff and black configuration there is.
 # The scripts live outside it, so the configuration is named explicitly rather
 # than discovered, and they are checked under the same rules as the backend.
-# demo/ is here for the same reason: demo/pg.py is Python of ours, and a demo
+# demo/ is here for the same reason: demo/local/pg.py is Python of ours, and a demo
 # nobody lints is a demo that rots.
 uv run --locked ruff check --config pyproject.toml . ../scripts ../demo
 uv run --locked black --check --config pyproject.toml . ../scripts ../demo

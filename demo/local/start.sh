@@ -3,7 +3,7 @@
 # Copyright The Robinauts Authors
 #
 # The demo: one command that brings the whole thing up on this machine.
-# demo/stop.sh takes it down again, and demo/README.md is the whole of what it
+# demo/local/stop.sh takes it down again, and demo/local/README.md is the whole of what it
 # does and what it reads.
 #
 # It is the **local development mode** -- no sign-in at all, one fixed local
@@ -39,10 +39,10 @@ github_token=${ROBINAUTS_GITHUB_TOKEN:-}
 unset OPENROUTER_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY ROBINAUTS_GITHUB_TOKEN
 
 demo=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-# shellcheck source=demo/common.sh
+# shellcheck source=demo/local/common.sh
 . "$demo/common.sh"
 
-ENV_FILE="$demo/.env"
+ENV_FILE="$shared/.env"
 ENV_MODE=600
 # demo/.env may hold a key, so it is read only when nobody else can read it.
 
@@ -118,7 +118,7 @@ HEALTH_TRIES_PER_SECOND=4
 # --- who may run this, and with what -----------------------------------------
 
 [ "$(id -u)" -ne 0 ] ||
-    fail "demo/start.sh is not run as root: run it as yourself." 2
+    fail "demo/local/start.sh is not run as root: run it as yourself." 2
 
 command -v uv >/dev/null 2>&1 ||
     fail "uv is not on the PATH: see https://docs.astral.sh/uv/getting-started/" 2
@@ -147,7 +147,7 @@ command -v node >/dev/null 2>&1 ||
 
 running=$(server_pid)
 if [ -n "$running" ]; then
-    say "Already running on http://$HOST:$PORT/ (pid $running); demo/stop.sh stops it."
+    say "Already running on http://$HOST:$PORT/ (pid $running); demo/local/stop.sh stops it."
     exit 0
 fi
 
@@ -305,6 +305,11 @@ say "Starting the demo's own PostgreSQL under $PGDATA ..."
 database_url=$(pg start) ||
     fail "the demo's PostgreSQL would not start; its own log is $PGDATA/log." 1
 export ROBINAUTS_DATABASE_URL="$database_url"
+# The password is in a file only this account can read (pg.py), and what is
+# exported is that file's path, which the driver reads by itself: the URL has
+# no password in it, so it is safe to print, and nothing that runs from here
+# on is handed a secret.
+export PGPASSFILE="$state/pgpass"
 say "Database: $database_url"
 
 # --- the configuration -------------------------------------------------------
@@ -315,8 +320,8 @@ say "Database: $database_url"
 # into would be a configuration that means something nobody asked for.
 # config.py substitutes literally, refuses what TOML cannot hold, and reads the
 # file back to prove that each value arrived whole.
-uv run --no-project --python "$PYTHON" python "$demo/config.py" \
-    --template "$demo/robinauts.toml.in" --out "$CONFIG" \
+uv run --no-project --python "$PYTHON" python "$shared/config.py" \
+    --template "$shared/robinauts.toml.in" --out "$CONFIG" \
     --provider-id "$provider_id" --kind "$provider_kind" \
     --key-variable "$key_variable" \
     --model "$id" "$model" "$title" \
@@ -357,7 +362,7 @@ fi
 # `db init` is idempotent: it applies this build's schema to an empty database,
 # does nothing to one that already has it, and refuses everything else -- a
 # demo database made from an older schema.sql included, which it says so
-# about: `demo/stop.sh --reset` deletes it, and the next start makes it again.
+# about: `demo/local/stop.sh --reset` deletes it, and the next start makes it again.
 say "Creating the schema if it is not there (robinauts db init) ..."
 "$ROBINAUTS" db init ||
     fail "robinauts db init failed; nothing was started, and it said why above." 1
@@ -365,7 +370,7 @@ say "Creating the schema if it is not there (robinauts db init) ..."
 # --- the server --------------------------------------------------------------
 #
 # The console script and not `uv run`, so that the pid in the pid file is the
-# server's own and demo/stop.sh signals the process that holds the socket.
+# server's own and demo/local/stop.sh signals the process that holds the socket.
 
 say "Starting the server on http://$HOST:$PORT/ ..."
 : >"$LOG_FILE"
@@ -454,7 +459,7 @@ if [ -n "$github_token" ]; then
     say "  tools: both agents may call GitHub's MCP server, as the token's owner"
 fi
 say "  log:  $LOG_FILE"
-say "  stop: demo/stop.sh   ('demo/stop.sh --reset' also deletes $state)"
+say "  stop: demo/local/stop.sh   ('demo/local/stop.sh --reset' also deletes $state)"
 
 # `xdg-open` on a machine with no display opens nothing and says so at length,
 # or worse, hangs waiting for one: over ssh and in a container the URL printed

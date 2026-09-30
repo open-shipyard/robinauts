@@ -2,19 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 #
-# The other end of demo/start.sh: stop the server, then the PostgreSQL it was
+# The other end of demo/local/start.sh: stop the server, then the PostgreSQL it was
 # talking to. Safe to run when nothing is running, and safe to run twice.
 #
-#     demo/stop.sh             stop both; the conversations stay
-#     demo/stop.sh --reset     and delete demo/.state, which is the data
+#     demo/local/stop.sh             stop both; the conversations stay
+#     demo/local/stop.sh --reset     and delete demo/local/.state, which is the data
 #
 # --reset is how the demo is started again from nothing: the data directory, the
-# generated configuration, the log and the pid file all live under demo/.state
+# generated configuration, the log and the pid file all live under demo/local/.state
 # and none of them is committed.
 set -eu
 
 demo=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-# shellcheck source=demo/common.sh
+# shellcheck source=demo/local/common.sh
 . "$demo/common.sh"
 
 TERM_SECONDS=30
@@ -29,9 +29,9 @@ reset=no
 case "${1:-}" in
 "") ;;
 --reset) reset=yes ;;
-*) fail "usage: demo/stop.sh [--reset]" 2 ;;
+*) fail "usage: demo/local/stop.sh [--reset]" 2 ;;
 esac
-[ "$#" -le 1 ] || fail "usage: demo/stop.sh [--reset]" 2
+[ "$#" -le 1 ] || fail "usage: demo/local/stop.sh [--reset]" 2
 
 # --- the server --------------------------------------------------------------
 
@@ -80,5 +80,5 @@ if [ "$reset" = yes ]; then
     # with nothing under it.
     say "Deleting $state ..."
     rm -rf "$state"
-    say "Gone. demo/start.sh starts again from nothing."
+    say "Gone. demo/local/start.sh starts again from nothing."
 fi

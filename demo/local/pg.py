@@ -7,10 +7,10 @@
 The demo has to bring a database, and this machine may have none. ``pgserver``
 ships PostgreSQL's own binaries in a wheel, so ``uv`` can fetch a server the
 way it fetches a library and the demo needs nothing installed
-(``demo/README.md`` records the version and the licence). It is **not a
+(``demo/local/README.md`` records the version and the licence). It is **not a
 dependency of the platform**: nothing under ``backend/`` imports it, it is not
 in ``backend/uv.lock``, and it is run as a tool -- ``uv run --with
-pgserver==<version> --no-project python demo/pg.py`` -- so that a demo script
+pgserver==<version> --no-project python demo/local/pg.py`` -- so that a demo script
 cannot put a development tool into what a deployment installs.
 
 ``pgserver``'s own ``get_server`` is deliberately not used: it binds a unix
@@ -32,18 +32,27 @@ Four commands, and each is safe to run again:
 creating it needs the client binaries and this process is the only one that has
 them; a second script would be a second copy of where they live.
 
-**Loopback only, trust authentication, and no password anywhere.** There is no
-password for a script to print, put in a file or leak into a log, and what
-stands in its place is two walls: the server listens on ``127.0.0.1`` alone, so
-nothing off this machine can reach it, and its unix socket lives in a directory
-inside ``pgdata``, which ``initdb`` makes ``0700``, so nothing but this account
-can reach *that*.
+**Loopback only, and a password on it.** The server listens on ``127.0.0.1``
+alone, so nothing off this machine can reach it. What that does not stop is
+another account **on this machine** opening the loopback port -- and a
+superuser that trusted it would hand that account this account's files and
+shell (``COPY ... PROGRAM``). So a connection over TCP must give a password
+(``scram-sha-256``), and the one the server uses is made here, at random, when
+the cluster is made (``PASSWORD_BYTES``): nobody chooses it, types it or sees
+it. It is written once, in the standard ``.pgpass`` form, to ``pgpass`` beside
+``pgdata`` (``pgpass_for``), readable by this account alone;
+``demo/local/start.sh`` hands the server that file's *path* as
+``PGPASSFILE``, and the driver reads the password out of it by itself. The URL
+this prints has no password in it, so it is safe to print, and it is.
 
-What those two do **not** stop is another account **on this machine** opening
-the loopback port and being trusted as ``postgres``. That is what ``trust``
-means, and it is the reason this is a demo on one person's laptop and not a way
-to run anything: a deployment gives the database a role and a password of its
-own (``docs/deployment.md``), and the README says so too.
+This script's own calls -- ``pg_isready``, ``psql``, ``createdb`` -- go over the
+unix socket instead, which stays ``trust``: it lives in a directory inside
+``pgdata``, which ``initdb`` makes ``0700``, so nothing but this account can
+reach it, and the password is never needed where it would have to be passed.
+
+It is still a demo on one person's machine and not a way to run anything: a
+deployment gives the database a role and a password of its own
+(``docs/deployment.md``), and the README says so too.
 """
 
 from __future__ import annotations
@@ -51,6 +60,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import secrets
 import subprocess
 import sys
 from pathlib import Path
@@ -66,7 +76,7 @@ SUPERUSER = "postgres"
 the URL a reader sees here is the URL they have seen before."""
 
 PORT_VARIABLE = "ROBINAUTS_DEMO_PG_PORT"
-"""What an operator changes the port with; demo/README.md lists it."""
+"""What an operator changes the port with; demo/local/README.md lists it."""
 
 DEFAULT_PORT = 54390
 """Not 5432, and not the 54329 the test suite's cluster uses: the demo must not
@@ -98,6 +108,17 @@ START_SECONDS = 60.0
 
 STOP_SECONDS = 60.0
 
+PASSWORD_BYTES = 32
+"""How much randomness the cluster's password has: ``secrets.token_urlsafe``'s
+bytes, which it writes as characters a ``.pgpass`` line needs no escaping for."""
+
+NO_PASSWORD = (
+    "the cluster under {pgdata} was made before the demo put a password on it,"
+    " and trusts anybody on this machine; demo/local/stop.sh --reset makes it"
+    " again, with one (and without the conversations in it)"
+)
+"""What ``start`` says of a cluster with no ``pgpass`` beside it."""
+
 TIME_ZONE = "Asia/Kathmandu"
 """Deliberately not UTC, and deliberately not a whole number of hours.
 
@@ -115,8 +136,32 @@ def is_database_name(value: str) -> bool:
 
 
 def pgdata_default() -> Path:
-    """``demo/.state/pgdata``, beside this file, wherever the demo was run from."""
+    """``demo/local/.state/pgdata``, beside this file, wherever the demo was run from."""
     return Path(__file__).resolve().parent / ".state" / "pgdata"
+
+
+def pgpass_for(pgdata: Path) -> Path:
+    """Where the cluster's password is kept: beside ``pgdata``, not inside it.
+
+    Beside, so that ``demo/local/stop.sh --reset`` deletes the two together,
+    and not inside, since ``pgdata`` is PostgreSQL's own directory.
+    """
+    return pgdata.parent / "pgpass"
+
+
+def _write_private(path: Path, text: str) -> None:
+    """``text`` in a file only this account can read, from the moment it exists.
+
+    Created with the mode rather than narrowed after, so there is no moment at
+    which it is open to anybody else. libpq and the driver both ignore a
+    password file that others can read, so the mode is also what makes it work.
+    """
+    handle = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(handle, 0o600)
+        os.write(handle, text.encode())
+    finally:
+        os.close(handle)
 
 
 def url_for(port: int, database: str) -> str:
@@ -162,7 +207,12 @@ def running(pgdata: Path, port: int | None = None) -> bool:
         return False
     if port is None:
         return True
-    return _tried([str(POSTGRES_BIN_PATH / "pg_isready"), "-h", HOST, "-p", str(port)]) == 0
+    return (
+        _tried(
+            [str(POSTGRES_BIN_PATH / "pg_isready"), "-h", str(_sockets(pgdata)), "-p", str(port)]
+        )
+        == 0
+    )
 
 
 def start(pgdata: Path, port: int, database: str) -> None:
@@ -171,21 +221,16 @@ def start(pgdata: Path, port: int, database: str) -> None:
     if taken is not None and taken != port and _ran(["status"], pgdata).returncode == 0:
         raise SystemExit(
             f"the cluster under {pgdata} is already running on port {taken}, not"
-            f" {port}. Stop it first (demo/stop.sh), or set"
+            f" {port}. Stop it first (demo/local/stop.sh), or set"
             f" {PORT_VARIABLE}={taken} to use it where it is."
         )
     pgdata.parent.mkdir(parents=True, exist_ok=True)
     if not (pgdata / "PG_VERSION").exists():
-        pgdata.mkdir(parents=True, exist_ok=True)
-        # `--auth=trust` on a server nothing off this machine can connect to.
-        # A password would be a secret for a demo script to keep, and a demo
-        # script is the worst place to keep one.
-        pgserver.initdb(
-            ["--auth=trust", "--auth-local=trust", "--encoding=utf8", "-U", SUPERUSER],
-            pgdata=pgdata,
-        )
+        _made(pgdata)
+    elif not pgpass_for(pgdata).exists():
+        raise SystemExit(NO_PASSWORD.format(pgdata=pgdata))
     if not running(pgdata, port):
-        sockets = pgdata / "sockets"
+        sockets = _sockets(pgdata)
         sockets.mkdir(exist_ok=True)
         pgserver.pg_ctl(
             [
@@ -199,7 +244,44 @@ def start(pgdata: Path, port: int, database: str) -> None:
             pgdata=pgdata,
             timeout=START_SECONDS,
         )
-    _database(port, database)
+    _database(pgdata, port, database)
+
+
+def _made(pgdata: Path) -> None:
+    """A new cluster in ``pgdata``, its superuser's password made and kept.
+
+    ``initdb`` takes the password from a file (``--pwfile``), never from its
+    arguments, which anybody on this machine can read out of ``ps``; that file
+    holds nothing else and is gone again once it has been read. The password
+    is written to ``pgpass`` only once the cluster exists, so a ``pgpass``
+    always belongs to a cluster.
+    """
+    pgdata.mkdir(parents=True, exist_ok=True)
+    password = secrets.token_urlsafe(PASSWORD_BYTES)
+    given = pgdata.parent / "initdb-password"
+    _write_private(given, password + "\n")
+    try:
+        pgserver.initdb(
+            [
+                "--auth-host=scram-sha-256",
+                "--auth-local=trust",
+                f"--pwfile={given}",
+                "--encoding=utf8",
+                "-U",
+                SUPERUSER,
+            ],
+            pgdata=pgdata,
+        )
+    finally:
+        given.unlink(missing_ok=True)
+    # Any port: the cluster's port is the operator's to change
+    # (``PORT_VARIABLE``), and the password is the cluster's, not the port's.
+    _write_private(pgpass_for(pgdata), f"{HOST}:*:*:{SUPERUSER}:{password}\n")
+
+
+def _sockets(pgdata: Path) -> Path:
+    """The directory the cluster's unix socket is in, inside ``pgdata``."""
+    return pgdata / "sockets"
 
 
 def stop(pgdata: Path) -> bool:
@@ -215,22 +297,36 @@ def stop(pgdata: Path) -> bool:
     return True
 
 
-def _database(port: int, database: str) -> None:
+def _database(pgdata: Path, port: int, database: str) -> None:
     """That database exists on that cluster.
 
     Asked for by name rather than created and forgiven: ``createdb`` on one
     that is there fails, and a failure that has to be read to be excused is a
     failure that hides the next one.
     """
-    if _query(port, f"SELECT 1 FROM pg_database WHERE datname = '{database}'").strip():
+    if _query(pgdata, port, f"SELECT 1 FROM pg_database WHERE datname = '{database}'").strip():
         return
-    pgserver.createdb(["-h", HOST, "-p", str(port), "-U", SUPERUSER, database])
+    pgserver.createdb(["-h", str(_sockets(pgdata)), "-p", str(port), "-U", SUPERUSER, database])
 
 
-def _query(port: int, statement: str) -> str:
-    """One statement's answer, unaligned and with no header: for asking, not printing."""
+def _query(pgdata: Path, port: int, statement: str) -> str:
+    """One statement's answer, unaligned and with no header: for asking, not printing.
+
+    Over the unix socket, which needs no password (the module's docstring).
+    """
     return pgserver.psql(
-        ["-h", HOST, "-p", str(port), "-U", SUPERUSER, "-d", "postgres", "-tAc", statement]
+        [
+            "-h",
+            str(_sockets(pgdata)),
+            "-p",
+            str(port),
+            "-U",
+            SUPERUSER,
+            "-d",
+            "postgres",
+            "-tAc",
+            statement,
+        ]
     )
 
 
@@ -262,7 +358,7 @@ def _tried(command: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     """The command. Exits 2 for a usage or environment problem, 1 for a failure."""
     parser = argparse.ArgumentParser(
-        prog="demo/pg.py", description="the demo's throwaway PostgreSQL"
+        prog="demo/local/pg.py", description="the demo's throwaway PostgreSQL"
     )
     parser.add_argument("command", choices=["start", "status", "stop", "url"])
     parser.add_argument("--pgdata", type=Path, default=None, help="the data directory")

@@ -4,7 +4,7 @@
 
 """The demo's configuration file, written from its template and then read back.
 
-``demo/start.sh`` knows what the deployment is -- which provider, which key
+``demo/local/start.sh`` knows what the deployment is -- which provider, which key
 variable, which three models -- and ``demo/robinauts.toml.in`` is the shape of
 it. This puts the one into the other.
 
@@ -73,7 +73,7 @@ TOOLS = "@TOOLS@"
 GITHUB_SERVER = "@GITHUB_SERVER@"
 """The template's lines for the GitHub tool server: each agent's ``tools`` line
 and the server's own table. Whole lines, like ``@BASE_URL@``: they are written
-when ``demo/start.sh`` found a GitHub token, and go altogether when it did not,
+when ``demo/local/start.sh`` found a GitHub token, and go altogether when it did not,
 so that an agent never names a server the platform would have no secret for."""
 
 GITHUB_URL = "https://api.githubcopilot.com/mcp/"
@@ -287,7 +287,7 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except (SystemExit, OSError, tomllib.TOMLDecodeError) as refused:
-        # Exit 2 with one line, as demo/start.sh's own refusals do; a code of
+        # Exit 2 with one line, as demo/local/start.sh's own refusals do; a code of
         # its own, and never a traceback, for something an operator set.
         if isinstance(refused, SystemExit) and refused.code in (0, None):
             raise

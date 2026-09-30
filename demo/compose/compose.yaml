@@ -1,0 +1,81 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+#
+# The demo in two containers: a PostgreSQL with a password, and the server
+# built from a shallow clone of the repository's main (demo/compose/Dockerfile). It is
+# the same local development mode as demo/local/start.sh -- no sign-in, one fixed
+# local user -- and just as much not a deployment (docs/deployment.md).
+#
+#     demo/compose/start.sh            # build, start, wait: http://127.0.0.1:8000/
+#     demo/compose/stop.sh             # the conversations stay
+#     demo/compose/stop.sh --reset     # and drop the database
+#
+# Everything it reads comes from demo/.env -- the file demo/local/start.sh
+# reads too -- or from the environment: the database's password (required),
+# one model provider key, and optionally the GitHub token. Compose finds a
+# .env beside this file only, so start.sh hands it that one with --env-file;
+# by hand, it is `docker compose --env-file ../.env up --build`.
+# demo/compose/README.md says what each variable does.
+#
+# The database is on a network of its own that is `internal`: it publishes no
+# port on this machine and has no route out, and no other container reaches
+# it. This machine itself still does, at the container's address on that
+# network -- Linux routes to every bridge Docker makes -- so another account
+# here can knock, and the password is what answers it.
+
+name: robinauts-demo
+
+services:
+  pg:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: robinauts
+      POSTGRES_DB: robinauts
+      # Read once, when the volume is first made: a password changed in
+      # demo/.env afterwards is only taken by `docker compose down -v`.
+      POSTGRES_PASSWORD: ${ROBINAUTS_DEMO_DB_PASSWORD:?put ROBINAUTS_DEMO_DB_PASSWORD in demo/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "robinauts", "-d", "robinauts"]
+      interval: 2s
+      retries: 30
+
+  robinauts:
+    build:
+      context: .
+      args:
+        REF: ${ROBINAUTS_DEMO_REF:-main}
+    image: robinauts-demo
+    depends_on:
+      pg:
+        condition: service_healthy
+    environment:
+      # No password in the URL: the driver reads PGPASSWORD by itself, which
+      # takes any character a password may hold and keeps it out of the one
+      # string the server names in its messages.
+      ROBINAUTS_DATABASE_URL: postgresql://robinauts@pg:5432/robinauts
+      PGPASSWORD: ${ROBINAUTS_DEMO_DB_PASSWORD:?put ROBINAUTS_DEMO_DB_PASSWORD in demo/.env}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ROBINAUTS_GITHUB_TOKEN: ${ROBINAUTS_GITHUB_TOKEN:-}
+      ROBINAUTS_DEMO_PROVIDER: ${ROBINAUTS_DEMO_PROVIDER:-}
+      ROBINAUTS_DEMO_MODEL: ${ROBINAUTS_DEMO_MODEL:-}
+      ROBINAUTS_DEMO_MODEL_2: ${ROBINAUTS_DEMO_MODEL_2:-}
+      ROBINAUTS_DEMO_MODEL_3: ${ROBINAUTS_DEMO_MODEL_3:-}
+    ports:
+      # This machine's loopback only, as demo/local/start.sh serves it.
+      - "127.0.0.1:8000:8000"
+    networks:
+      - database
+      - default
+
+networks:
+  database:
+    internal: true
+
+volumes:
+  pgdata:

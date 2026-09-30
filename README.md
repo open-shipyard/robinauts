@@ -110,10 +110,11 @@ interface, placed behind the company's usual HTTPS reverse proxy.
 [docs/deployment.md](docs/deployment.md) walks through it, step by step.
 
 To try it on a laptop, one command starts a throwaway database and the
-application, with no sign-in; it needs `uv`, Node.js and an Anthropic or
-OpenRouter key ([demo/README.md](demo/README.md)):
+application, with no sign-in; it needs an OpenRouter, Anthropic or OpenAI key,
+and either `uv` and Node.js or Docker ([demo/README.md](demo/README.md)):
 
-    demo/start.sh          # demo/stop.sh takes it down
+    demo/local/start.sh      # this checkout; demo/local/stop.sh takes it down
+    demo/compose/start.sh    # main, in containers; demo/compose/stop.sh
 
 ## Planned
 
