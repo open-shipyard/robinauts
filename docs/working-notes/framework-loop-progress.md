@@ -171,8 +171,14 @@ and the parity tests.
 
 ## The checks
 
-- `scripts/check-lint.sh`: green. `scripts/check-tests.sh`: green (3043
-  passed, 224 skipped; the Postgres suite skips without a database).
+- `scripts/check-lint.sh`: green. `scripts/check-tests.sh`: green, 3261
+  passed and 6 skipped -- the live tests, which need a key -- with a
+  PostgreSQL 16 given and required (`ROBINAUTS_REQUIRE_POSTGRES=1`). Without
+  one the Postgres suite skips, and it did until CI ran it: the two tests
+  of `tests/integration/test_postgres_run_executor.py` still scripted two
+  answers in one turn, the old port's shape, and the first failed on
+  `nothing follows the end of a turn`. Both were ported to a tool round,
+  as their unit twin in `test_run_watch.py` had been.
   `scripts/check-reuse.sh`: green. `scripts/check-audit.sh`: green (109
   packages, no known vulnerability), all re-run on the restricted lock.
 - `scripts/check-licences.sh`: **green**, on 110 locked packages. It was red

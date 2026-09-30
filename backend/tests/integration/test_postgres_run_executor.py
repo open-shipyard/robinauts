@@ -27,13 +27,13 @@ from datetime import UTC, datetime
 
 from aio import asyncio_test
 from conversations import AGENT, agent_definition, at, offered
-from fakes import CountingIdSource, FakeClock, Gate, ScriptedAgent, says
+from fakes import CountingIdSource, FakeClock, Gate, ScriptedAgent, calls, results, says
 from postgres import requires_postgres, temporary_schema
 from robinauts.adapters import AsyncioRunExecutor, MemoryRunSignals
 from robinauts.application import Conversations, Turns, Watch
 from robinauts.core import check_event_order, message_from_stored, run_event_from_stored
 from robinauts.datastore import PostgresConversationStore, PostgresCredentialStore
-from robinauts.domain import RunEnded, RunEvent, RunState, User
+from robinauts.domain import Role, RunEnded, RunEvent, RunState, User
 from robinauts.ports import ConversationStore
 
 pytestmark = requires_postgres
@@ -42,6 +42,17 @@ NOW = datetime(2026, 9, 21, 12, 0, tzinfo=UTC)
 
 FIRST = "Someone who plays fair."
 SECOND = "And that is all."
+
+LOOKED = ("toolu_01", "search", {"q": "robinauts"})
+"""A call the first answer makes, as ``calls`` wants it.
+
+What puts two answers in one turn now that the framework runs the loop: the
+turn ends once, with ``Done``, so a turn held half-way is held between an
+answer that called a tool and the answer that follows the result.
+"""
+
+FOUND = ("toolu_01", "search", "found 3")
+"""What the tool came back with, as ``results`` wants it."""
 
 STEP = 0.005
 """How long a test waits between two looks at the database.
@@ -101,7 +112,7 @@ async def test_a_turn_runs_in_the_background_and_two_watchers_are_served() -> No
         store = PostgresConversationStore(schema.pool)
         author = await credentials.user_at_sign_in("google", "1", name="Ada", email=None, now=NOW)
         between = Gate()
-        wired = Wired(store, *says(FIRST), between, *says(SECOND))
+        wired = Wired(store, *calls(LOOKED, text=FIRST), *results(FOUND), between, *says(SECOND))
 
         # A request: the turn is begun and answered at once, and the work goes
         # on in this process while nothing holds on to it.
@@ -110,10 +121,12 @@ async def test_a_turn_runs_in_the_background_and_two_watchers_are_served() -> No
         assert run.state is RunState.RUNNING
         from_the_start, whole = watching(wired, author, run.id)
 
-        # The first answer is in the conversation; the turn is held between
-        # the two. This is the moment somebody reloads the page.
+        # The first answer, with its call, and the tool message that answers
+        # it are in the conversation (positions 1 to 10); the turn is held
+        # before the second answer. This is the moment somebody reloads the
+        # page.
         await between.reached.wait()
-        await reaches(store, run.id, 4)
+        await reaches(store, run.id, 10)
         opened = await wired.conversations.open(author, run.conversation_id)
         assert opened.run_id == run.id
         assert opened.resume is not None
@@ -161,7 +174,12 @@ async def test_a_turn_runs_in_the_background_and_two_watchers_are_served() -> No
             message_from_stored(document)
             for document in await store.messages_of(run.conversation_id)
         ]
-        assert [message.text for message in answers] == ["What is a robinaut?", FIRST, SECOND]
+        assert [(message.role, message.text) for message in answers] == [
+            (Role.USER, "What is a robinaut?"),
+            (Role.ASSISTANT, FIRST),
+            (Role.TOOL, ""),
+            (Role.ASSISTANT, SECOND),
+        ]
         assert wired.turns.executing == frozenset()
 
 
@@ -175,12 +193,12 @@ async def test_a_process_that_stops_interrupts_the_run_it_was_answering() -> Non
         store = PostgresConversationStore(schema.pool)
         author = await credentials.user_at_sign_in("google", "1", name="Ada", email=None, now=NOW)
         held = Gate()
-        wired = Wired(store, *says(FIRST), held, *says(SECOND))
+        wired = Wired(store, *calls(LOOKED, text=FIRST), *results(FOUND), held, *says(SECOND))
 
         started = await wired.turns.begin(author, agent_id=AGENT, text="What is a robinaut?")
         watcher, seen = watching(wired, author, started.run.id)
         await held.reached.wait()
-        await reaches(store, started.run.id, 4)
+        await reaches(store, started.run.id, 10)
 
         wired.turns.stopping()
         await wired.executor.aclose(timeout=10.0)
