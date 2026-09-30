@@ -592,8 +592,16 @@ function describe(failure) {
   return failure instanceof Error ? failure.message : String(failure);
 }
 
-/** A version and nothing else: no range, no choice, no wildcard. */
-export const EXACT = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)*$/;
+/**
+ * A version and nothing else: no range, no choice, no wildcard.
+ *
+ * Semver's own shape, one prerelease and then one build, each introduced by
+ * its own character. The pattern it replaces took any number of either, and
+ * since `-` also belongs to the characters after one, a long run of `-a`
+ * could be split in exponentially many ways before failing
+ * (SonarCloud AaDjWhnOz5PIa1mbqWEW, javascript:S5852).
+ */
+export const EXACT = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 
 /**
  * Every problem with the exact pins of a `package.json`.

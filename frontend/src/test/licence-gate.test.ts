@@ -303,6 +303,29 @@ describe("exact pins", () => {
       /overrides\.a\.b/,
     );
   });
+
+  test("a prerelease and a build are exact, in semver's order", () => {
+    expect(pinProblems({ dependencies: { a: "1.0.0-rc.1" } })).toEqual([]);
+    expect(pinProblems({ dependencies: { a: "1.0.0+build.7" } })).toEqual([]);
+    expect(
+      pinProblems({ dependencies: { a: "1.0.0-beta-2+sha.5114f85" } }),
+    ).toEqual([]);
+    expect(pinProblems({ dependencies: { a: "1.0.0+build-rc" } })).toEqual([]);
+    expect(pinProblems({ dependencies: { a: "1.0.0-" } })).toHaveLength(1);
+    expect(pinProblems({ dependencies: { a: "1.0.0+a+b" } })).toHaveLength(1);
+  });
+
+  test("a long version that is not exact is refused at once", () => {
+    // What made the pattern before this one backtrack exponentially
+    // (SonarCloud AaDjWhnOz5PIa1mbqWEW): each "-a" doubled the time, and
+    // twenty-eight took seconds. Few enough that the old one fails rather
+    // than hangs.
+    const started = performance.now();
+    expect(
+      pinProblems({ dependencies: { a: `1.0.0${"-a".repeat(28)}!` } }),
+    ).toHaveLength(1);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
 });
 
 describe("the lists come from the document, not from a second copy", () => {
