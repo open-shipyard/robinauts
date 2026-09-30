@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -52,7 +53,13 @@ def deal(pinned: list[tuple[str, str]]) -> list[dict[str, str]]:
 
 
 def main(argv: list[str]) -> int:
-    export, work = Path(argv[1]), Path(argv[2])
+    # Both are check-audit.sh's scratch directory and what it exported into
+    # it; anywhere else is a file this was never meant to read or write over.
+    scratch = Path(tempfile.gettempdir()).resolve()
+    export, work = Path(argv[1]).resolve(), Path(argv[2]).resolve()
+    if not work.is_relative_to(scratch) or not export.is_relative_to(work):
+        print(f"expected an export inside a directory under {scratch}", file=sys.stderr)
+        return 2
     groups = deal(pins(export.read_text(encoding="utf-8")))
     for number, group in enumerate(groups, start=1):
         (work / f"requirements-{number}.txt").write_text(

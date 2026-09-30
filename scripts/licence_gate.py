@@ -1457,8 +1457,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="do not ask PyPI about packages the environment does not have",
     )
     arguments = parser.parse_args(argv)
+    # The policy and the lockfile it is held against are this repository's.
+    lock, dependencies = arguments.lock.resolve(), arguments.dependencies.resolve()
+    outside = [str(path) for path in (lock, dependencies) if not path.is_relative_to(root)]
+    if outside:
+        print(f"not in this repository ({root}): {', '.join(outside)}", file=sys.stderr)
+        return 2
     try:
-        return run(arguments.lock, arguments.dependencies, arguments.environment, arguments.offline)
+        return run(lock, dependencies, arguments.environment, arguments.offline)
     except (ValueError, TypeError, KeyError, AttributeError, OSError) as problem:
         # Nothing was checked, so nothing passed. Exit 2 rather than 1, to
         # separate "this dependency fails the policy" from "the gate could not
