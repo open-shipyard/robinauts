@@ -36,7 +36,12 @@ export ROBINAUTS_CONFIG=/etc/robinauts/robinauts.toml
 title_of() {
     # demo/local/start.sh's rule: the default's title for the default model, and none
     # for one the operator chose, which config.py then calls by its name.
-    if [ "$1" = "$2" ]; then printf '%s\n' "$3"; else printf '\n'; fi
+    title_model=$1 title_default=$2 title_default_title=$3
+    if [ "$title_model" = "$title_default" ]; then
+        printf '%s\n' "$title_default_title"
+    else
+        printf '\n'
+    fi
 }
 
 chosen=${ROBINAUTS_DEMO_PROVIDER:-}

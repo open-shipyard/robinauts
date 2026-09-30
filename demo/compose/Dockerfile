@@ -19,7 +19,7 @@ ARG REPO=https://github.com/open-shipyard/robinauts.git
 ARG REF=main
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils socat \
+ && apt-get install -y --no-install-recommends ca-certificates curl git socat xz-utils \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv /uv /uvx /usr/local/bin/
@@ -30,27 +30,35 @@ ADD https://api.github.com/repos/open-shipyard/robinauts/git/refs/heads/${REF} /
 RUN git clone --depth 1 --branch "$REF" "$REPO" /src \
  && printf '%s at %s\n' "$REF" "$(git -C /src rev-parse --short HEAD)" >/src/.built-from
 
-WORKDIR /src
+WORKDIR /src/frontend
 
-# Node at the major frontend/.nvmrc names, as a developer's nvm would pick it,
-# checked against the release's own SHASUMS256.txt before it is unpacked.
-RUN major=$(cat frontend/.nvmrc) \
+# Node at the major .nvmrc names, as a developer's nvm would pick it, fetched
+# over HTTPS alone (`--proto =https`, redirects included) and checked against
+# the release's own SHASUMS256.txt before it is unpacked. Then the interface,
+# with no package's install scripts run (`--ignore-scripts`, as .npmrc and CI
+# have it). One RUN, since Node is here for this build and nothing else.
+RUN major=$(cat .nvmrc) \
  && arch=$(dpkg --print-architecture | sed 's/amd64/x64/') \
  && base="https://nodejs.org/dist/latest-v${major}.x" \
- && curl -fsSL "$base/SHASUMS256.txt" -o /tmp/SHASUMS256.txt \
+ && curl --proto '=https' --tlsv1.2 -fsSL "$base/SHASUMS256.txt" -o /tmp/SHASUMS256.txt \
  && file=$(grep -o "node-v${major}[^ ]*-linux-${arch}\.tar\.xz" /tmp/SHASUMS256.txt | head -n 1) \
- && curl -fsSL "$base/$file" -o "/tmp/$file" \
+ && curl --proto '=https' --tlsv1.2 -fsSL "$base/$file" -o "/tmp/$file" \
  && (cd /tmp && grep " $file\$" SHASUMS256.txt | sha256sum -c -) \
  && tar -xJf "/tmp/$file" -C /usr/local --strip-components=1 \
- && rm -f "/tmp/$file" /tmp/SHASUMS256.txt
+ && rm -f "/tmp/$file" /tmp/SHASUMS256.txt \
+ && npm ci --ignore-scripts \
+ && npm run build
 
-RUN cd frontend && npm ci && npm run build
+WORKDIR /src/backend
 
-# CPython 3.12, as demo/local/start.sh and CI run it; the interface built above goes
-# into the package the server imports.
+# CPython 3.12, as demo/local/start.sh and CI run it; the interface built above
+# goes into the package the server imports. `--no-build`: every dependency
+# comes as the wheel the lock names, and nothing runs a setup script -- uv
+# still builds this project itself, which is the one package whose build
+# script is ours.
 ENV UV_PYTHON_INSTALL_DIR=/opt/python \
     UV_PROJECT_ENVIRONMENT=/opt/venv
-RUN cd backend && uv sync --locked --no-dev --no-editable --python 3.12
+RUN uv sync --locked --no-dev --no-editable --no-build --python 3.12
 
 COPY --chmod=755 container-entrypoint.sh /usr/local/bin/container-entrypoint.sh
 RUN mkdir -p /etc/robinauts && chown ubuntu /etc/robinauts
