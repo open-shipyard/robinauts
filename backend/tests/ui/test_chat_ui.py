@@ -33,6 +33,9 @@ ROOT = Path(__file__).resolve().parents[3]
 ECHO_CONFIG = ROOT / "examples" / "echo.toml"
 ROBINAUTS = Path(sys.executable).with_name("robinauts")
 
+# What the interface says of an answer that failed (frontend/src/chat/assistant-ui/state.ts).
+DID_NOT_FINISH = "This answer did not finish: something went wrong while it was being produced."
+
 
 def free_port() -> int:
     with socket.socket() as probe:
@@ -127,3 +130,18 @@ def test_a_new_conversation_with_echo_gets_its_answer_and_keeps_it(server: str, 
     # Read back from the database: the reloaded page opens the conversation from the server.
     page.reload()
     expect(answer).to_contain_text("The tool said: hello")
+
+
+def test_an_answer_that_failed_still_says_so_once_reopened(server: str, page: Page) -> None:
+    page.goto(server)
+    page.get_by_role("button", name="New chat").click()
+    expect(page.get_by_label("Agent")).to_have_value("echo")
+
+    page.get_by_label("Message input").fill("poison")  # echo ends this turn badly
+    page.get_by_label("Send message").click()
+    failed = page.get_by_text(DID_NOT_FINISH)
+    expect(failed).to_be_visible()
+
+    page.reload()
+    expect(page.get_by_text("poison", exact=True)).to_be_visible()
+    expect(failed).to_be_visible()
