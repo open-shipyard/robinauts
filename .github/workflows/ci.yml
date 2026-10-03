@@ -8,21 +8,20 @@
 name: CI
 
 on:
+  # main after every merge: a pull request is checked merged into the main of
+  # its day, so two merged one after the other are only ever checked together
+  # here. The wheel a deployment installs comes from this run too.
   push:
-    # The step branches too, so that a pushed branch is checked before anyone
-    # opens a pull request for it.
-    branches: [main, "feature/**", "fix/**"]
+    branches: [main]
+  # A branch is checked through its pull request, once per push.
   pull_request:
 
 # Nothing in this workflow writes to the repository.
 permissions:
   contents: read
 
-# One run at a time per branch, and per pull request. A branch that already
-# has a pull request open is built twice, once for each: the two use different
-# refs (the branch, and the merge commit of the pull request), and telling
-# them apart would mean asking the API whether a pull request exists. Two
-# cheap runs are better than that.
+# One run at a time for main, and per pull request: a newer push cancels the
+# run it makes stale.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
