@@ -54,14 +54,17 @@
  */
 @custom-variant dark {
   @media (prefers-color-scheme: dark) {
-    &:where(
+    &:where( /* NOSONAR: `&` is Tailwind's @custom-variant syntax; Sonar's CSS rule does not know it */
       :root:not([data-theme="light"]),
       :root:not([data-theme="light"]) *
     ) {
       @slot;
     }
   }
-  &:where(:root[data-theme="dark"], :root[data-theme="dark"] *) {
+  &:where( /* NOSONAR: as above */
+    :root[data-theme="dark"],
+    :root[data-theme="dark"] *
+  ) {
     @slot;
   }
 }
