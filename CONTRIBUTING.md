@@ -56,6 +56,9 @@ or one at a time:
     scripts/check-audit.sh      pip-audit over the whole locked set
     scripts/check-frontend.sh   the frontend: format, lint, types, tests,
                                 the build with its licence gate, npm audit
+    scripts/check-ui.sh         the interface in a browser (Playwright),
+                                over a server on the echo engine and
+                                PostgreSQL
     scripts/check-wheel.sh      the wheel: built, looked inside, installed
     scripts/check-reuse.sh      reuse lint: every file states its licence
     scripts/check-dco.sh        sign-off on every commit of the branch
@@ -66,12 +69,12 @@ merge button rather than showing a red cross — is branch protection, which
 the project owner still has to switch on
 ([docs/oss-checklist.md](docs/oss-checklist.md)).
 
-`check-tests.sh`, `check-licences.sh` and `check-reuse.sh` pass their
-arguments on to the tool they wrap, so `scripts/check-tests.sh -k licence`
-does what you would expect. `check-dco.sh` takes a commit range and defaults
-to what this branch adds to `main`; CI runs it over the commits of the pull
-request, since the first commits of this repository predate the sign-off
-rule. `check-lint.sh`, `check-audit.sh`, `check-frontend.sh` and
+`check-tests.sh`, `check-ui.sh`, `check-licences.sh` and `check-reuse.sh`
+pass their arguments on to the tool they wrap, so
+`scripts/check-tests.sh -k licence` does what you would expect.
+`check-dco.sh` takes a commit range and defaults to what this branch adds to
+`main`; CI runs it over the commits of the pull request, since the first
+commits of this repository predate the sign-off rule. `check-lint.sh`, `check-audit.sh`, `check-frontend.sh` and
 `check-all.sh` take no arguments and say so rather than ignoring them —
 `check-audit.sh` reads pip-audit's JSON to make sure every pinned package was
 really looked at, and `check-frontend.sh` is the frontend's whole CI job in

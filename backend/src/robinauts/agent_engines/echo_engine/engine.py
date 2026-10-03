@@ -3,6 +3,9 @@
 
 """An engine that calls its one tool on every turn and answers a fixed string plus the result.
 
+A prompt that starts with ``poison`` ends its turn badly instead: the tool returns an error and
+the engine raises, as a real engine does when a tool keeps failing.
+
 It keeps the contract's memory and nothing else: which sessions exist and which
 checkpoints each holds, in this process. No turn reads an earlier one.
 """
@@ -16,6 +19,7 @@ from robinauts.agent_engines.contract.domain import (
     AgentDefinition,
     CheckpointNotFoundError,
     Done,
+    EngineError,
     Event,
     ProviderKind,
     ResumeMismatchError,
@@ -29,6 +33,8 @@ from robinauts.agent_engines.contract.ports import AgentEngine
 
 TOOL = "echo"
 ANSWER = "The tool said: "
+POISON = "poison"
+POISONED = "the message is poisoned"
 
 
 def echo(text: str) -> str:
@@ -78,6 +84,9 @@ class EchoEngine(AgentEngine):
 
         call_id = f"call-{len(checkpoints) + 1}"
         yield ToolCall(call_id=call_id, name=TOOL, arguments={"text": prompt})
+        if prompt.startswith(POISON):
+            yield ToolResult(call_id=call_id, name=TOOL, output=POISONED, is_error=True)
+            raise EngineError(f"Tool {TOOL!r} failed: {POISONED}")
         result = echo(prompt)
         yield ToolResult(call_id=call_id, name=TOOL, output=result)
         yield TextDelta(text=ANSWER)
