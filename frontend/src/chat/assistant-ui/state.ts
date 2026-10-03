@@ -280,6 +280,28 @@ export function under(state: ChatState): string | null {
 }
 
 /**
+ * What a new message in a conversation that exists asks the backend for.
+ *
+ * A reply under the end of the thread (`under`). **Unless the end is a stored
+ * question nobody answered**: the new message replaces it, so it is an edit of
+ * that question, and the backend works out where the new version hangs --
+ * under nothing, when it was the first. A question this chat has not sent yet
+ * is not the backend's to edit, and the reply goes under what is before it.
+ * `null` for a thread with nothing to answer or to replace.
+ */
+export function askedIn(
+  state: ChatState,
+  text: string,
+): { text: string; edit: string } | { text: string; parentId: string } | null {
+  const tail = state.messages.at(-1);
+  if (tail?.role === "user" && !isUnsent(tail.id)) {
+    return { text, edit: tail.id };
+  }
+  const parentId = under(state);
+  return parentId === null ? null : { text, parentId };
+}
+
+/**
  * What a new message under `parentId` hangs under in the store.
  *
  * The runtime names the message before it on the screen; where that is an

@@ -1159,11 +1159,11 @@ test("a conversation with a run in flight is attached to at resume.after", async
   expect(result.current.state.messages[1]?.id).toBe("m2");
 });
 
-test("editing is a new message under the parent of the one it replaces", async () => {
+test("an edit names the question it replaces", async () => {
   const posts: Call[] = [];
   // Three deep, so the question being edited has a parent that is not the
-  // root: an edit hangs under the parent of the message it replaces, and
-  // the thread on the screen is cut after that parent (`state.ts`).
+  // root: the thread on the screen is cut after that parent (`state.ts`), and
+  // the backend works out the parent from the question named.
   const deeper = [...TREE, message("m3", "user", "and then?")];
   stub((call) => {
     if (call.url === `/api/conversations/${CONVERSATION}`) {
@@ -1183,10 +1183,8 @@ test("editing is a new message under the parent of the one it replaces", async (
     expect(result.current.state.messages).toHaveLength(3);
   });
 
-  // The question being replaced is `m3`, whose parent is the answer `m2`:
-  // an edit hangs under the parent of the message it replaces, and that is
-  // not usually the root (`docs/specs/conversations.md`). Nothing is sent
-  // for `m3` itself: the server keeps it, off the visible thread.
+  // The question being replaced is `m3`, whose parent is the answer `m2`.
+  // The server keeps `m3`, off the visible thread.
   await act(async () => {
     result.current.runtime.thread.append({
       role: "user",
@@ -1198,11 +1196,11 @@ test("editing is a new message under the parent of the one it replaces", async (
   });
   expect(posts[0]?.body).toEqual({
     text: "and at night?",
-    parent_id: "m2",
+    edit: "m3",
     model_id: "sonnet",
   });
 
-  // The root's own edit still hangs under nothing.
+  // The root's own edit, which hangs under nothing, names the root.
   await act(async () => {
     result.current.runtime.thread.append({
       role: "user",
@@ -1214,14 +1212,14 @@ test("editing is a new message under the parent of the one it replaces", async (
   });
   expect(posts[1]?.body).toEqual({
     text: "why really?",
-    parent_id: null,
+    edit: "m1",
     model_id: "sonnet",
   });
 });
 
-test("an edit after a tool round hangs under the tool message, not the answer", async () => {
-  // The thread on the screen is m1, m2 (whose calls t1 answered), m3; the
-  // runtime names m2 as m3's parent, and the store's is t1.
+test("a reply after a tool round hangs under the tool message, not the answer", async () => {
+  // The thread on the screen is m1 and m2, whose calls t1 answered; the end of
+  // the thread is m2 on the screen, and t1 in the store.
   const posts: Call[] = [];
   stub((call) => {
     if (call.url === `/api/conversations/${CONVERSATION}`) {
@@ -1232,7 +1230,6 @@ test("an edit after a tool round hangs under the tool message, not the answer", 
             { call_id: "toolu_01", name: "github__search", arguments: {} },
           ]),
           results("t1", [{ call_id: "toolu_01", text: "found 3" }]),
-          message("m3", "user", "and then?"),
         ]),
       );
     }
@@ -1247,16 +1244,11 @@ test("an edit after a tool round hangs under the tool message, not the answer", 
   });
   const { result } = chatting({ conversationId: CONVERSATION });
   await waitFor(() => {
-    expect(result.current.state.messages).toHaveLength(3);
+    expect(result.current.state.messages).toHaveLength(2);
   });
 
   await act(async () => {
-    result.current.runtime.thread.append({
-      role: "user",
-      content: [{ type: "text", text: "and at night?" }],
-      parentId: "m2",
-      sourceId: "m3",
-    });
+    result.current.runtime.thread.append("and at night?");
     await settle();
   });
   expect(posts[0]?.body).toEqual({
@@ -1270,7 +1262,8 @@ test("after a turn that went wrong, asking again replaces the question", async (
   // The answer a failed run was producing is in no conversation
   // (`docs/specs/runs.md`), so the thread ends on the question. The format
   // refuses a question under a question, and asking again is how the turn is
-  // retried: the new one takes the old one's place.
+  // retried: the new one takes the old one's place, as an edit of it -- here
+  // of the first question, which hangs under nothing.
   const posts: Call[] = [];
   stub((call) => {
     if (call.url === `/api/conversations/${CONVERSATION}`) {
@@ -1303,7 +1296,7 @@ test("after a turn that went wrong, asking again replaces the question", async (
   });
   expect(posts[0]?.body).toEqual({
     text: "why, really?",
-    parent_id: null,
+    edit: "m1",
     model_id: "sonnet",
   });
 });

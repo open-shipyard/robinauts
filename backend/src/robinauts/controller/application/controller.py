@@ -241,9 +241,30 @@ class RobinautsController(Controller):
         messages = await self._messages(user.id, session_id)
         if all(m.id != parent_id for m in messages):
             raise MessageNotFoundError(str(parent_id))
+        return await self._ask(user, session, parent_id, model, text)
+
+    async def edit_message(
+        self,
+        user: User,
+        session_id: uuid.UUID,
+        *,
+        message_id: uuid.UUID,
+        model: str,
+        text: str,
+    ) -> TurnStarted:
+        session = await self._store.get_session(user.id, session_id)
+        messages = await self._messages(user.id, session_id)
+        edited = next((m for m in messages if m.id == message_id), None)
+        if edited is None or edited.role is not Role.USER:
+            raise MessageNotFoundError(str(message_id))
+        return await self._ask(user, session, edited.parent_id, model, text)
+
+    async def _ask(
+        self, user: User, session: Session, parent_id: uuid.UUID | None, model: str, text: str
+    ) -> TurnStarted:
         question = Message(
             uuid.uuid4(),
-            session_id,
+            session.id,
             parent_id=parent_id,
             role=Role.USER,
             parts=(TextPart(text),),
@@ -253,7 +274,7 @@ class RobinautsController(Controller):
             model=model,
         )
         turn = await self._start_turn(user, session, question, model, new_question=True)
-        return TurnStarted(session_id, turn.id, question)
+        return TurnStarted(session.id, turn.id, question)
 
     async def regenerate_answer(
         self, user: User, session_id: uuid.UUID, *, question_id: uuid.UUID, model: str

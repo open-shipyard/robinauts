@@ -262,6 +262,7 @@ class NewChatRequest(BaseModel):
 class TurnRequest(BaseModel):
     text: str | None = None
     parent_id: uuid.UUID | None = None
+    edit: uuid.UUID | None = None
     regenerate: uuid.UUID | None = None
     model_id: str | None = None
 
@@ -664,14 +665,16 @@ def create_app(
             started = await controller.regenerate_answer(
                 user, conversation_id, question_id=question.id, model=model
             )
-        else:
-            started = await controller.send_message(
-                user,
-                conversation_id,
-                parent_id=body.parent_id,
-                model=model,
-                text=body.text,
+        elif body.edit is not None:
+            started = await controller.edit_message(
+                user, conversation_id, message_id=body.edit, model=model, text=body.text
             )
+        elif body.parent_id is not None:
+            started = await controller.send_message(
+                user, conversation_id, parent_id=body.parent_id, model=model, text=body.text
+            )
+        else:
+            raise InvalidValueError("a message names the parent_id it answers, or the one it edits")
         return await watched(user, conversation_id, started.turn_id, 0)
 
     @app.get("/api/conversations/{conversation_id}/runs/{run_id}/events", include_in_schema=False)

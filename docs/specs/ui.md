@@ -6,7 +6,7 @@ WIP. Follow the current implementation.
 
 ## Failed turn
 
-When anything in the the processing of a message fails in the backend, the user should receive an error response that will be displayed, bellow their last message, in the place where the normal agent would be, but with a different style, still indicating there was a failure.
+When anything in the processing of a message fails in the backend, the user should receive an error response that will be displayed, bellow their last message, in the place where the normal agent would be, but with a different style, still indicating there was a failure.
 
 
 Style should be just enough to clearly tell it was not a normal response, it should not be a flashing vibrant red or something like that. Use discretion to follow the general palette of the UI and do not be disruptive of the visuals.
@@ -27,7 +27,7 @@ In case (1) it is the same as any edit, the user change their mind, we should di
 
 In cases (2) and (3) we want the LLM to have hints of what failed in the past turn to either silently retry, try something different or just tell the user what is going wrong.
 
-Note that the retry button is different from the "Refresh" button on a normal response. The "Refresh" button on a normal response is intended to omit that last response from the LLM view and let it generate a new one. The Retry button keeps context of being a failure.
+Note that the retry button is different from the "Refresh" button on a normal response. The "Refresh" button on a normal response is intended to omit that last response from the LLM view and let it generate a new one. The "Refresh" button is handled at the backend as "regenerate". The Retry button keeps context of being a failure.
 
 
 ### Edit their message
@@ -72,9 +72,16 @@ User Message 2:  Was it my fault?
 
 ### Retry
 
-The user press the retry error in the error notice.
+The user press the retry button  in the error notice.
+
+
+When the user press the retry button the error notice will disappear from the UI and the behavior should look as if there was a fresh message.
+
 
 The LLM will see the first message as it was, the error, and a new message indicating the retry.
+
+
+User can retry a failed response as many times as they want.
 
 
 **Example**

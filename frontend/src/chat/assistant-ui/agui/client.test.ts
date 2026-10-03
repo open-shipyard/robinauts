@@ -135,7 +135,7 @@ test("a refusal comes before the stream, and is an ApiError", async () => {
   ]);
   const refused = await startTurn(CONVERSATION, {
     text: "again",
-    parentId: null,
+    parentId: "m2",
   }).catch((failure: unknown) => failure);
   expect(refused).toBeInstanceOf(ApiError);
   expect((refused as ApiError).status).toBe(409);

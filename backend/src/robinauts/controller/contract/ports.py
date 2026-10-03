@@ -97,6 +97,24 @@ class Controller(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def edit_message(
+        self,
+        user: User,
+        session_id: uuid.UUID,
+        *,
+        message_id: uuid.UUID,
+        model: str,
+        text: str,
+    ) -> TurnStarted:
+        """A new version of a question: a message under the edited one's parent (none for
+        the first question), which the visible thread then goes through.
+
+        ``SessionNotFoundError``, ``MessageNotFoundError`` for a message that is not a
+        question of this session, ``UnknownModelError``, ``TurnActiveError`` while a turn
+        runs, ``InvalidValueError`` for empty text."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def regenerate_answer(
         self, user: User, session_id: uuid.UUID, *, question_id: uuid.UUID, model: str
     ) -> TurnStarted:

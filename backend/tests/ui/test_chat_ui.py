@@ -117,7 +117,7 @@ def page() -> Iterator[Page]:
             browser.close()
 
 
-def test_a_new_conversation_with_echo_gets_its_answer_and_keeps_it(server: str, page: Page) -> None:
+def test_a_conversation_with_echo_answers_keeps_and_edits(server: str, page: Page) -> None:
     page.goto(server)
     page.get_by_role("button", name="New chat").click()
     expect(page.get_by_label("Agent")).to_have_value("echo")
@@ -130,6 +130,14 @@ def test_a_new_conversation_with_echo_gets_its_answer_and_keeps_it(server: str, 
     # Read back from the database: the reloaded page opens the conversation from the server.
     page.reload()
     expect(answer).to_contain_text("The tool said: hello")
+
+    page.locator('[data-role="user"]').hover()  # its actions show on hover
+    page.get_by_role("button", name="Edit").click()
+    page.locator(".aui-edit-composer-input").fill("hi")
+    page.get_by_role("button", name="Update").click()
+    expect(answer).to_contain_text("The tool said: hi")
+    expect(page.locator('[data-role="user"]')).to_contain_text("hi")
+    expect(page.locator('[data-role="user"]')).not_to_contain_text("hello")
 
 
 def test_an_answer_that_failed_says_so_until_one_ends_well(server: str, page: Page) -> None:
