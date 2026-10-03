@@ -66,6 +66,9 @@ WAIT_SECONDS = 15.0
 CLOSE_TIMEOUT = 10.0
 """How long `close` waits for the turns this process runs before it interrupts them."""
 
+ENDED_BADLY = frozenset({TurnState.FAILED, TurnState.CANCELLED, TurnState.INTERRUPTED})
+"""How a turn may end that opening its session says so."""
+
 
 class RobinautsController(Controller):
     def __init__(
@@ -170,7 +173,11 @@ class RobinautsController(Controller):
         if running is not None:
             events = await self._store.events_after(user.id, session_id, running.id, 0)
             active = ActiveTurn(running.id, running.follows, len(events))
-        return OpenedSession(session, tuple(reversed(thread)), active)
+        latest = await self._store.latest_turn(user.id, session_id)
+        ended_badly = None
+        if latest is not None and latest.state in ENDED_BADLY:
+            ended_badly = latest
+        return OpenedSession(session, tuple(reversed(thread)), active, ended_badly)
 
     async def rename_session(self, user: User, session_id: uuid.UUID, title: str) -> Session:
         session = await self._store.get_session(user.id, session_id)

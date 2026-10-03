@@ -64,3 +64,18 @@ async def test_a_conversation_from_the_first_message_to_its_deletion() -> None:
         assert renamed.json()["title"] == "Echoes"
         assert (await http.delete(f"/api/conversations/{cid}")).status_code == 204
         assert (await http.get("/api/conversations")).json()["items"] == []
+
+
+@asyncio_test
+async def test_a_conversation_whose_turn_failed_says_so_when_opened() -> None:
+    async with client() as http:
+        started = await http.post("/api/turns", json={"agent_id": "echo", "text": "poison"})
+        assert events(started.text)[-1]["type"] == "RUN_ERROR"
+        cid = started.headers["x-robinauts-conversation-id"]
+        rid = started.headers["x-robinauts-run-id"]
+
+        opened = (await http.get(f"/api/conversations/{cid}")).json()
+        assert [m["role"] for m in opened["messages"]] == ["user"]
+        ended = opened["ended_badly"]
+        assert (ended["run_id"], ended["state"]) == (rid, "failed")
+        assert set(ended) == {"run_id", "state", "ended_at"}  # not the operator's error

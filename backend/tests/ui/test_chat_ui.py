@@ -132,7 +132,7 @@ def test_a_new_conversation_with_echo_gets_its_answer_and_keeps_it(server: str, 
     expect(answer).to_contain_text("The tool said: hello")
 
 
-def test_an_answer_that_failed_still_says_so_once_reopened(server: str, page: Page) -> None:
+def test_an_answer_that_failed_says_so_until_one_ends_well(server: str, page: Page) -> None:
     page.goto(server)
     page.get_by_role("button", name="New chat").click()
     expect(page.get_by_label("Agent")).to_have_value("echo")
@@ -143,5 +143,11 @@ def test_an_answer_that_failed_still_says_so_once_reopened(server: str, page: Pa
     expect(failed).to_be_visible()
 
     page.reload()
-    expect(page.get_by_text("poison", exact=True)).to_be_visible()
+    expect(page.locator('[data-role="user"]')).to_contain_text("poison")
     expect(failed).to_be_visible()
+
+    # An answer that ends well takes the notice away.
+    page.get_by_label("Message input").fill("hello")
+    page.get_by_label("Send message").click()
+    expect(page.locator('[data-role="assistant"]')).to_contain_text("The tool said: hello")
+    expect(failed).not_to_be_visible()

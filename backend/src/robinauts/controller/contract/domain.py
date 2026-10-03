@@ -336,6 +336,8 @@ class OpenedSession:
     session: Session
     messages: tuple[Message, ...]
     active: ActiveTurn | None = None
+    ended_badly: Turn | None = None
+    """The session's last turn, when it failed, was cancelled or was interrupted."""
 
 
 # --- turns --------------------------------------------------------------------

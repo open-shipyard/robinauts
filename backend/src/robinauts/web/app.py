@@ -46,6 +46,7 @@ from robinauts.controller.contract.domain import (
     TextPart,
     ToolCallPart,
     ToolResultPart,
+    Turn,
     TurnActiveError,
     UnknownAgentError,
     UnknownModelError,
@@ -332,8 +333,15 @@ def opened_view(opened: OpenedSession, default: str) -> OpenedConversationRespon
         messages=[message_view(m, session) for m in opened.messages],
         run_id=None if active is None else active.turn_id,
         resume=None if active is None else ResumeView(after=0, follows=active.follows),
-        ended_badly=None,
+        ended_badly=ended_badly_view(opened.ended_badly),
     )
+
+
+def ended_badly_view(turn: Turn | None) -> EndedBadlyView | None:
+    """How the last turn ended, when it ended badly. Its error is for the operator only."""
+    if turn is None or turn.ended_at is None:
+        return None
+    return EndedBadlyView(run_id=turn.id, state=turn.state.value, ended_at=turn.ended_at)
 
 
 def event_stream(
