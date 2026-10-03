@@ -352,7 +352,12 @@ function inlineStyleRefusal(page: string): string {
 export function refuseInlineStyles(page: string): void {
   if (!existsSync(page)) return;
   // HTML comments first: a `<style` inside one is not a stylesheet.
-  const html = readFileSync(page, "utf8").replace(/<!--[\s\S]*?-->/g, "");
+  let html = readFileSync(page, "utf8");
+  let previous: string;
+  do {
+    previous = html;
+    html = html.replace(/<!--[\s\S]*?-->/g, "");
+  } while (html !== previous);
   if (/<style\b/i.test(html)) throw new Error(inlineStyleRefusal(page));
 }
 
