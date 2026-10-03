@@ -302,7 +302,7 @@ function HistoryItem({
   };
 
   return (
-    <li
+    <li // NOSONAR: Escape bubbles up from the row's own input and buttons, and is handled once here
       onKeyDown={onKeyDown}
       className="flex flex-col rounded-ui hover:bg-hover"
       data-current={isCurrent}
