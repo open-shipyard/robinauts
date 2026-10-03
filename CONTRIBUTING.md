@@ -58,7 +58,8 @@ or one at a time:
                                 the build with its licence gate, npm audit
     scripts/check-ui.sh         the interface in a browser (Playwright),
                                 over a server on the echo engine and
-                                PostgreSQL
+                                PostgreSQL: the one ROBINAUTS_TEST_DATABASE_URL
+                                names, or a throwaway one in Docker
     scripts/check-wheel.sh      the wheel: built, looked inside, installed
     scripts/check-reuse.sh      reuse lint: every file states its licence
     scripts/check-dco.sh        sign-off on every commit of the branch

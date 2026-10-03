@@ -75,7 +75,7 @@ def database() -> Iterator[str]:
     """The URL of a new schema, with this build's tables in it, dropped when the test ends."""
     given = os.environ.get("ROBINAUTS_TEST_DATABASE_URL")
     if not given:
-        pytest.fail("set ROBINAUTS_TEST_DATABASE_URL to a PostgreSQL to create a schema in")
+        pytest.fail("no ROBINAUTS_TEST_DATABASE_URL: run scripts/check-ui.sh, or set it")
     schema = "robinauts_ui_" + uuid.uuid4().hex
     asyncio.run(run_statement(given, f'CREATE SCHEMA "{schema}"'))
     try:
