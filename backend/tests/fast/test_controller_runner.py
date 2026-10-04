@@ -7,33 +7,33 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
-import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from unittest.mock import create_autospec
 
 import pytest
-from test_controller_turns import CONFIG, opened, settled
+from echo_controller import CONFIG, opened, settled
 
 from aio import asyncio_test
-from robinauts.agent_engines.contract.domain import Done, Event, TextDelta, ToolCall, ToolResult
+from robinauts.agent_engines.contract.domain import Event
+from robinauts.agent_engines.contract.ports import AgentEngine
 from robinauts.agent_engines.echo_engine.engine import EchoEngine
 from robinauts.controller.adapters.dispatch import InProcessDispatcher
 from robinauts.controller.adapters.memory.store import MemoryStore
 from robinauts.controller.application.controller import RobinautsController
 from robinauts.controller.contract.domain import (
-    AgentConfig,
+    ActiveTurn,
     Identity,
     NumberedEvent,
     SessionNotFoundError,
     StorageConfig,
     StorageKind,
-    TextPart,
-    ToolCallPart,
-    ToolResultPart,
     TurnActiveError,
     TurnEnded,
+    TurnStarted,
     TurnState,
+    User,
 )
 from robinauts.controller.core.documents import event_from_document
 from robinauts.controller.ports.store import Store
@@ -41,33 +41,20 @@ from robinauts.controller.ports.store import Store
 FIVE_MINUTES = timedelta(minutes=5)
 
 
-class ScriptedEngine(EchoEngine):
-    """Writes text in two pieces, calls its tool, and writes again."""
+def gated_engine() -> tuple[Any, asyncio.Event]:
+    """The echo engine, mocked: it streams the echo's turn once the gate is set."""
+    echo = EchoEngine()
+    gate = asyncio.Event()
+    engine = create_autospec(AgentEngine, spec_set=True, instance=True)
+    engine.kinds.side_effect = echo.kinds
 
-    async def stream(
-        self, session_id: uuid.UUID, agent: Any, prompt: str, **kwargs: Any
-    ) -> AsyncGenerator[Event, None]:
-        yield TextDelta("Let me ")
-        yield TextDelta("look. ")
-        yield ToolCall(call_id="c1", name="echo", arguments={"text": prompt})
-        yield ToolResult(call_id="c1", name="echo", output=prompt)
-        yield TextDelta("Done.")
-        yield Done(text="Let me look. Done.", checkpoint_id=str(uuid.uuid4()))
-
-
-class GatedEngine(EchoEngine):
-    """Streams nothing until it is let go, and counts the turns it was asked for."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.gate = asyncio.Event()
-        self.streams = 0
-
-    async def stream(self, *args: Any, **kwargs: Any) -> AsyncGenerator[Event, None]:
-        self.streams += 1
-        await self.gate.wait()
-        async for event in super().stream(*args, **kwargs):
+    async def stream(*args: Any, **kwargs: Any) -> AsyncGenerator[Event, None]:
+        await gate.wait()
+        async for event in echo.stream(*args, **kwargs):
             yield event
+
+    engine.stream.side_effect = stream
+    return engine, gate
 
 
 class SlowFinishStore(MemoryStore):
@@ -96,56 +83,32 @@ def jumped(by: timedelta) -> Any:
     return lambda: datetime.now(UTC) + by
 
 
-@asyncio_test
-async def test_an_answer_keeps_its_parts_in_stream_order() -> None:
-    controller = await opened()
-    controller._engines["echo"] = ScriptedEngine()
-    user = await controller.ensure_user(Identity("local", "me"))
-    started = await controller.start_session(user, agent="echo", model="echo", text="hello")
-    await settled(controller, user, started)
-    answer = (await controller.open_session(user, started.session_id)).messages[-1]
-    assert answer.parts == (
-        TextPart("Let me look. "),
-        ToolCallPart("c1", "echo", {"text": "hello"}),
-        ToolResultPart("c1", "hello", False),
-        TextPart("Done."),
-    )
-    assert answer.turn_id == started.turn_id
-    await controller.close()
-
-
-@asyncio_test
-async def test_two_turns_of_one_session_number_their_events_from_one_each() -> None:
-    controller = await opened()
+async def gated_turn() -> tuple[Any, Any, asyncio.Event, User, TurnStarted]:
+    """A turn on a ``gated_engine``, started and held at the gate."""
+    engine, gate = gated_engine()
+    controller = await opened(engine)
     user = await controller.ensure_user(Identity("local", "me"))
     started = await controller.start_session(user, agent="echo", model="echo", text="one")
-    await settled(controller, user, started)
-    again = await controller.regenerate_answer(
-        user, started.session_id, question_id=started.question.id, model="echo"
-    )
-    await settled(controller, user, again)
-    for turn in (started.turn_id, again.turn_id):
-        stored = await controller._store.events_after(user.id, started.session_id, turn, 0)
-        assert [p for p, _ in stored] == list(range(1, 10))
-    await controller.close()
+    await controller._store.wait_for_events(user.id, started.session_id, started.turn_id, 0, 5.0)
+    return controller, engine, gate, user, started
 
 
 @asyncio_test
 async def test_a_runner_whose_claim_is_refused_runs_no_engine_and_never_finishes() -> None:
-    controller = await opened()
-    engine = GatedEngine()
-    controller._engines["echo"] = engine
-    user = await controller.ensure_user(Identity("local", "me"))
-    started = await controller.start_session(user, agent="echo", model="echo", text="one")
+    controller, engine, gate, user, started = await gated_turn()
     sid = started.session_id
-    await controller._store.wait_for_events(user.id, sid, started.turn_id, 0, 5.0)
+    opened_session = await controller.open_session(user, sid)
+    assert opened_session.messages == (started.question,)
+    active = opened_session.active
+    assert isinstance(active, ActiveTurn)
+    assert (active.turn_id, active.follows) == (started.turn_id, started.question.id)
     # A second runner for the same turn, as a duplicate dispatch would be.
     await controller.run_turn(user.id, sid, started.turn_id)
-    assert engine.streams == 1
+    assert engine.stream.call_count == 1
     turn = await controller._store.get_turn(user.id, sid, started.turn_id)
     assert turn is not None
     assert turn.state is TurnState.RUNNING
-    engine.gate.set()
+    gate.set()
     await settled(controller, user, started)
     assert len(await controller._store.messages_of(user.id, sid)) == 2
     await controller.close()
@@ -153,17 +116,12 @@ async def test_a_runner_whose_claim_is_refused_runs_no_engine_and_never_finishes
 
 @asyncio_test
 async def test_a_runner_refused_mid_stream_writes_nothing_more() -> None:
-    controller = await opened()
-    engine = GatedEngine()
-    controller._engines["echo"] = engine
-    user = await controller.ensure_user(Identity("local", "me"))
-    started = await controller.start_session(user, agent="echo", model="echo", text="one")
+    controller, engine, gate, user, started = await gated_turn()
     sid = started.session_id
-    await controller._store.wait_for_events(user.id, sid, started.turn_id, 0, 5.0)
     task = controller._dispatcher._tasks[started.turn_id]
     controller._now = jumped(FIVE_MINUTES)
     assert (await controller.open_session(user, sid)).active is None
-    engine.gate.set()
+    gate.set()
     await task
     turn = await controller._store.get_turn(user.id, sid, started.turn_id)
     assert turn is not None
@@ -175,19 +133,14 @@ async def test_a_runner_refused_mid_stream_writes_nothing_more() -> None:
 
 @asyncio_test
 async def test_a_turn_whose_lease_has_passed_is_interrupted_and_a_new_turn_starts() -> None:
-    controller = await opened()
-    engine = GatedEngine()
-    controller._engines["echo"] = engine
-    user = await controller.ensure_user(Identity("local", "me"))
-    started = await controller.start_session(user, agent="echo", model="echo", text="one")
+    controller, engine, gate, user, started = await gated_turn()
     sid = started.session_id
-    await controller._store.wait_for_events(user.id, sid, started.turn_id, 0, 5.0)
     controller._now = jumped(FIVE_MINUTES)
     watched = [e async for e in controller.watch_turn(user, sid, started.turn_id)]
     assert [type(n.event).__name__ for n in watched] == ["MessageStarted", "TurnEnded"]
     assert watched[-1].event == TurnEnded(TurnState.INTERRUPTED)
     assert watched[-1].position == 1
-    engine.gate.set()
+    gate.set()
     again = await controller.regenerate_answer(
         user, sid, question_id=started.question.id, model="echo"
     )
@@ -216,16 +169,15 @@ async def test_a_cancel_before_the_runner_claimed_ends_the_turn_cancelled() -> N
 @asyncio_test
 async def test_a_cancel_of_a_turn_another_process_runs_is_refused() -> None:
     store = MemoryStore()
-    first = await over(store)
-    engine = GatedEngine()
-    first._engines["echo"] = engine
+    engine, gate = gated_engine()
+    first = await over(store, engines={"echo": lambda *_: engine})
     second = await over(store)
     user = await first.ensure_user(Identity("local", "me"))
     started = await first.start_session(user, agent="echo", model="echo", text="one")
     await store.wait_for_events(user.id, started.session_id, started.turn_id, 0, 5.0)
     with pytest.raises(TurnActiveError):
         await second.cancel_turn(user, started.session_id, started.turn_id)
-    engine.gate.set()
+    gate.set()
     await settled(second, user, started)
     await first.close()
     await second.close()
@@ -233,14 +185,9 @@ async def test_a_cancel_of_a_turn_another_process_runs_is_refused() -> None:
 
 @asyncio_test
 async def test_close_interrupts_a_running_turn_and_keeps_an_answer_being_finished() -> None:
-    controller = await opened()
-    controller._close_timeout = 0.05
-    engine = GatedEngine()
-    controller._engines["echo"] = engine
-    user = await controller.ensure_user(Identity("local", "me"))
-    started = await controller.start_session(user, agent="echo", model="echo", text="one")
+    controller, _, _, user, started = await gated_turn()
     sid = started.session_id
-    await controller._store.wait_for_events(user.id, sid, started.turn_id, 0, 5.0)
+    controller._close_timeout = 0.05
     await controller.close()
     turn = await controller._store.get_turn(user.id, sid, started.turn_id)
     assert turn is not None
@@ -262,13 +209,8 @@ async def test_close_interrupts_a_running_turn_and_keeps_an_answer_being_finishe
 
 @asyncio_test
 async def test_a_session_can_be_deleted_during_a_turn() -> None:
-    controller = await opened()
-    engine = GatedEngine()
-    controller._engines["echo"] = engine
-    user = await controller.ensure_user(Identity("local", "me"))
-    started = await controller.start_session(user, agent="echo", model="echo", text="one")
+    controller, engine, gate, user, started = await gated_turn()
     sid = started.session_id
-    await controller._store.wait_for_events(user.id, sid, started.turn_id, 0, 5.0)
     await controller.delete_session(user, sid)
     with pytest.raises(SessionNotFoundError):
         await controller.open_session(user, sid)
@@ -289,9 +231,3 @@ async def test_a_session_whose_engine_the_configuration_no_longer_names_is_delet
     with pytest.raises(SessionNotFoundError):
         await controller.open_session(user, started.session_id)
     await controller.close()
-
-
-def test_the_config_names_the_engine_an_agent_runs_on() -> None:
-    assert CONFIG.agents["echo"] == AgentConfig(
-        "echo", title="Echo", system_prompt="", model="echo", engine="echo"
-    )

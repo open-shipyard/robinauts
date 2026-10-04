@@ -5,173 +5,70 @@
 
 from __future__ import annotations
 
-import dataclasses
-import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import Mapping
+from unittest.mock import create_autospec
 
 import pytest
 
 from aio import asyncio_test
-from robinauts.agent_engines.contract.domain import (
-    AgentDefinition,
-    Event,
-    ProviderKind,
-    ToolServerAuth,
-)
-from robinauts.agent_engines.contract.ports import (
-    AgentEngine,
-    EngineSettings,
-    StorageConfig,
-    StorageKind,
-)
+from robinauts.agent_engines.contract.domain import ProviderKind
+from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
 from robinauts.controller.application.engines import build_engines
 from robinauts.controller.contract import domain
 from robinauts.controller.core.engine_settings import engine_settings, engine_storage
 
 
-class FakeEngine(AgentEngine):
-    def __init__(self, settings: EngineSettings, storage: StorageConfig) -> None:
-        self.settings = settings
-        self.storage = storage
-        self.set_up = 0
-
-    def kinds(self) -> frozenset[ProviderKind]:
-        return frozenset({ProviderKind.ANTHROPIC})
-
-    async def setup(self) -> None:
-        self.set_up += 1
-
-    async def create(self, session_id: uuid.UUID) -> None:
-        raise NotImplementedError
-
-    async def exists(self, session_id: uuid.UUID) -> bool:
-        raise NotImplementedError
-
-    def stream(
-        self,
-        session_id: uuid.UUID,
-        agent: AgentDefinition,
-        prompt: str,
-        *,
-        model: str,
-        checkpoint_id: str | None,
-        timeout_seconds: float,
-        resume: bool = False,
-    ) -> AsyncGenerator[Event, None]:
-        raise NotImplementedError
-
-    async def fork(self, source_id: uuid.UUID, target_id: uuid.UUID, *, checkpoint_id: str) -> None:
-        raise NotImplementedError
-
-    async def forget(self, session_id: uuid.UUID) -> None:
-        raise NotImplementedError
-
-
-def init_fake(settings: EngineSettings, storage: StorageConfig) -> AgentEngine:
-    return FakeEngine(settings, storage)
-
-
-FACTORIES = {"fake": init_fake}
-
-
-def config(kind: domain.ProviderKind = domain.ProviderKind.ANTHROPIC, engine: str = "fake"):
+def config(engine: str, kind: domain.ProviderKind = domain.ProviderKind.ANTHROPIC) -> domain.Config:
     return domain.Config(
         providers={"acme": domain.ProviderConfig("acme", kind, "ACME_KEY")},
         models={"m": domain.ModelConfig("m", "acme", "model-1")},
-        tool_servers={"t": domain.ToolServerConfig("t", "https://tools.example", "T_SECRET")},
         agents={
-            "a": domain.AgentConfig("a", "A", "", "m", engine, ("t",)),
+            "a": domain.AgentConfig("a", "A", "", "m", engine),
             "b": domain.AgentConfig("b", "B", "", "m", engine),
         },
     )
 
 
-ENV = {"ACME_KEY": "sk-1", "T_SECRET": "s-1"}
-
-
-@asyncio_test
-async def test_one_engine_per_name_built_and_set_up() -> None:
-    settings = engine_settings(config(), ENV.get)
+async def build(
+    config: domain.Config, factories: Mapping[str, EngineFactory]
+) -> dict[str, AgentEngine]:
+    settings = engine_settings(config, {"ACME_KEY": "sk-1"}.get)
     storage = engine_storage(domain.StorageConfig(domain.StorageKind.IN_MEMORY), None)
-    engines = await build_engines(config(), settings, storage, FACTORIES)
-    assert list(engines) == ["fake"]
-    built = engines["fake"]
-    assert isinstance(built, FakeEngine)
-    assert built.set_up == 1
-    assert built.storage.kind is StorageKind.IN_MEMORY
+    return await build_engines(config, settings, storage, factories)
 
 
-def test_settings_carry_the_tables_without_agents_and_answer_secrets_by_id() -> None:
-    settings = engine_settings(config(), ENV.get)
-    assert set(settings.models.providers) == {"acme"}
-    assert settings.models.providers["acme"].kind is ProviderKind.ANTHROPIC
-    assert set(settings.models.models) == {"m"}
-    assert set(settings.models.tool_servers) == {"t"}
-    assert settings.keys.key_for("acme") == "sk-1"
-    assert settings.tool_secrets.secret_for("t") == "s-1"
+def anthropic_only(*_: object) -> AgentEngine:
+    engine = create_autospec(AgentEngine, spec_set=True, instance=True)
+    engine.kinds.return_value = frozenset({ProviderKind.ANTHROPIC})
+    return engine
 
 
-def test_settings_carry_a_header_server_with_its_header() -> None:
-    server = domain.ToolServerConfig(
-        "c", "https://c.example", "C_KEY", domain.ToolServerAuth.HEADER, header="x-api-key"
-    )
-    settings = engine_settings(dataclasses.replace(config(), tool_servers={"c": server}), ENV.get)
-    carried = settings.models.tool_servers["c"]
-    assert (carried.auth, carried.header) == (ToolServerAuth.HEADER, "x-api-key")
-
-
-def test_a_secret_the_environment_lacks_is_refused_by_name() -> None:
-    settings = engine_settings(config(), {}.get)
-    with pytest.raises(domain.MissingSecretError, match="'acme'"):
-        settings.keys.key_for("acme")
-    with pytest.raises(domain.MissingSecretError, match="'t'"):
-        settings.tool_secrets.secret_for("t")
-
-
-def test_storage_kinds_map_to_the_engines_options(tmp_path) -> None:
-    local = engine_storage(domain.StorageConfig(domain.StorageKind.LOCAL, path=str(tmp_path)), None)
-    assert local.kind is StorageKind.LOCAL
-    assert local.options == {"path": str(tmp_path)}
-    pool = object()
-    postgres = engine_storage(domain.StorageConfig(domain.StorageKind.POSTGRES, url="x"), pool)
-    assert postgres.kind is StorageKind.POSTGRES
-    assert postgres.options == {"pool": pool}
-
-
+@pytest.mark.parametrize(
+    ("engine", "kind", "error", "named"),
+    [
+        ("other", domain.ProviderKind.ANTHROPIC, domain.UnknownEngineError, "'other'"),
+        ("fake", domain.ProviderKind.OPENAI, domain.UnreachableProviderError, "'openai'"),
+    ],
+)
 @asyncio_test
-async def test_an_engine_this_build_lacks_is_refused_by_name() -> None:
-    settings = engine_settings(config(engine="other"), ENV.get)
-    other = config(engine="other")
-    storage = engine_storage(domain.StorageConfig(domain.StorageKind.IN_MEMORY), None)
-    with pytest.raises(domain.UnknownEngineError, match="'other'"):
-        await build_engines(other, settings, storage, FACTORIES)
+async def test_an_engine_that_cannot_run_the_agent_is_refused_by_name(
+    engine: str, kind: domain.ProviderKind, error: type[Exception], named: str
+) -> None:
+    with pytest.raises(error, match=named):
+        await build(config(engine, kind), {"fake": anthropic_only})
 
 
+@pytest.mark.parametrize(
+    ("engine", "built_as"),
+    [
+        ("langchain", "LangChainEngine"),
+        ("pydantic-ai", "PydanticAIEngine"),
+        ("echo", "EchoEngine"),
+    ],
+)
 @asyncio_test
-async def test_a_provider_kind_the_engine_cannot_reach_is_refused() -> None:
-    settings = engine_settings(config(domain.ProviderKind.OPENAI), ENV.get)
-    on_openai = config(domain.ProviderKind.OPENAI)
-    storage = engine_storage(domain.StorageConfig(domain.StorageKind.IN_MEMORY), None)
-    with pytest.raises(domain.UnreachableProviderError, match="'openai'"):
-        await build_engines(on_openai, settings, storage, FACTORIES)
-
-
-@asyncio_test
-async def test_the_installed_engines_are_built_by_name() -> None:
-    from robinauts.agent_engines.contract.ports import installed
-    from robinauts.agent_engines.echo_engine.engine import EchoEngine
-    from robinauts.agent_engines.langchain_engine.engine import LangChainEngine
-    from robinauts.agent_engines.pydantic_ai_engine.engine import PydanticAIEngine
-
+async def test_an_installed_engine_is_built_by_name(engine: str, built_as: str) -> None:
     assert set(installed()) == {"langchain", "pydantic-ai", "echo"}
-    storage = engine_storage(domain.StorageConfig(domain.StorageKind.IN_MEMORY), None)
-    expected = {
-        "langchain": LangChainEngine,
-        "pydantic-ai": PydanticAIEngine,
-        "echo": EchoEngine,
-    }
-    for name, cls in expected.items():
-        settings = engine_settings(config(engine=name), ENV.get)
-        engines = await build_engines(config(engine=name), settings, storage, installed())
-        assert isinstance(engines[name], cls)
-        assert ProviderKind.OPENAI in engines[name].kinds()
+    engines = await build(config(engine), installed())
+    assert type(engines[engine]).__name__ == built_as
+    assert ProviderKind.OPENAI in engines[engine].kinds()

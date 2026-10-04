@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 import httpx
-from test_controller_turns import CONFIG
+from echo_controller import CONFIG
 
 from aio import asyncio_test
 from robinauts.controller.composition import Composed, compose
@@ -91,8 +91,8 @@ async def token_of(composed: Composed, user: User, expires_at: datetime) -> str:
 
 
 @asyncio_test
-async def test_a_token_is_shown_once_and_reaches_the_api_with_no_cookie_and_no_origin() -> None:
-    async with signed_in() as (http, _, _, browser):
+async def test_a_token_is_shown_once_reaches_the_api_and_is_refused_once_revoked() -> None:
+    async with signed_in() as (http, composed, ada, browser):
         minted = await http.post("/auth/tokens", json={"name": "laptop"}, headers=browser)
         assert minted.status_code == 201
         token = minted.json()
@@ -105,6 +105,7 @@ async def test_a_token_is_shown_once_and_reaches_the_api_with_no_cookie_and_no_o
         listed = (await http.get("/auth/tokens", headers=browser)).json()
         assert listed == {"items": [{k: v for k, v in token.items() if k != "secret"}]}
 
+        # The token reaches the API with no cookie and no Origin.
         started = await http.post("/api/turns", json=TURN, headers=browser)
         conversation_id = started.headers["x-robinauts-conversation-id"]
         key = bearer(token["secret"])
@@ -117,50 +118,27 @@ async def test_a_token_is_shown_once_and_reaches_the_api_with_no_cookie_and_no_o
         assert renamed.json()["title"] == "By token"
         assert (await http.post("/api/turns", json=TURN, headers=key)).status_code == 200
 
+        # Somebody else's token is not found, and keeps working.
+        grace = await composed.controller.ensure_user(Identity("okta", "grace", name="Grace"))
+        hers = await token_of(composed, grace, datetime.now(UTC) + TOKEN_LIFE)
+        listed = (await http.get("/auth/tokens", headers=bearer(hers))).json()["items"]
+        refused = await http.delete(f"/auth/tokens/{listed[0]['id']}", headers=browser)
+        assert refused.status_code == 404
+        assert refused.json()["error"] == "NotFound"
+        assert (await http.get("/api/conversations", headers=bearer(hers))).status_code == 200
 
-@asyncio_test
-async def test_a_bearer_that_names_no_token_is_401() -> None:
-    async with signed_in() as (http, *_):
-        refused = await http.get("/api/conversations", headers=bearer(random_secret()))
-        assert refused.status_code == 401
-        assert refused.json()["error"] == "Unauthorized"
-
-
-@asyncio_test
-async def test_a_revoked_token_is_listed_no_more_and_refused() -> None:
-    async with signed_in() as (http, _, _, browser):
-        token = (await http.post("/auth/tokens", json={"name": "ci"}, headers=browser)).json()
-
+        # Revoked, it is listed no more; it is refused like an unknown, an expired or a local
+        # user's token.
         revoked = await http.delete(f"/auth/tokens/{token['id']}", headers=browser)
         assert revoked.status_code == 204
         assert (await http.get("/auth/tokens", headers=browser)).json() == {"items": []}
-        refused = await http.get("/api/conversations", headers=bearer(token["secret"]))
-        assert refused.status_code == 401
-
-
-@asyncio_test
-async def test_a_token_past_its_expiry_is_refused() -> None:
-    async with signed_in() as (http, composed, ada, _):
-        secret = await token_of(composed, ada, datetime.now(UTC) - timedelta(seconds=1))
-        assert (await http.get("/api/conversations", headers=bearer(secret))).status_code == 401
-
-
-@asyncio_test
-async def test_a_token_naming_the_local_development_user_signs_nobody_in() -> None:
-    async with signed_in() as (http, composed, _, _):
         local = await composed.controller.ensure_user(LOCAL_IDENTITY)
-        secret = await token_of(composed, local, datetime.now(UTC) + TOKEN_LIFE)
-        assert (await http.get("/api/conversations", headers=bearer(secret))).status_code == 401
-
-
-@asyncio_test
-async def test_somebody_elses_token_is_not_found() -> None:
-    async with signed_in() as (http, composed, _, browser):
-        grace = await composed.controller.ensure_user(Identity("okta", "grace", name="Grace"))
-        secret = await token_of(composed, grace, datetime.now(UTC) + TOKEN_LIFE)
-        hers = (await http.get("/auth/tokens", headers=bearer(secret))).json()["items"]
-
-        refused = await http.delete(f"/auth/tokens/{hers[0]['id']}", headers=browser)
-        assert refused.status_code == 404
-        assert refused.json()["error"] == "NotFound"
-        assert (await http.get("/api/conversations", headers=bearer(secret))).status_code == 200
+        for secret in (
+            token["secret"],
+            random_secret(),
+            await token_of(composed, ada, datetime.now(UTC) - timedelta(seconds=1)),
+            await token_of(composed, local, datetime.now(UTC) + TOKEN_LIFE),
+        ):
+            refused = await http.get("/api/conversations", headers=bearer(secret))
+            assert refused.status_code == 401
+            assert refused.json()["error"] == "Unauthorized"

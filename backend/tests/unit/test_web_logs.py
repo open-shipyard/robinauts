@@ -3,20 +3,20 @@
 
 from __future__ import annotations
 
+import pytest
+
 from robinauts.web.logs import loggable
 
 
-def test_a_plain_value_is_kept() -> None:
-    assert loggable("okta") == "okta"
-
-
-def test_a_line_break_cannot_forge_a_line() -> None:
-    assert loggable("okta\r\nINFO user 1 signed in") == "okta??INFO user 1 signed in"
-
-
-def test_other_control_characters_are_replaced() -> None:
-    assert loggable("a\x00b\x1b[31mc\x7f") == "a?b?[31mc?"
-
-
-def test_a_long_value_is_cut() -> None:
-    assert loggable("x" * 500) == "x" * 200
+@pytest.mark.parametrize(
+    ("value", "logged"),
+    [
+        ("okta", "okta"),
+        # A line break cannot forge a line.
+        ("okta\r\nINFO user 1 signed in", "okta??INFO user 1 signed in"),
+        ("a\x00b\x1b[31mc\x7f", "a?b?[31mc?"),
+        ("x" * 500, "x" * 200),
+    ],
+)
+def test_a_value_is_logged_on_one_line_cut_to_length(value: str, logged: str) -> None:
+    assert loggable(value) == logged

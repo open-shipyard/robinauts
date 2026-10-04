@@ -6,7 +6,8 @@
 The configuration is the one of ``util.stack``, the store is in memory, and each engine is a
 ``create_autospec`` of ``AgentEngine`` injected into ``compose``. The engine answers with its
 prompt and a checkpoint numbered after its call, so the checkpoint a turn is given shows what the
-engine was asked to remember. To "alpha three" it also reasons and calls a tool first.
+engine was asked to remember. To "alpha three" it also reasons, and calls a tool in the middle
+of its text.
 """
 
 from __future__ import annotations
@@ -39,15 +40,18 @@ from util import stack
 
 
 def mock_engine() -> MagicMock:
-    engine = create_autospec(AgentEngine, instance=True)
+    engine = create_autospec(AgentEngine, spec_set=True, instance=True)
     engine.kinds.return_value = frozenset(ProviderKind)
 
     async def echo(session_id: uuid.UUID, agent: Any, prompt: str, **_: Any) -> AsyncIterator[Any]:
         if prompt == "alpha three":
             yield ReasoningDelta("adding")
+            yield TextDelta("alpha ")
             yield ToolCall("c1", "add", {"a": 1, "b": 2})
             yield ToolResult("c1", "add", "3")
-        yield TextDelta(prompt)
+            yield TextDelta("three")
+        else:
+            yield TextDelta(prompt)
         yield Done(prompt, checkpoint_id=f"cp{engine.stream.call_count}")
 
     engine.stream.side_effect = echo
@@ -59,6 +63,8 @@ class Api:
         self.http = http
         self.streamed: list[str] = []
         """The AG-UI event types of the last turn, repeats collapsed."""
+        self.run_id = ""
+        """The run of the last turn."""
 
     async def get(self, path: str) -> Any:
         response = await self.http.get(path)
@@ -66,16 +72,21 @@ class Api:
         return response.json()
 
     async def turn(self, path: str, **body: Any) -> str:
+        """The conversation's id. Every turn streams its own run, its events numbered from one."""
         response = await self.http.post(path, json=body)
         assert response.status_code == 200, response.text
-        types = [
-            json.loads(line.removeprefix("data: "))["type"]
-            for line in response.text.splitlines()
-            if line.startswith("data: ")
-        ]
-        self.streamed = [t for t, _ in groupby(types)]
+        assert response.headers["content-type"].startswith("text/event-stream")
+        cid, run = (response.headers[f"x-robinauts-{h}-id"] for h in ("conversation", "run"))
+        lines = response.text.splitlines()
+        events = [json.loads(x.removeprefix("data: ")) for x in lines if x.startswith("data: ")]
+        ids = [int(x.removeprefix("id: ")) for x in lines if x.startswith("id: ")]
+        assert ids == list(range(1, len(ids) + 1))
+        assert run != cid
+        assert (events[0]["threadId"], events[0]["runId"]) == (cid, run)
+        self.streamed = [t for t, _ in groupby(e["type"] for e in events)]
         assert self.streamed[-1] == "RUN_FINISHED"
-        return response.headers["x-robinauts-conversation-id"]
+        self.run_id = run
+        return cid
 
     async def start(self, agent: str, text: str) -> str:
         return await self.turn("/api/turns", agent_id=agent, text=text)
@@ -86,7 +97,7 @@ class Api:
     async def thread(self, cid: str) -> list[str]:
         """The text of each message, questions and answers in order."""
         messages = (await self.opened(cid))["messages"]
-        return [p["text"] for m in messages for p in m["parts"] if p["kind"] == "text"]
+        return ["".join(p["text"] for p in m["parts"] if p["kind"] == "text") for m in messages]
 
     async def message(self, cid: str, index: int) -> str:
         return (await self.opened(cid))["messages"][index]["id"]
@@ -102,14 +113,15 @@ def echoed(*questions: str) -> list[str]:
 @pytest.mark.parametrize("agent", stack.AGENTS)
 @asyncio_test
 async def test_everyday_use(agent: str) -> None:
-    engine = mock_engine()
     tables = tomllib.loads(stack.config_for("http://model.invalid/v1"))
     config, secret_for = configure(tables, dict(stack.API_KEY))
+    engines = {name: mock_engine() for name in ("langchain", "pydantic-ai")}
+    engine = engines[config.agents[agent].engine]
     composed = compose(
         config,
         storage=StorageConfig(StorageKind.IN_MEMORY),
         secret_for=secret_for,
-        engines={name: lambda *_: engine for name in ("langchain", "pydantic-ai")},
+        engines={name: lambda *_, built=built: built for name, built in engines.items()},
     )
     app = create_app(
         composed.controller, credentials=composed.credentials, sign_in=None, secret_for=secret_for
@@ -130,9 +142,13 @@ async def test_everyday_use(agent: str) -> None:
         # 0. The local user, and the agents and models of the configuration.
         session = await api.get("/auth/session")
         assert (session["sign_in"], session["local_development"]) == (False, True)
-        assert session["user"]["provider"] == LOCAL_IDENTITY.provider
+        assert (session["providers"], session["user"]["provider"]) == ([], LOCAL_IDENTITY.provider)
+        assert (await http.get("/auth/login/okta")).status_code == 404
         agents = (await api.get("/api/agents"))["items"]
-        assert [(a["id"], a["model"]) for a in agents] == [(a, "local_gpt") for a in stack.AGENTS]
+        assert [(a["id"], a["title"], a["model"]) for a in agents] == [
+            ("langchain", "LangChain", "local_gpt"),
+            ("pydantic_ai", "Pydantic AI", "local_gpt"),
+        ]
         models = (await api.get("/api/models"))["items"]
         assert [(m["id"], m["title"]) for m in models] == [
             ("local_gpt", "Local GPT"),
@@ -141,8 +157,16 @@ async def test_everyday_use(agent: str) -> None:
 
         # --- Conversation A -----------------------------------------------------------------
 
-        # 1-2. A first message on the agent: answered, and listed under its title.
+        # 1-2. A first message on the agent: answered by its engine, on this run, and listed
+        #      under its title.
         a = await api.start(agent, "alpha one")
+        opened = await api.opened(a)
+        assert opened["run_id"] is None
+        provenance = opened["messages"][1]["provenance"]
+        assert (provenance["engine"], provenance["run_id"]) == (
+            config.agents[agent].engine,
+            api.run_id,
+        )
         assert await api.thread(a) == echoed("alpha one")
         assert await api.history() == ["alpha one"]
         last_call("local_gpt", "alpha one", None)
@@ -158,14 +182,15 @@ async def test_everyday_use(agent: str) -> None:
         assert await api.thread(a) == echoed("alpha one", "alpha two", "alpha three")
         last_call("local_gpt", "alpha three", "cp2")
 
-        # 3b. That answer streamed its reasoning and a tool round before its text, and keeps
-        #     the tool round, not the reasoning.
+        # 3b. That answer streamed its reasoning, then its text around a tool round, and keeps
+        #     its parts in that order, without the reasoning.
         assert api.streamed == [
             "RUN_STARTED",
             "TEXT_MESSAGE_START",
             "REASONING_MESSAGE_START",
             "REASONING_MESSAGE_CONTENT",
             "REASONING_MESSAGE_END",
+            "TEXT_MESSAGE_CONTENT",
             "TOOL_CALL_START",
             "TOOL_CALL_ARGS",
             "TOOL_CALL_END",
@@ -176,9 +201,10 @@ async def test_everyday_use(agent: str) -> None:
         ]
         answer = (await api.opened(a))["messages"][5]
         assert answer["parts"] == [
+            {"kind": "text", "text": "alpha "},
             {"kind": "tool_call", "call_id": "c1", "name": "add", "arguments": {"a": 1, "b": 2}},
             {"kind": "tool_result", "call_id": "c1", "text": "3", "is_error": False},
-            {"kind": "text", "text": "alpha three"},
+            {"kind": "text", "text": "three"},
         ]
 
         # 4. Edit the middle message: everything after it is cut, and it goes on from the
@@ -238,8 +264,10 @@ async def test_everyday_use(agent: str) -> None:
         assert await api.history() == ["alpha one"]
         engine.forget.assert_awaited_once_with(uuid.UUID(b))
 
-        # 11. Rename A.
-        renamed = await http.patch(f"/api/conversations/{a}", json={"title": "Project alpha"})
+        # 11. Rename A: the title is its first line, trimmed.
+        renamed = await http.patch(
+            f"/api/conversations/{a}", json={"title": "  Project alpha\nignored"}
+        )
         assert renamed.json()["title"] == "Project alpha"
         assert await api.history() == ["Project alpha"]
 
@@ -254,3 +282,12 @@ async def test_everyday_use(agent: str) -> None:
         # 13. B is not found, and no turn ran beyond the eight above.
         assert (await http.get(f"/api/conversations/{b}")).status_code == 404
         assert engine.stream.call_count == 8
+
+        # 14. Signing out changes nothing: every route still answers as the local user.
+        assert (await http.post("/auth/logout")).status_code == 204
+        assert await api.history() == ["Project alpha"]
+
+        # 15. Each engine was built and set up once, and only the agent's engine ran a turn.
+        for built in engines.values():
+            built.setup.assert_awaited_once()
+            assert built.stream.called is (built is engine)
