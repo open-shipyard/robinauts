@@ -26,7 +26,7 @@ from pathlib import Path
 
 import asyncpg
 import pytest
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import Locator, Page, expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[3]
 ROBINAUTS = Path(sys.executable).with_name("robinauts")
@@ -115,3 +115,48 @@ def browser_page() -> Iterator[Page]:
 def send(page: Page, message: str) -> None:
     page.get_by_label("Message input").fill(message)
     page.get_by_label("Send message").click()
+
+
+def questions(page: Page) -> Locator:
+    return page.locator('[data-role="user"]').get_by_role("paragraph")
+
+
+def answers(page: Page) -> Locator:
+    return page.locator('[data-role="assistant"]').get_by_role("paragraph")
+
+
+def expect_thread(page: Page, exchanges: list[tuple[str, str]]) -> None:
+    """The thread on the screen is exactly these questions, each with its answer."""
+    expect(questions(page)).to_have_text([q for q, _ in exchanges])
+    expect(answers(page)).to_have_text([a for _, a in exchanges])
+
+
+def edit(page: Page, old: str, new: str) -> None:
+    message = page.locator('[data-role="user"]').filter(has_text=old)
+    message.hover()  # its actions show on hover
+    message.get_by_role("button", name="Edit").click()
+    page.locator(".aui-edit-composer-input").fill(new)
+    page.get_by_role("button", name="Update").click()
+
+
+def regenerate_last(page: Page) -> None:
+    answer = page.locator('[data-role="assistant"]').last
+    answer.hover()
+    answer.get_by_role("button", name="Refresh").click()
+
+
+def history(page: Page) -> Locator:
+    """The conversations listed in the panel, newest first."""
+    return page.get_by_label("Conversations").get_by_role("link")
+
+
+def open_conversation(page: Page, title: str) -> None:
+    history(page).filter(has_text=title).click()
+
+
+def conversation_action(page: Page, title: str, action: str) -> None:
+    """Open that conversation's actions and press one of them: "Rename" or "Delete"."""
+    page.get_by_role("button", name=f"Actions for {title}").click()
+    page.get_by_role("group", name=f"Actions for {title}").get_by_role(
+        "button", name=action
+    ).click()
