@@ -25,6 +25,12 @@ ENGINES = ("langchain", "pydantic-ai", "echo")
 HEADER_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 
 
+def _names(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list) or not all(isinstance(name, str) for name in value):
+        raise ValueError(f"exclude is not a list of tool names: {value!r}")
+    return tuple(value)
+
+
 def parse_config(raw: Mapping[str, Any]) -> Config:
     problems: list[str] = []
 
@@ -44,7 +50,7 @@ def parse_config(raw: Mapping[str, Any]) -> Config:
 
     providers = build("model_providers", ProviderConfig, kind=ProviderKind)
     models = build("models", ModelConfig)
-    tool_servers = build("tool_servers", ToolServerConfig, auth=ToolServerAuth)
+    tool_servers = build("tool_servers", ToolServerConfig, auth=ToolServerAuth, exclude=_names)
     agents = build("agents", AgentConfig, tools=tuple)
 
     for server in tool_servers.values():

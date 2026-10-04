@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from datetime import timedelta
 
@@ -47,4 +48,11 @@ async def tools_for(agent: AgentDefinition, settings: EngineSettings) -> list[Ba
         {server_id: connection_for(servers[server_id], settings) for server_id in agent.tools}
     )
     # Listing opens a session per server and each tool opens its own per call: nothing to close.
-    return await client.get_tools()
+    # Per server, so that each one's `exclude` applies to its own tools' names.
+    listed = await asyncio.gather(*(client.get_tools(server_name=s) for s in agent.tools))
+    return [
+        tool
+        for server_id, tools in zip(agent.tools, listed, strict=True)
+        for tool in tools
+        if tool.name not in servers[server_id].exclude
+    ]
