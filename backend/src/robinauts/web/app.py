@@ -46,6 +46,7 @@ from robinauts.controller.contract.domain import (
     TextPart,
     ToolCallPart,
     ToolResultPart,
+    Turn,
     TurnActiveError,
     UnknownAgentError,
     UnknownModelError,
@@ -219,6 +220,8 @@ class MessageView(BaseModel):
     created_at: datetime
     parts: list[TextContent | ToolCallContent | ToolResultContent]
     provenance: ProvenanceView | None
+    failed: bool = False
+    """An answer whose turn failed: what it streamed before the failure."""
 
 
 class ResumeView(BaseModel):
@@ -261,7 +264,9 @@ class NewChatRequest(BaseModel):
 class TurnRequest(BaseModel):
     text: str | None = None
     parent_id: uuid.UUID | None = None
+    edit: uuid.UUID | None = None
     regenerate: uuid.UUID | None = None
+    retry: uuid.UUID | None = None
     model_id: str | None = None
 
 
@@ -314,6 +319,7 @@ def message_view(message: Message, session: Session) -> MessageView:
         created_at=message.created_at,
         parts=[content(p) for p in message.parts if not isinstance(p, ReasoningPart)],
         provenance=provenance,
+        failed=message.failed,
     )
 
 
@@ -332,8 +338,15 @@ def opened_view(opened: OpenedSession, default: str) -> OpenedConversationRespon
         messages=[message_view(m, session) for m in opened.messages],
         run_id=None if active is None else active.turn_id,
         resume=None if active is None else ResumeView(after=0, follows=active.follows),
-        ended_badly=None,
+        ended_badly=ended_badly_view(opened.ended_badly),
     )
+
+
+def ended_badly_view(turn: Turn | None) -> EndedBadlyView | None:
+    """How the last turn ended, when it ended badly. Its error is for the operator only."""
+    if turn is None or turn.ended_at is None:
+        return None
+    return EndedBadlyView(run_id=turn.id, state=turn.state.value, ended_at=turn.ended_at)
 
 
 def event_stream(
@@ -656,14 +669,20 @@ def create_app(
             started = await controller.regenerate_answer(
                 user, conversation_id, question_id=question.id, model=model
             )
-        else:
-            started = await controller.send_message(
-                user,
-                conversation_id,
-                parent_id=body.parent_id,
-                model=model,
-                text=body.text,
+        elif body.retry is not None:
+            started = await controller.retry_answer(
+                user, conversation_id, answer_id=body.retry, model=model
             )
+        elif body.edit is not None:
+            started = await controller.edit_message(
+                user, conversation_id, message_id=body.edit, model=model, text=body.text
+            )
+        elif body.parent_id is not None:
+            started = await controller.send_message(
+                user, conversation_id, parent_id=body.parent_id, model=model, text=body.text
+            )
+        else:
+            raise InvalidValueError("a message names the parent_id it answers, or the one it edits")
         return await watched(user, conversation_id, started.turn_id, 0)
 
     @app.get("/api/conversations/{conversation_id}/runs/{run_id}/events", include_in_schema=False)

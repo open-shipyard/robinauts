@@ -53,6 +53,7 @@ from robinauts.controller.core.engine_settings import (
     engine_settings,
     engine_storage,
 )
+from robinauts.controller.core.failures import prompt_after_failures
 from robinauts.controller.core.titles import title_from_text
 from robinauts.controller.ports.dispatcher import TurnDispatcher
 from robinauts.controller.ports.store import Cursor, Store
@@ -65,6 +66,13 @@ WAIT_SECONDS = 15.0
 
 CLOSE_TIMEOUT = 10.0
 """How long `close` waits for the turns this process runs before it interrupts them."""
+
+ENDED_BADLY = frozenset({TurnState.FAILED, TurnState.CANCELLED, TurnState.INTERRUPTED})
+"""How a turn may end that opening its session says so."""
+
+
+def _text(message: Message) -> str:
+    return "".join(p.text for p in message.parts if isinstance(p, TextPart))
 
 
 class RobinautsController(Controller):
@@ -170,7 +178,11 @@ class RobinautsController(Controller):
         if running is not None:
             events = await self._store.events_after(user.id, session_id, running.id, 0)
             active = ActiveTurn(running.id, running.follows, len(events))
-        return OpenedSession(session, tuple(reversed(thread)), active)
+        latest = await self._store.latest_turn(user.id, session_id)
+        ended_badly = None
+        if latest is not None and latest.state in ENDED_BADLY:
+            ended_badly = latest
+        return OpenedSession(session, tuple(reversed(thread)), active, ended_badly)
 
     async def rename_session(self, user: User, session_id: uuid.UUID, title: str) -> Session:
         session = await self._store.get_session(user.id, session_id)
@@ -234,9 +246,30 @@ class RobinautsController(Controller):
         messages = await self._messages(user.id, session_id)
         if all(m.id != parent_id for m in messages):
             raise MessageNotFoundError(str(parent_id))
+        return await self._ask(user, session, parent_id, model, text)
+
+    async def edit_message(
+        self,
+        user: User,
+        session_id: uuid.UUID,
+        *,
+        message_id: uuid.UUID,
+        model: str,
+        text: str,
+    ) -> TurnStarted:
+        session = await self._store.get_session(user.id, session_id)
+        messages = await self._messages(user.id, session_id)
+        edited = next((m for m in messages if m.id == message_id), None)
+        if edited is None or edited.role is not Role.USER:
+            raise MessageNotFoundError(str(message_id))
+        return await self._ask(user, session, edited.parent_id, model, text)
+
+    async def _ask(
+        self, user: User, session: Session, parent_id: uuid.UUID | None, model: str, text: str
+    ) -> TurnStarted:
         question = Message(
             uuid.uuid4(),
-            session_id,
+            session.id,
             parent_id=parent_id,
             role=Role.USER,
             parts=(TextPart(text),),
@@ -246,7 +279,7 @@ class RobinautsController(Controller):
             model=model,
         )
         turn = await self._start_turn(user, session, question, model, new_question=True)
-        return TurnStarted(session_id, turn.id, question)
+        return TurnStarted(session.id, turn.id, question)
 
     async def regenerate_answer(
         self, user: User, session_id: uuid.UUID, *, question_id: uuid.UUID, model: str
@@ -258,6 +291,20 @@ class RobinautsController(Controller):
         if question is None:
             raise MessageNotFoundError(str(question_id))
         turn = await self._start_turn(user, session, question, model, new_question=False)
+        return TurnStarted(session_id, turn.id, question)
+
+    async def retry_answer(
+        self, user: User, session_id: uuid.UUID, *, answer_id: uuid.UUID, model: str
+    ) -> TurnStarted:
+        session = await self._store.get_session(user.id, session_id)
+        by_id = {m.id: m for m in await self._messages(user.id, session_id)}
+        failed = by_id.get(answer_id)
+        if failed is None or not failed.failed or failed.parent_id is None:
+            raise MessageNotFoundError(str(answer_id))
+        question = by_id[failed.parent_id]
+        turn = await self._start_turn(
+            user, session, question, model, new_question=False, retries=failed.id
+        )
         return TurnStarted(session_id, turn.id, question)
 
     async def cancel_turn(
@@ -283,7 +330,14 @@ class RobinautsController(Controller):
             return
 
     async def _start_turn(
-        self, user: User, session: Session, question: Message, model: str, *, new_question: bool
+        self,
+        user: User,
+        session: Session,
+        question: Message,
+        model: str,
+        *,
+        new_question: bool,
+        retries: uuid.UUID | None = None,
     ) -> Turn:
         model_config = self._config.models.get(model)
         if model_config is None:
@@ -299,6 +353,7 @@ class RobinautsController(Controller):
             state=TurnState.RUNNING,
             started_at=now,
             lease_until=now + timeout + LEASE_MARGIN,
+            retries=retries,
         )
         stored = stored_message(question) if new_question else None
         await self._store.start_turn(user.id, turn, stored)
@@ -313,12 +368,29 @@ class RobinautsController(Controller):
             return
         by_id = {m.id: m for m in await self._messages(owner, session_id)}
         question = by_id[turn.follows]
+        # The nearest answer up the thread that has a checkpoint: a failed answer has
+        # none, and continuing from nothing would start the engine's memory again.
         checkpoint_id = None
-        if question.parent_id is not None:
-            checkpoint_id = by_id[question.parent_id].checkpoint_id
+        above = question.parent_id
+        while above is not None and checkpoint_id is None:
+            checkpoint_id = by_id[above].checkpoint_id
+            above = by_id[above].parent_id
         agent_config = self._config.agents[session.agent]
         engine = await self._engine(session.engine)
         model_timeout = self._config.models[turn.model].timeout_seconds
+        # The failed exchanges between the last answer that finished and this question,
+        # oldest first: the engine remembers none of them, so the prompt carries them.
+        earlier: list[tuple[str, Message]] = []
+        above = question.parent_id
+        while above is not None and by_id[above].failed:
+            failed = by_id[above]
+            asked = by_id[failed.parent_id] if failed.parent_id is not None else None
+            if asked is None:
+                break
+            earlier.insert(0, (_text(asked), failed))
+            above = asked.parent_id
+        retried = None if turn.retries is None else by_id[turn.retries]
+        prompt = prompt_after_failures(_text(question), earlier, retried)
         await run_turn(
             self._store,
             engine,
@@ -326,6 +398,7 @@ class RobinautsController(Controller):
             session,
             turn,
             question,
+            prompt,
             agent_config,
             checkpoint_id,
             model_timeout,

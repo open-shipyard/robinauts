@@ -57,6 +57,7 @@ export function message(
     created_at: "2026-09-02T09:30:00Z",
     parts: [{ kind: "text", text }],
     provenance,
+    failed: false,
   };
 }
 
@@ -84,6 +85,7 @@ export function calling(
       ...calls.map((call) => ({ kind: "tool_call" as const, ...call })),
     ],
     provenance,
+    failed: false,
   };
 }
 
@@ -104,6 +106,7 @@ export function results(
       is_error: answer.is_error ?? false,
     })),
     provenance: null,
+    failed: false,
   };
 }
 

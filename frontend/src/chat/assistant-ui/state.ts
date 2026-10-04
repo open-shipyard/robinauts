@@ -157,8 +157,8 @@ export interface ChatState {
    *
    * A turn the server refuses is one that never happened, so what it did to
    * the screen is undone: an edit that cut the thread and put a question at
-   * its end, a regeneration that cut an answer off, a retry that replaced
-   * the question nobody answered. The snapshot is what was there, and it is
+   * its end, a regeneration or a retry that cut an answer off, a message that
+   * replaced the question nobody answered. The snapshot is what was there, and it is
    * put back as it was rather than reconstructed.
    */
   before: ChatMessage[] | null;
@@ -263,20 +263,37 @@ export function saidFor(code: string): string {
  * What a new question goes after: the end of the thread, or just before it.
  *
  * Usually the end itself. **Unless the end is a question nobody answered** --
- * which is what a run that failed, was cancelled or was interrupted leaves
- * behind, since the answer it was producing is in no conversation
- * (`docs/specs/runs.md`) -- and then it is the message before that question.
- * Two reasons, and they are the same reason: the format refuses a message of
- * role `user` under another (`InvalidMessageTreeError`,
- * `docs/specs/conversations.md`), and **asking again is how such a turn is
- * retried**. The question that went unanswered comes off the screen, and
- * the new one stands where it stood.
+ * what a cancelled or interrupted run leaves behind; a failed one stores its
+ * answer -- and then it is the message before that question: the new one
+ * stands where the unanswered one stood.
  */
 export function under(state: ChatState): string | null {
   const tail = state.messages.at(-1);
   if (tail === undefined) return null;
   const parent = tail.role === "user" ? state.messages.at(-2) : tail;
   return parent === undefined ? null : storedEnd(parent);
+}
+
+/**
+ * What a new message in a conversation that exists asks the backend for.
+ *
+ * A reply under the end of the thread (`under`). **Unless the end is a stored
+ * question nobody answered**: the new message replaces it, so it is an edit of
+ * that question, and the backend works out where the new version hangs --
+ * under nothing, when it was the first. A question this chat has not sent yet
+ * is not the backend's to edit, and the reply goes under what is before it.
+ * `null` for a thread with nothing to answer or to replace.
+ */
+export function askedIn(
+  state: ChatState,
+  text: string,
+): { text: string; edit: string } | { text: string; parentId: string } | null {
+  const tail = state.messages.at(-1);
+  if (tail?.role === "user" && !isUnsent(tail.id)) {
+    return { text, edit: tail.id };
+  }
+  const parentId = under(state);
+  return parentId === null ? null : { text, parentId };
 }
 
 /**
@@ -413,7 +430,8 @@ export function reduce(state: ChatState, action: ChatAction): ChatState {
         sending: false,
         writing: null,
         thinking: null,
-        ended: action.endedBadly,
+        // Said once: by the failed answer when there is one at the end.
+        ended: messages.at(-1)?.state === "failed" ? null : action.endedBadly,
         before: null,
       };
     }
@@ -1009,8 +1027,9 @@ function sameData(one: unknown, other: unknown): boolean {
  * **An answer whose calls were never answered** is the store's record of a
  * batch that did not finish: still running when it is the last message and
  * a run is in flight (its results are what the stream will bring), and
- * otherwise over the way the run was -- failed, with the sentence that says
- * so, or cancelled -- so that its calls are drawn as what they are.
+ * otherwise over the way the run was -- interrupted, with the sentence that
+ * says so, or cancelled -- so that its calls are drawn as what they are. An
+ * answer whose turn failed says so itself (`held`).
  */
 function folded(
   messages: readonly Message[],
@@ -1031,7 +1050,10 @@ function folded(
     thread[thread.length - 1] = answered(answer, message);
   }
   return thread.map((message, at) => {
-    if (message.role !== "assistant" || !unanswered(message)) return message;
+    if (message.role !== "assistant" || message.state === "failed") {
+      return message;
+    }
+    if (!unanswered(message)) return message;
     if (at === thread.length - 1 && runId !== null) {
       return { ...message, state: "running" };
     }
@@ -1090,6 +1112,10 @@ function held(message: Message): ChatMessage {
       }
       return [];
     }),
-    state: "stored",
+    // **An answer whose turn failed is stored**, with what it did before it
+    // failed, and it says so where the answer is (`docs/specs/ui.md`).
+    ...(message.failed
+      ? { state: "failed" as const, detail: ENDED_BADLY.get("failed") ?? "" }
+      : { state: "stored" as const }),
   };
 }

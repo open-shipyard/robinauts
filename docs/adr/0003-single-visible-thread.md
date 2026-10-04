@@ -56,9 +56,11 @@ the newest leaf.**
   run is in flight) is the one function that
   decides what a reader sees, and the application hands out nothing else.
   Analytics, when it exists, reads the whole tree through the store.
-- Starting a turn does not change: an edit still names the edited
-  message's parent, a regeneration still names the answer to produce
-  again. Only what is shown afterwards changes.
+- Starting a turn does not change: an edit still makes the new version a
+  child of the edited message's parent, a regeneration still names the
+  answer to produce again. Only what is shown afterwards changes. (Since
+  2026-10-03 an edit names the edited question and the backend works out
+  its parent, [wire.md](../specs/wire.md).)
 
 ## Consequences
 

@@ -115,3 +115,26 @@ async def test_a_turn_is_re_attached_to_by_the_conversation_and_the_run() -> Non
 
         elsewhere = await http.get(f"/api/conversations/{cid}/runs/{uuid.uuid4()}/events")
         assert elsewhere.status_code == 404
+
+
+@asyncio_test
+async def test_an_edit_names_the_message_and_a_reply_its_parent() -> None:
+    async with client() as http:
+        started = await http.post("/api/turns", json={"agent_id": "echo", "text": "hello"})
+        cid = started.headers["x-robinauts-conversation-id"]
+        question = (await http.get(f"/api/conversations/{cid}")).json()["messages"][0]
+
+        edited = await http.post(
+            f"/api/conversations/{cid}/turns", json={"text": "hi", "edit": question["id"]}
+        )
+        assert events(edited.text)[-1]["type"] == "RUN_FINISHED"
+        opened = (await http.get(f"/api/conversations/{cid}")).json()
+        assert opened["messages"][0]["parts"] == [{"kind": "text", "text": "hi"}]
+
+        orphan = await http.post(f"/api/conversations/{cid}/turns", json={"text": "more"})
+        assert orphan.status_code == 422
+        answer = opened["messages"][1]
+        not_a_question = await http.post(
+            f"/api/conversations/{cid}/turns", json={"text": "x", "edit": answer["id"]}
+        )
+        assert not_a_question.status_code == 404

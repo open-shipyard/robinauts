@@ -76,6 +76,7 @@ dev = [
     "ruff>=0.6",
     "black>=24.0",
     "import-linter>=2.0",
+    "playwright>=1.50",
 ]
 
 [tool.uv]
@@ -164,9 +165,14 @@ markers = [
 # expression in `addopts`, which would set `markexpr` on every run and so
 # silence the check that the database tests really ran (tests/conftest.py).
 #
+# `tests/ui/` is not collected by a plain run either: it needs a built
+# interface and a browser, and scripts/check-ui.sh runs it, after the fast
+# tests.
+#
 # This setting REPLACES pytest's default list rather than adding to it, so the
-# default is written out here with `live` on the end. Dropping any of the rest
-# would send collection into a virtual environment or a build directory.
+# default is written out here with `live` and `ui` on the end. Dropping any of
+# the rest would send collection into a virtual environment or a build
+# directory.
 norecursedirs = [
     "*.egg",
     ".*",
@@ -178,6 +184,7 @@ norecursedirs = [
     "venv",
     "{arch}",
     "live",
+    "ui",
 ]
 
 

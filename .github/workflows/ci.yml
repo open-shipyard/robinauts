@@ -8,21 +8,20 @@
 name: CI
 
 on:
+  # main after every merge: a pull request is checked merged into the main of
+  # its day, so two merged one after the other are only ever checked together
+  # here. The wheel a deployment installs comes from this run too.
   push:
-    # The step branches too, so that a pushed branch is checked before anyone
-    # opens a pull request for it.
-    branches: [main, "feature/**", "fix/**"]
+    branches: [main]
+  # A branch is checked through its pull request, once per push.
   pull_request:
 
 # Nothing in this workflow writes to the repository.
 permissions:
   contents: read
 
-# One run at a time per branch, and per pull request. A branch that already
-# has a pull request open is built twice, once for each: the two use different
-# refs (the branch, and the merge commit of the pull request), and telling
-# them apart would mean asking the API whether a pull request exists. Two
-# cheap runs are better than that.
+# One run at a time for main, and per pull request: a newer push cancels the
+# run it makes stale.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -116,6 +115,57 @@ jobs:
           # stopped running.
           ROBINAUTS_REQUIRE_POSTGRES: "1"
         run: scripts/check-tests.sh
+
+  ui:
+    name: the interface in a browser
+    # After the fast checks: a browser run is the slowest test there is, and
+    # it says nothing new while the unit tests or the frontend's own are red.
+    needs: [test, frontend]
+    runs-on: ubuntu-latest
+    services:
+      # The same database as the `test` job's, for the same reasons; the
+      # test makes a schema of its own in it and drops it.
+      postgres:
+        image: postgres@sha256:a3b7f434b2dc57ce85a67e171163eb8ab1a1ebcb39d27484661f26b1dfbe30d6
+        env:
+          POSTGRES_PASSWORD: robinauts-test
+          POSTGRES_DB: robinauts_test
+          TZ: Asia/Kathmandu
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d robinauts_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+          --health-start-period 10s
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Both toolchains: the test builds the interface and serves it.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # The uv version lives with the other hand-bumped pins, in one file.
+      - run: . ./scripts/tool-versions.sh && echo "UV_VERSION=$UV_VERSION" >>"$GITHUB_ENV"
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.PYTHON_VERSION }}
+          enable-cache: true
+      - run: uv sync --locked --no-build
+        working-directory: backend
+      - name: wait for the database to really answer
+        env:
+          ROBINAUTS_TEST_DATABASE_URL: postgresql://postgres:robinauts-test@127.0.0.1:5432/robinauts_test
+        run: uv run --locked --no-build python ../scripts/wait_for_postgres.py
+        working-directory: backend
+      - env:
+          ROBINAUTS_TEST_DATABASE_URL: postgresql://postgres:robinauts-test@127.0.0.1:5432/robinauts_test
+        run: scripts/check-ui.sh
 
   licences:
     name: dependency licences

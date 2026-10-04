@@ -275,6 +275,8 @@ class Message:
     checkpoint_id: str | None = None
     turn_id: uuid.UUID | None = None
     """The turn that produced an answer, which web shows as the run id; ``None`` on a question."""
+    failed: bool = False
+    """An answer whose turn failed: what it streamed before it failed, and no checkpoint."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,6 +320,8 @@ class Turn:
     ended_at: datetime | None = None
     error: str | None = None
     """For the operator, on a turn that ended badly; never sent to a browser."""
+    retries: uuid.UUID | None = None
+    """The failed answer this turn tries again, which the model is told about."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -336,6 +340,8 @@ class OpenedSession:
     session: Session
     messages: tuple[Message, ...]
     active: ActiveTurn | None = None
+    ended_badly: Turn | None = None
+    """The session's last turn, when it failed, was cancelled or was interrupted."""
 
 
 # --- turns --------------------------------------------------------------------

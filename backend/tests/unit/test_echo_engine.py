@@ -15,6 +15,7 @@ from robinauts.agent_engines.contract.domain import (
     AgentDefinition,
     CheckpointNotFoundError,
     Done,
+    EngineError,
     ResumeMismatchError,
     SessionExistsError,
     SessionNotFoundError,
@@ -23,7 +24,7 @@ from robinauts.agent_engines.contract.domain import (
     ToolResult,
 )
 from robinauts.agent_engines.contract.ports import AgentEngine
-from robinauts.agent_engines.echo_engine.engine import ANSWER, TOOL, EchoEngine
+from robinauts.agent_engines.echo_engine.engine import ANSWER, POISONED, TOOL, EchoEngine
 
 AGENT = AgentDefinition(system_prompt="")
 
@@ -61,6 +62,41 @@ async def test_the_next_turn_continues_from_a_checkpoint_it_handed_out() -> None
     second = (await turn(engine, session, "two", after=first.checkpoint_id))[-1]
     assert second.checkpoint_id != first.checkpoint_id
     assert second.text == ANSWER + "two"
+
+
+@asyncio_test
+async def test_a_poisoned_prompt_gets_an_error_from_the_tool_and_ends_the_turn_badly() -> None:
+    engine = EchoEngine()
+    session = uuid.uuid4()
+    await engine.create(session)
+    events = []
+    with pytest.raises(EngineError, match=POISONED):
+        async for event in engine.stream(
+            session, AGENT, "poison me", model="m", checkpoint_id=None, timeout_seconds=1.0
+        ):
+            events.append(event)
+    assert events == [
+        ToolCall(call_id="call-1", name=TOOL, arguments={"text": "poison me"}),
+        ToolResult(call_id="call-1", name=TOOL, output=POISONED, is_error=True),
+    ]
+    done = (await turn(engine, session, "hello"))[-1]  # the session goes on
+    assert done.text == ANSWER + "hello"
+
+
+@asyncio_test
+async def test_the_call_id_counts_the_turns_the_checkpoint_remembers() -> None:
+    engine = EchoEngine()
+    session = uuid.uuid4()
+    await engine.create(session)
+    first = (await turn(engine, session, "one"))[-1]
+    again = await turn(engine, session, "one, again")  # a branch from no checkpoint
+    later = await turn(engine, session, "two", after=again[-1].checkpoint_id)
+    deeper = await turn(engine, session, "two", after=first.checkpoint_id)
+    assert [events[0].call_id for events in (again, later, deeper)] == [
+        "call-1",
+        "call-2",
+        "call-2",
+    ]
 
 
 @asyncio_test

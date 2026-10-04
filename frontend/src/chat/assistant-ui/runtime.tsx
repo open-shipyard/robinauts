@@ -68,6 +68,7 @@ import {
   type Attached,
 } from "./agui/client";
 import {
+  askedIn,
   EMPTY,
   ENDED_BADLY,
   isUnsent,
@@ -592,22 +593,27 @@ function turnsOf(dispatch: (action: ChatAction) => void, first: ChatProps) {
     if (text === "") return;
     if (busy()) return told(text);
     // Not the end of the thread where that is a question nobody answered:
-    // sending again is how a turn that went wrong is retried (`under`).
+    // the new message replaces it (`under`, `askedIn`).
     const parentId = under(state);
-    dispatch({ kind: "asked", id: unsent(), after: parentId, text });
     const conversationId = state.conversationId;
     if (conversationId !== null) {
+      const asked = askedIn(state, text);
+      // A conversation that exists has its first question stored, so there is
+      // always something to answer or to replace.
+      if (asked === null) return;
+      dispatch({ kind: "asked", id: unsent(), after: parentId, text });
       await follow(
         (signal) =>
           startTurn(
             conversationId,
-            { text, parentId, modelId: props.modelId },
+            { ...asked, modelId: props.modelId },
             { signal },
           ),
         { text },
       );
       return;
     }
+    dispatch({ kind: "asked", id: unsent(), after: parentId, text });
     const { agentId, modelId } = props;
     if (agentId === null) {
       dispatch({ kind: "lost", detail: NO_AGENT });
@@ -647,19 +653,21 @@ function turnsOf(dispatch: (action: ChatAction) => void, first: ChatProps) {
   async function onEdit(message: AppendMessage): Promise<void> {
     const text = wrote(message);
     const conversationId = state.conversationId;
-    if (text === "" || conversationId === null) return;
+    const edited = message.sourceId;
+    if (text === "" || conversationId === null || edited === null) return;
     // **An edit is a new message under the parent of the one it replaces**
     // (`docs/specs/conversations.md`): the store keeps the old one, and the
     // thread on the screen is cut after that parent and goes on from the new
-    // one. The runtime names the parent, which in our chain is the message
-    // before the edited one, or nothing for the first.
-    // A parent the server has never been told about: the question being
-    // edited is itself one this chat put on the screen a moment ago and the
-    // conversation has not been read since. The backend would answer 404 for
-    // it. The Thread hides the edit button while a run is going, so this is
-    // reachable only by driving the runtime directly.
-    if (isUnsent(message.parentId)) return;
-    if (busy()) return told(text, message.sourceId);
+    // one. The backend is told which question is edited and works out the
+    // parent itself; the runtime's parent, the message before the edited one
+    // or nothing for the first, is only where the screen is cut.
+    // A question the server has never been told about: one this chat put on
+    // the screen a moment ago, or under one, and the conversation has not
+    // been read since. The backend would answer 404 for it. The Thread hides
+    // the edit button while a run is going, so this is reachable only by
+    // driving the runtime directly.
+    if (isUnsent(edited) || isUnsent(message.parentId)) return;
+    if (busy()) return told(text, edited);
     // The store's parent, which is the tool message under that answer when
     // its calls were answered (`state.ts`): the runtime does not hold one.
     const parentId = storedParent(state, message.parentId);
@@ -671,10 +679,10 @@ function turnsOf(dispatch: (action: ChatAction) => void, first: ChatProps) {
       (signal) =>
         startTurn(
           conversationId,
-          { text, parentId, modelId: props.modelId },
+          { text, edit: edited, modelId: props.modelId },
           { signal },
         ),
-      { text, editing: message.sourceId },
+      { text, editing: edited },
     );
   }
 
@@ -691,21 +699,28 @@ function turnsOf(dispatch: (action: ChatAction) => void, first: ChatProps) {
       dispatch({ kind: "told", detail: ONE_AT_A_TIME_ANSWER });
       return;
     }
-    // A regeneration carries no new message: it answers the question that
-    // turn already had, and **replaces the turn**
-    // (`docs/specs/conversations.md`). Everything the turn produced comes
-    // off the screen, so the cut is after its question -- which is not
-    // always `parentId`, the message before the regenerated one: a turn
-    // with tools in it has an answer that called before the answer after
-    // the results (`turnStart`).
+    // **The same button is Retry on an answer that failed** (`docs/specs/ui.md`):
+    // the Thread offers one reload, and what it means is decided here. A
+    // regeneration drops the answer from what the model sees; a retry keeps
+    // the failure for it to see.
+    const retry = state.messages.some(
+      (message) => message.id === regenerate && message.state === "failed",
+    );
+    // Neither carries a new message, and both take the answer off the
+    // screen: a regeneration answers the question that turn already had, and
+    // **replaces the turn** (`docs/specs/conversations.md`). The cut is after
+    // its question -- which is not always `parentId`, the message before the
+    // regenerated one: a turn with tools in it has an answer that called
+    // before the answer after the results (`turnStart`).
     dispatch({
       kind: "again",
       after: turnStart(state, regenerate) ?? parentId,
     });
+    const modelId = props.modelId;
     await follow((signal) =>
       startTurn(
         conversationId,
-        { regenerate, modelId: props.modelId },
+        retry ? { retry: regenerate, modelId } : { regenerate, modelId },
         { signal },
       ),
     );

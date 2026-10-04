@@ -135,6 +135,7 @@ async def run_turn(
     session: Session,
     turn: Turn,
     question: Message,
+    prompt: str,
     agent_config: AgentConfig,
     checkpoint_id: str | None,
     model_timeout: float,
@@ -143,7 +144,6 @@ async def run_turn(
     if remaining <= 0:
         return
     answer_id = uuid.uuid4()
-    prompt = "".join(p.text for p in question.parts if isinstance(p, TextPart))
     definition = AgentDefinition(agent_config.system_prompt, agent_config.tools)
     parts: list[MessagePart] = []
     writer = _Writer(store, owner, turn)
@@ -215,12 +215,29 @@ async def run_turn(
             await _end(writer, state, None)
         raise
     except Exception as exc:
-        await _end(writer, TurnState.FAILED, clean_text(str(exc)))
+        # What it streamed before it failed is kept, as an answer marked failed: the
+        # thread shows it, and a reply hangs under it.
+        failed = Message(
+            answer_id,
+            session.id,
+            parent_id=question.id,
+            role=Role.ASSISTANT,
+            parts=tuple(parts),
+            created_at=datetime.now(UTC),
+            agent=session.agent,
+            engine=session.engine,
+            model=turn.model,
+            turn_id=turn.id,
+            failed=True,
+        )
+        await _end(writer, TurnState.FAILED, clean_text(str(exc)), failed)
 
 
-async def _end(writer: _Writer, state: TurnState, error: str | None) -> None:
-    """End a turn that produced no answer; nothing more if the turn is already lost."""
+async def _end(
+    writer: _Writer, state: TurnState, error: str | None, answer: Message | None = None
+) -> None:
+    """End a turn, with what it answered if anything; nothing more if the turn is lost."""
     try:
-        await writer.finish(state, error, None, writer.last(TurnEnded(state)))
+        await writer.finish(state, error, answer, writer.last(TurnEnded(state)))
     except TurnLostError:
         return

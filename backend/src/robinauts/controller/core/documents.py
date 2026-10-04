@@ -70,6 +70,9 @@ MESSAGE_KEYS = frozenset(
         "parts",
     }
 )
+
+MESSAGE_OPTIONAL_KEYS = frozenset({"failed"})
+"""Written only when set, so that the messages stored before them read the same."""
 PART_KEYS: Mapping[str, frozenset[str]] = {
     "text": frozenset({"kind", "text"}),
     "reasoning": frozenset({"kind", "text"}),
@@ -165,10 +168,12 @@ def _read_bool(value: object, what: str) -> bool:
     return value
 
 
-def _read_keys(document: object, keys: frozenset[str], what: str) -> Mapping[str, Any]:
+def _read_keys(
+    document: object, keys: frozenset[str], what: str, optional: frozenset[str] = frozenset()
+) -> Mapping[str, Any]:
     if not isinstance(document, Mapping):
         raise InvalidValueError(f"{what} is not a document: {type(document).__name__}")
-    unknown = sorted(set(document) - keys)
+    unknown = sorted(set(document) - keys - optional)
     if unknown:
         raise InvalidValueError(f"{what} holds a key nobody wrote: {', '.join(unknown)}")
     missing = sorted(keys - set(document))
@@ -263,14 +268,14 @@ def message_to_document(message: Message) -> dict[str, Any]:
         ),
         "turn_id": None if message.turn_id is None else str(message.turn_id),
         "parts": [part_to_document(part) for part in message.parts],
-    }
+    } | ({"failed": True} if message.failed else {})
 
 
 def message_from_document(document: object) -> Message:
     if not isinstance(document, Mapping):
         raise InvalidValueError(f"a message is not a document: {type(document).__name__}")
     _read_version(document, "a message")
-    read = _read_keys(document, MESSAGE_KEYS, "a message")
+    read = _read_keys(document, MESSAGE_KEYS, "a message", MESSAGE_OPTIONAL_KEYS)
     role = read["role"]
     if role not in {r.value for r in Role}:
         raise InvalidValueError(f"a message's role is not a role: {role!r}")
@@ -289,7 +294,14 @@ def message_from_document(document: object) -> Message:
         model=_read_optional_text(read["model"], "a message's model"),
         checkpoint_id=_read_optional_text(read["checkpoint_id"], "a message's checkpoint_id"),
         turn_id=_read_optional_id(read["turn_id"], "a message's turn_id"),
+        failed=_read_failed(read.get("failed", False)),
     )
+
+
+def _read_failed(value: object) -> bool:
+    if value is not True and value is not False:
+        raise InvalidValueError(f"a message's failed is not true or false: {value!r}")
+    return value
 
 
 # --- events --------------------------------------------------------------------
