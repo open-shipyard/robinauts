@@ -13,7 +13,8 @@
 # It needs one model provider key, and the only three variables it will look
 # at are OPENROUTER_API_KEY, ANTHROPIC_API_KEY and OPENAI_API_KEY, from the
 # environment or from demo/.env. A GitHub token exported as ROBINAUTS_GITHUB_TOKEN is optional,
-# and turns on GitHub's MCP server for both agents.
+# and turns on GitHub's MCP server for both agents. COMPOSIO_API_KEY is
+# optional too, for the commented-out [tool_servers.composio] table.
 # **No key or token is ever printed or written to a file**: the configuration
 # names the *variable*, and the secret travels in the environment of the
 # server this starts (docs/specs/agents.md).
@@ -22,7 +23,7 @@
 # before running it again, 1 for something that went wrong while starting.
 set -eu
 
-# The keys and the token, taken **out of the environment before anything else
+# The keys and the tokens, taken **out of the environment before anything else
 # runs**. Everything this script starts before the server -- nvm and the node
 # it may run, uv, pgserver, npm and everything npm runs -- is a program with no
 # business holding the operator's key, and an exported variable is inherited
@@ -36,7 +37,9 @@ openrouter_env=${OPENROUTER_API_KEY:-}
 anthropic_env=${ANTHROPIC_API_KEY:-}
 openai_env=${OPENAI_API_KEY:-}
 github_token=${ROBINAUTS_GITHUB_TOKEN:-}
-unset OPENROUTER_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY ROBINAUTS_GITHUB_TOKEN
+composio_key=${COMPOSIO_API_KEY:-}
+unset OPENROUTER_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY ROBINAUTS_GITHUB_TOKEN \
+    COMPOSIO_API_KEY
 
 demo=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck source=demo/common.sh
@@ -397,6 +400,10 @@ say "Starting the server on $BASE_URL/ ..."
     if [ -n "$github_token" ]; then
         ROBINAUTS_GITHUB_TOKEN=$github_token
         export ROBINAUTS_GITHUB_TOKEN
+    fi
+    if [ -n "$composio_key" ]; then
+        COMPOSIO_API_KEY=$composio_key
+        export COMPOSIO_API_KEY
     fi
     exec "$ROBINAUTS" start --dev-no-sign-in --port "$PORT"
 ) >>"$LOG_FILE" 2>&1 &
