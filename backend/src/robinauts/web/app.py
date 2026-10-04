@@ -664,7 +664,9 @@ def create_app(
         model = body.model_id or model_of(opened, await default_model(opened.session.agent))
         if body.regenerate is not None:
             # The frontend names the answer to produce again; the controller, its question.
-            at = next(i for i, m in enumerate(opened.messages) if m.id == body.regenerate)
+            at = next((i for i, m in enumerate(opened.messages) if m.id == body.regenerate), None)
+            if at is None:
+                raise MessageNotFoundError(str(body.regenerate))
             question = next(m for m in reversed(opened.messages[: at + 1]) if m.role is Role.USER)
             started = await controller.regenerate_answer(
                 user, conversation_id, question_id=question.id, model=model
