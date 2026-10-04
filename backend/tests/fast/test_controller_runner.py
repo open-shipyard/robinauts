@@ -127,7 +127,8 @@ async def test_a_runner_refused_mid_stream_writes_nothing_more() -> None:
     assert turn is not None
     assert turn.state is TurnState.INTERRUPTED
     assert len(await controller._store.events_after(user.id, sid, started.turn_id, 0)) == 1
-    assert len(await controller._store.messages_of(user.id, sid)) == 1
+    # The question, and the answer marked failed that the reader stored.
+    assert len(await controller._store.messages_of(user.id, sid)) == 2
     await controller.close()
 
 

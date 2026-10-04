@@ -17,6 +17,7 @@ from robinauts.controller.contract.domain import (
     ProviderKind,
     ToolServerAuth,
     ToolServerConfig,
+    WorkConfig,
 )
 
 ENGINES = ("langchain", "pydantic-ai", "echo")
@@ -29,6 +30,10 @@ def _names(value: Any) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(name, str) for name in value):
         raise ValueError(f"exclude is not a list of tool names: {value!r}")
     return tuple(value)
+
+
+def _positive(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool) and value > 0
 
 
 def parse_config(raw: Mapping[str, Any]) -> Config:
@@ -52,6 +57,17 @@ def parse_config(raw: Mapping[str, Any]) -> Config:
     models = build("models", ModelConfig)
     tool_servers = build("tool_servers", ToolServerConfig, auth=ToolServerAuth, exclude=_names)
     agents = build("agents", AgentConfig, tools=tuple)
+
+    work = WorkConfig()
+    given = raw.get("work", {})
+    if unknown := sorted(set(given) - {field.name for field in dataclasses.fields(WorkConfig)}):
+        problems.append(f"work: unknown key(s) {', '.join(unknown)}")
+    elif wrong := sorted(key for key, value in given.items() if not _positive(value)):
+        problems.append(f"work: {', '.join(wrong)} must be a positive number of seconds")
+    else:
+        work = WorkConfig(**{key: float(value) for key, value in given.items()})
+        if work.heartbeat_seconds * 2 > work.lease_seconds:
+            problems.append("work: heartbeat_seconds must be at most half of lease_seconds")
 
     for server in tool_servers.values():
         if server.auth is ToolServerAuth.HEADER:
@@ -84,4 +100,4 @@ def parse_config(raw: Mapping[str, Any]) -> Config:
             problems.append(f"agents.{agent.id}: engine {agent.engine!r} is not one of {ENGINES}")
     if problems:
         raise ConfigError("\n".join(problems))
-    return Config(providers, models, tool_servers, agents)
+    return Config(providers, models, tool_servers, agents, work)

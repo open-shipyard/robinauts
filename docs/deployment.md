@@ -197,6 +197,13 @@ title = "Assistant"
 model = "sonnet"
 engine = "langgraph"
 system_prompt = "Play fair."
+
+# Optional, here with its defaults.
+[work]
+max_turn_seconds = 1200
+lease_seconds = 90
+heartbeat_seconds = 30
+sweep_seconds = 300
 ```
 
 Notes on what is and is not there:
@@ -248,6 +255,12 @@ Notes on what is and is not there:
   only. Removing a model that conversations are using refuses their next
   turn, saying the conversation's model is no longer offered, rather than
   answering with another model; the log names the model.
+- **`[work]`.** A turn may run for `max_turn_seconds`. A model's
+  `timeout_seconds` bounds each call to that model. A server renews the lease
+  of each turn it runs every `heartbeat_seconds`. A turn whose server died is
+  ended once its lease of `lease_seconds` has passed. The next request about
+  its conversation ends it, or a sweep every `sweep_seconds` does.
+  `heartbeat_seconds` must be at most half of `lease_seconds`.
 - A file with no `[agents]` table is a deployment with no agents: it
   starts, the picker is empty, and the log says so.
 

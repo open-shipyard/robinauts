@@ -149,10 +149,28 @@ class Store(ABC):
 
     @abstractmethod
     async def end_expired_turn(
-        self, owner: uuid.UUID, session: uuid.UUID, now: datetime
+        self,
+        owner: uuid.UUID,
+        session: uuid.UUID,
+        turn: uuid.UUID,
+        now: datetime,
+        answer: StoredMessage | None = None,
     ) -> Turn | None:
-        """The session's running turn ended as ``interrupted`` if its lease has passed
-        ``now``, by one conditional write, with no event; ``None`` otherwise."""
+        """The turn ended as ``interrupted`` if it is running and its lease has passed
+        ``now``, with ``answer`` stored, in one operation, with no event, and its watchers
+        woken; ``None`` otherwise."""
+
+    @abstractmethod
+    async def renew_leases(
+        self, turns: Sequence[uuid.UUID], now: datetime, until: datetime
+    ) -> None:
+        """Each of those turns that is running, with its lease not passed ``now``, holds it
+        until ``until``; in one operation."""
+
+    @abstractmethod
+    async def expired_turns(self, now: datetime) -> list[tuple[uuid.UUID, Turn]]:
+        """Every running turn of a visible session whose lease has passed ``now``, with the
+        session's owner."""
 
     @abstractmethod
     async def active_turn(self, owner: uuid.UUID, session: uuid.UUID) -> Turn | None: ...
