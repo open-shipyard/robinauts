@@ -1,7 +1,7 @@
 # Layer references rules
 
 Anything not allowed is forbidden. A rule names a package and covers everything
-under it. `backend/pyproject.toml` enforces these; `tests/unit/test_architecture.py`
+under it. `backend/pyproject.toml` enforces these; `tests/tooling/test_architecture.py`
 runs them.
 
 ## Top level
