@@ -6,14 +6,16 @@
 The configuration is the one of ``util.stack``, the store is in memory, and each engine is a
 ``create_autospec`` of ``AgentEngine`` injected into ``compose``. The engine answers with its
 prompt and a checkpoint numbered after its call, so the checkpoint a turn is given shows what the
-engine was asked to remember.
+engine was asked to remember. To "alpha three" it also reasons and calls a tool first.
 """
 
 from __future__ import annotations
 
+import json
 import tomllib
 import uuid
 from collections.abc import AsyncIterator
+from itertools import groupby
 from typing import Any
 from unittest.mock import MagicMock, create_autospec
 
@@ -21,11 +23,18 @@ import httpx
 import pytest
 
 from aio import asyncio_test
-from robinauts.agent_engines.contract.domain import Done, ProviderKind, TextDelta
+from robinauts.agent_engines.contract.domain import (
+    Done,
+    ProviderKind,
+    ReasoningDelta,
+    TextDelta,
+    ToolCall,
+    ToolResult,
+)
 from robinauts.agent_engines.contract.ports import AgentEngine
 from robinauts.controller.composition import compose, configure
 from robinauts.controller.contract.domain import StorageConfig, StorageKind
-from robinauts.web.app import create_app
+from robinauts.web.app import LOCAL_IDENTITY, create_app
 from util import stack
 
 
@@ -34,6 +43,10 @@ def mock_engine() -> MagicMock:
     engine.kinds.return_value = frozenset(ProviderKind)
 
     async def echo(session_id: uuid.UUID, agent: Any, prompt: str, **_: Any) -> AsyncIterator[Any]:
+        if prompt == "alpha three":
+            yield ReasoningDelta("adding")
+            yield ToolCall("c1", "add", {"a": 1, "b": 2})
+            yield ToolResult("c1", "add", "3")
         yield TextDelta(prompt)
         yield Done(prompt, checkpoint_id=f"cp{engine.stream.call_count}")
 
@@ -44,20 +57,31 @@ def mock_engine() -> MagicMock:
 class Api:
     def __init__(self, http: httpx.AsyncClient) -> None:
         self.http = http
+        self.streamed: list[str] = []
+        """The AG-UI event types of the last turn, repeats collapsed."""
+
+    async def get(self, path: str) -> Any:
+        response = await self.http.get(path)
+        assert response.status_code == 200, response.text
+        return response.json()
 
     async def turn(self, path: str, **body: Any) -> str:
         response = await self.http.post(path, json=body)
         assert response.status_code == 200, response.text
-        assert '"RUN_FINISHED"' in response.text
+        types = [
+            json.loads(line.removeprefix("data: "))["type"]
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        self.streamed = [t for t, _ in groupby(types)]
+        assert self.streamed[-1] == "RUN_FINISHED"
         return response.headers["x-robinauts-conversation-id"]
 
     async def start(self, agent: str, text: str) -> str:
         return await self.turn("/api/turns", agent_id=agent, text=text)
 
     async def opened(self, cid: str) -> dict[str, Any]:
-        response = await self.http.get(f"/api/conversations/{cid}")
-        assert response.status_code == 200, response.text
-        return response.json()
+        return await self.get(f"/api/conversations/{cid}")
 
     async def thread(self, cid: str) -> list[str]:
         """The text of each message, questions and answers in order."""
@@ -68,7 +92,7 @@ class Api:
         return (await self.opened(cid))["messages"][index]["id"]
 
     async def history(self) -> list[str]:
-        return [c["title"] for c in (await self.http.get("/api/conversations")).json()["items"]]
+        return [c["title"] for c in (await self.get("/api/conversations"))["items"]]
 
 
 def echoed(*questions: str) -> list[str]:
@@ -101,6 +125,20 @@ async def test_everyday_use(agent: str) -> None:
             assert args[2] == prompt
             assert (kwargs["model"], kwargs["checkpoint_id"]) == (model, checkpoint)
 
+        # --- Opening the app ---------------------------------------------------------------
+
+        # 0. The local user, and the agents and models of the configuration.
+        session = await api.get("/auth/session")
+        assert (session["sign_in"], session["local_development"]) == (False, True)
+        assert session["user"]["provider"] == LOCAL_IDENTITY.provider
+        agents = (await api.get("/api/agents"))["items"]
+        assert [(a["id"], a["model"]) for a in agents] == [(a, "local_gpt") for a in stack.AGENTS]
+        models = (await api.get("/api/models"))["items"]
+        assert [(m["id"], m["title"]) for m in models] == [
+            ("local_gpt", "Local GPT"),
+            ("local_gpt_2", "Local GPT 2"),
+        ]
+
         # --- Conversation A -----------------------------------------------------------------
 
         # 1-2. A first message on the agent: answered, and listed under its title.
@@ -119,6 +157,29 @@ async def test_everyday_use(agent: str) -> None:
         )
         assert await api.thread(a) == echoed("alpha one", "alpha two", "alpha three")
         last_call("local_gpt", "alpha three", "cp2")
+
+        # 3b. That answer streamed its reasoning and a tool round before its text, and keeps
+        #     the tool round, not the reasoning.
+        assert api.streamed == [
+            "RUN_STARTED",
+            "TEXT_MESSAGE_START",
+            "REASONING_MESSAGE_START",
+            "REASONING_MESSAGE_CONTENT",
+            "REASONING_MESSAGE_END",
+            "TOOL_CALL_START",
+            "TOOL_CALL_ARGS",
+            "TOOL_CALL_END",
+            "TOOL_CALL_RESULT",
+            "TEXT_MESSAGE_CONTENT",
+            "TEXT_MESSAGE_END",
+            "RUN_FINISHED",
+        ]
+        answer = (await api.opened(a))["messages"][5]
+        assert answer["parts"] == [
+            {"kind": "tool_call", "call_id": "c1", "name": "add", "arguments": {"a": 1, "b": 2}},
+            {"kind": "tool_result", "call_id": "c1", "text": "3", "is_error": False},
+            {"kind": "text", "text": "alpha three"},
+        ]
 
         # 4. Edit the middle message: everything after it is cut, and it goes on from the
         #    answer before it.
