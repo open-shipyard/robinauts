@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import uuid
 from datetime import UTC, datetime, timedelta, timezone
@@ -86,6 +87,14 @@ def test_a_message_round_trips_through_its_document() -> None:
     ]
     assert json.loads(json.dumps(document)) == document
     assert message_from_document(document) == answer()
+
+
+@pytest.mark.parametrize(("failed", "written"), [(True, {"failed": True}), (False, {})])
+def test_failed_is_written_only_when_set(failed: bool, written: dict[str, bool]) -> None:
+    message = dataclasses.replace(answer(), checkpoint_id=None, failed=failed)
+    document = message_to_document(message)
+    assert {k: v for k, v in document.items() if k == "failed"} == written
+    assert message_from_document(document) == message
 
 
 def test_a_question_has_every_field_with_nulls_where_nothing_applies() -> None:
@@ -178,6 +187,7 @@ def test_a_number_json_cannot_write_is_refused() -> None:
         (lambda d: d.update(id=str(ANSWER).upper()), "id is not an id"),
         (lambda d: d.update(role="system"), "role is not a role"),
         (lambda d: d["parts"][0].pop("text"), "lacks a key: text"),
+        (lambda d: d.update(failed="yes"), "failed is not true or false"),
     ],
 )
 def test_a_message_document_is_refused_by_name(change: object, said: str) -> None:

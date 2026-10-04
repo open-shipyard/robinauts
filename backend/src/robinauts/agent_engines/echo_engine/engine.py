@@ -3,6 +3,9 @@
 
 """An engine that calls its one tool on every turn and answers a fixed string plus the result.
 
+Its tool call's id counts the turns it remembers, this one included: ``call-1`` on a turn
+that continues from no checkpoint, ``call-3`` on one that continues from the second.
+
 A prompt that starts with ``poison`` ends its turn badly instead: the tool returns an error and
 the engine raises, as a real engine does when a tool keeps failing.
 
@@ -46,6 +49,8 @@ class EchoEngine(AgentEngine):
     def __init__(self) -> None:
         self._sessions: dict[uuid.UUID, list[str]] = {}
         self._last_prompt: dict[uuid.UUID, str] = {}
+        self._remembers: dict[str, int] = {}
+        """How many turns each checkpoint remembers, its own included; a fork keeps the ids."""
 
     def kinds(self) -> frozenset[ProviderKind]:
         return frozenset(ProviderKind)
@@ -82,7 +87,8 @@ class EchoEngine(AgentEngine):
             raise ResumeMismatchError("resume with another prompt")
         self._last_prompt[session_id] = prompt
 
-        call_id = f"call-{len(checkpoints) + 1}"
+        remembered = 0 if checkpoint_id is None else self._remembers[checkpoint_id]
+        call_id = f"call-{remembered + 1}"
         yield ToolCall(call_id=call_id, name=TOOL, arguments={"text": prompt})
         if prompt.startswith(POISON):
             yield ToolResult(call_id=call_id, name=TOOL, output=POISONED, is_error=True)
@@ -93,6 +99,7 @@ class EchoEngine(AgentEngine):
         yield TextDelta(text=result)
         new = str(uuid.uuid4())
         checkpoints.append(new)
+        self._remembers[new] = remembered + 1
         yield Done(text=ANSWER + result, checkpoint_id=new)
 
     async def fork(self, source_id: uuid.UUID, target_id: uuid.UUID, *, checkpoint_id: str) -> None:

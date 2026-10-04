@@ -57,8 +57,10 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   failed.
 - **A turn produces at most one answer.** A finished turn stores one assistant
   message, whose `parent_id` is the question and whose document names the turn.
-  A failed, cancelled or interrupted turn stores none. Every answer comes from exactly
-  one turn.
+  A failed turn stores what it streamed before it failed, as an answer marked
+  `failed`, with no checkpoint; a reply hangs under it, and the next turn continues
+  from the nearest answer above it that has a checkpoint. A cancelled or interrupted
+  turn stores none. Every answer comes from exactly one turn.
 - **A turn has its events**, numbered from 1.
 
 ## Rules every store keeps
@@ -95,7 +97,7 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   plus a retention of hours. Ending a turn touches none of its events. The answer is
   in `messages` and the outcome is in `turns`, so after a turn ends nothing reads its
   events but a late watcher. Until they expire, they are the only copy of a turn's
-  reasoning and of what a failed turn streamed.
+  reasoning, and of what a cancelled or interrupted turn streamed.
 - **A turn holds a lease.** `lease_until` is written with the turn, as its start plus
   its timeout and a margin, and the runner's own deadline is set from it. A running
   turn whose lease has passed is ended as `interrupted` by the next reader to find it
@@ -180,11 +182,13 @@ same write. The decoder reads the document alone.
 | `parent_id` | the message it follows, or `null` for the first | the question |
 | `role` | `user` | `assistant` |
 | `agent`, `engine`, `model` | what it was asked with | what answered |
-| `checkpoint_id` | `null` | the engine's checkpoint after this answer |
+| `checkpoint_id` | `null` | the engine's checkpoint after this answer; `null` on a failed one |
 | `turn_id` | `null` | the turn that produced it, which web shows as the run id |
+| `failed` | absent | `true` on an answer whose turn failed; absent otherwise |
 
-Every field is present on every message; one that does not apply is `null`. `tool` is
-a reserved role: no message has it yet.
+Every field but `failed` is present on every message; one that does not apply is
+`null`. `failed` is written only when it is `true`, so the messages stored before it
+read the same. `tool` is a reserved role: no message has it yet.
 
 ### Parts
 

@@ -67,15 +67,41 @@ async def test_a_conversation_from_the_first_message_to_its_deletion() -> None:
 
 
 @asyncio_test
-async def test_a_conversation_whose_turn_failed_says_so_when_opened() -> None:
+async def test_a_failed_turn_keeps_what_it_did_and_the_next_one_replies_under_it() -> None:
     async with client() as http:
-        started = await http.post("/api/turns", json={"agent_id": "echo", "text": "poison"})
-        assert events(started.text)[-1]["type"] == "RUN_ERROR"
+        started = await http.post("/api/turns", json={"agent_id": "echo", "text": "hello"})
         cid = started.headers["x-robinauts-conversation-id"]
-        rid = started.headers["x-robinauts-run-id"]
+        answer = (await http.get(f"/api/conversations/{cid}")).json()["messages"][1]
 
+        poisoned = await http.post(
+            f"/api/conversations/{cid}/turns", json={"text": "poison", "parent_id": answer["id"]}
+        )
+        assert events(poisoned.text)[-1]["type"] == "RUN_ERROR"
+        rid = poisoned.headers["x-robinauts-run-id"]
         opened = (await http.get(f"/api/conversations/{cid}")).json()
-        assert [m["role"] for m in opened["messages"]] == ["user"]
+        failed = opened["messages"][3]
+        assert failed["failed"] is True
+        assert [(p["kind"], p.get("is_error")) for p in failed["parts"]] == [
+            ("tool_call", None),
+            ("tool_result", True),
+        ]
         ended = opened["ended_badly"]
         assert (ended["run_id"], ended["state"]) == (rid, "failed")
         assert set(ended) == {"run_id", "state", "ended_at"}  # not the operator's error
+
+        again = await http.post(
+            f"/api/conversations/{cid}/turns", json={"text": "again", "parent_id": failed["id"]}
+        )
+        assert events(again.text)[-1]["type"] == "RUN_FINISHED"
+        opened = (await http.get(f"/api/conversations/{cid}")).json()
+        assert [m["failed"] for m in opened["messages"]] == [
+            False,
+            False,
+            False,
+            True,
+            False,
+            False,
+        ]
+        assert opened["ended_badly"] is None
+        # Continued from the first answer's checkpoint: echo remembers that turn and this one.
+        assert opened["messages"][-1]["parts"][0]["call_id"] == "call-2"

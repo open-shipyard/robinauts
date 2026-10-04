@@ -84,6 +84,22 @@ async def test_a_poisoned_prompt_gets_an_error_from_the_tool_and_ends_the_turn_b
 
 
 @asyncio_test
+async def test_the_call_id_counts_the_turns_the_checkpoint_remembers() -> None:
+    engine = EchoEngine()
+    session = uuid.uuid4()
+    await engine.create(session)
+    first = (await turn(engine, session, "one"))[-1]
+    again = await turn(engine, session, "one, again")  # a branch from no checkpoint
+    later = await turn(engine, session, "two", after=again[-1].checkpoint_id)
+    deeper = await turn(engine, session, "two", after=first.checkpoint_id)
+    assert [events[0].call_id for events in (again, later, deeper)] == [
+        "call-1",
+        "call-2",
+        "call-2",
+    ]
+
+
+@asyncio_test
 async def test_the_refusals_of_the_contract() -> None:
     engine = EchoEngine()
     session, other = uuid.uuid4(), uuid.uuid4()

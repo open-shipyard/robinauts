@@ -341,9 +341,13 @@ class RobinautsController(Controller):
             return
         by_id = {m.id: m for m in await self._messages(owner, session_id)}
         question = by_id[turn.follows]
+        # The nearest answer up the thread that has a checkpoint: a failed answer has
+        # none, and continuing from nothing would start the engine's memory again.
         checkpoint_id = None
-        if question.parent_id is not None:
-            checkpoint_id = by_id[question.parent_id].checkpoint_id
+        above = question.parent_id
+        while above is not None and checkpoint_id is None:
+            checkpoint_id = by_id[above].checkpoint_id
+            above = by_id[above].parent_id
         agent_config = self._config.agents[session.agent]
         engine = await self._engine(session.engine)
         model_timeout = self._config.models[turn.model].timeout_seconds

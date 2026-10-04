@@ -154,8 +154,10 @@ def test_an_answer_that_failed_says_so_until_one_ends_well(server: str, page: Pa
     expect(page.locator('[data-role="user"]')).to_contain_text("poison")
     expect(failed).to_be_visible()
 
-    # An answer that ends well takes the notice away.
+    # A reply goes under the failed answer, which stays; ending well takes the notice away.
     page.get_by_label("Message input").fill("hello")
     page.get_by_label("Send message").click()
-    expect(page.locator('[data-role="assistant"]')).to_contain_text("The tool said: hello")
+    answers = page.locator('[data-role="assistant"]')
+    expect(answers).to_have_count(2)
+    expect(answers.last).to_contain_text("The tool said: hello")
     expect(failed).not_to_be_visible()

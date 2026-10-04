@@ -220,6 +220,8 @@ class MessageView(BaseModel):
     created_at: datetime
     parts: list[TextContent | ToolCallContent | ToolResultContent]
     provenance: ProvenanceView | None
+    failed: bool = False
+    """An answer whose turn failed: what it streamed before the failure."""
 
 
 class ResumeView(BaseModel):
@@ -316,6 +318,7 @@ def message_view(message: Message, session: Session) -> MessageView:
         created_at=message.created_at,
         parts=[content(p) for p in message.parts if not isinstance(p, ReasoningPart)],
         provenance=provenance,
+        failed=message.failed,
     )
 
 

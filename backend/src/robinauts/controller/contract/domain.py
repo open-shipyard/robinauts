@@ -275,6 +275,8 @@ class Message:
     checkpoint_id: str | None = None
     turn_id: uuid.UUID | None = None
     """The turn that produced an answer, which web shows as the run id; ``None`` on a question."""
+    failed: bool = False
+    """An answer whose turn failed: what it streamed before it failed, and no checkpoint."""
 
 
 @dataclass(frozen=True, slots=True)
