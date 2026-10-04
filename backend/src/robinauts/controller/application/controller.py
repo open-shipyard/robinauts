@@ -8,7 +8,7 @@ from __future__ import annotations
 import base64
 import dataclasses
 import uuid
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Mapping
 from datetime import UTC, datetime, timedelta
 
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
@@ -86,6 +86,7 @@ class RobinautsController(Controller):
         dispatcher: TurnDispatcher,
         close_timeout: float = CLOSE_TIMEOUT,
         now: Callable[[], datetime] | None = None,
+        engines: Mapping[str, EngineFactory] | None = None,
     ) -> None:
         self._config = config
         self._store = store
@@ -96,6 +97,7 @@ class RobinautsController(Controller):
         self._now = now or (lambda: datetime.now(UTC))
         self._engines: dict[str, AgentEngine] = {}
         self._factories: dict[str, EngineFactory] = {}
+        self._given_engines = engines
         self._handle: object | None = None
 
     def _sets_up_engines(self) -> bool:
@@ -104,7 +106,7 @@ class RobinautsController(Controller):
 
     async def open(self) -> None:
         self._handle = await self._store.open()
-        self._factories = dict(installed())
+        self._factories = dict(installed() if self._given_engines is None else self._given_engines)
         settings = engine_settings(self._config, self._secret_for)
         self._engines = await build_engines(
             self._config,
