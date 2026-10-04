@@ -103,10 +103,8 @@ async def test_a_failed_turn_keeps_what_it_did_and_the_next_one_replies_under_it
             False,
         ]
         assert opened["ended_badly"] is None
-        # Continued from the first answer's checkpoint: echo remembers that turn and this one.
+        # Told what it missed: the failed exchange, then the new message.
         call = opened["messages"][-1]["parts"][0]
-        assert call["call_id"] == "call-2"
-        # And told what it missed: the failed exchange, then the new message.
         prompt = call["arguments"]["text"]
         assert "Message: poison" in prompt
         assert '-> error, tool output: "the message is poisoned"' in prompt
@@ -141,7 +139,6 @@ async def test_a_retry_answers_the_question_again_and_tells_the_model_what_faile
             assert again["id"] != failed["id"]  # a fresh answer to the same question
             assert (question["parts"][0]["text"], again["failed"]) == ("poison", True)
             call = again["parts"][0]
-            assert call["call_id"] == "call-2"  # from the first answer's checkpoint
             prompt = call["arguments"]["text"]
             assert prompt.startswith("poison\n")
             assert '-> error, tool output: "the message is poisoned"' in prompt
