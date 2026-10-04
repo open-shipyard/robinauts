@@ -5,9 +5,9 @@
 
 from __future__ import annotations
 
-from contracts.store import StoreContract
 from robinauts.controller.adapters.memory.store import MemoryStore
 from robinauts.controller.ports.store import Store
+from util.contracts.store import StoreContract
 
 
 class TestMemoryStore(StoreContract):

@@ -8,8 +8,8 @@ from __future__ import annotations
 import pytest
 from echo_controller import opened, settled
 
-from aio import asyncio_test
 from robinauts.controller.contract.domain import Identity, InvalidValueError
+from util.aio import asyncio_test
 
 
 @asyncio_test

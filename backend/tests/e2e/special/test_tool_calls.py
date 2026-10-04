@@ -16,10 +16,10 @@ from typing import Any
 import pytest
 from playwright.sync_api import Locator, Page, expect
 
-from mcp_server import mcp_server
 from util.browser import DID_NOT_FINISH, send
 from util.fake_openai import FakeLocalGPTServer, FakeModel, ToolEchoModel
 from util.fake_openai.echo_model import text_of
+from util.mcp_server import mcp_server
 
 pytestmark = [pytest.mark.io, pytest.mark.database]
 

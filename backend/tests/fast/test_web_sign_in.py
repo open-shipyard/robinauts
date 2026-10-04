@@ -15,7 +15,6 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import pytest
 
-from aio import asyncio_test
 from robinauts.controller.composition import compose
 from robinauts.controller.contract.domain import (
     AgentConfig,
@@ -28,7 +27,8 @@ from robinauts.controller.contract.domain import (
 from robinauts.controller.contract.domain import ProviderConfig as ModelProvider
 from robinauts.web.app import create_app
 from robinauts.web.sign_in import AllowEntry, Matcher, ProviderConfig, SignInConfig
-from standin import StandInProvider, redirect_from
+from util.aio import asyncio_test
+from util.standin import StandInProvider, redirect_from
 
 pytestmark = pytest.mark.io
 

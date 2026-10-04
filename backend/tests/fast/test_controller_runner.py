@@ -15,7 +15,6 @@ from unittest.mock import create_autospec
 import pytest
 from echo_controller import CONFIG, opened, settled
 
-from aio import asyncio_test
 from robinauts.agent_engines.contract.domain import Event
 from robinauts.agent_engines.contract.ports import AgentEngine
 from robinauts.agent_engines.echo_engine.engine import EchoEngine
@@ -37,6 +36,7 @@ from robinauts.controller.contract.domain import (
 )
 from robinauts.controller.core.documents import event_from_document
 from robinauts.controller.ports.store import Store
+from util.aio import asyncio_test
 
 FIVE_MINUTES = timedelta(minutes=5)
 

@@ -5,13 +5,13 @@
 
 from __future__ import annotations
 
-from contracts.credentials import CredentialsContract
-from controller_db import TemporarySchema, requires_postgres
 from robinauts.controller.adapters.postgres.credentials import PostgresCredentials
 from robinauts.controller.adapters.postgres.schema import create_schema
 from robinauts.controller.adapters.postgres.store import PostgresStore
 from robinauts.controller.contract.ports import Credentials
 from robinauts.controller.ports.store import Store
+from util.contracts.credentials import CredentialsContract
+from util.controller_db import TemporarySchema, requires_postgres
 
 pytestmark = requires_postgres
 

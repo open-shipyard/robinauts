@@ -16,7 +16,6 @@ from datetime import UTC, datetime, timedelta
 import httpx
 from echo_controller import CONFIG
 
-from aio import asyncio_test
 from robinauts.controller.composition import Composed, compose
 from robinauts.controller.contract.domain import (
     ApiToken,
@@ -36,6 +35,7 @@ from robinauts.web.sign_in import (
     random_secret,
     secret_hash,
 )
+from util.aio import asyncio_test
 
 PUBLIC_URL = "https://robinauts.example.com"
 OKTA = ProviderConfig(

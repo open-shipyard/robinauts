@@ -10,16 +10,16 @@ import uuid
 import pytest
 from test_pydanticai_engine import scripted
 
-from aio import asyncio_test
-from contracts.engine import EngineMemoryContract, EngineTurnContract, Script
-from controller_db import TemporarySchema, requires_postgres, temporary_schema
-from engine_settings import settings_for
 from robinauts.agent_engines.contract.domain import ProviderKind
 from robinauts.agent_engines.contract.ports import AgentEngine, StorageConfig, StorageKind
 from robinauts.agent_engines.pydantic_ai_engine import engine as engine_module
 from robinauts.agent_engines.pydantic_ai_engine import init_pydantic_ai
 from robinauts.agent_engines.pydantic_ai_engine.engine import PydanticAIEngine
 from robinauts.agent_engines.pydantic_ai_engine.memory import PostgresMemory
+from util.aio import asyncio_test
+from util.contracts.engine import EngineMemoryContract, EngineTurnContract, Script
+from util.controller_db import TemporarySchema, requires_postgres, temporary_schema
+from util.engine_settings import settings_for
 
 pytestmark = requires_postgres
 
@@ -59,7 +59,7 @@ class TestPydanticAIEngineTurnOnPostgres(OnPostgres, EngineTurnContract):
     def plain_tool(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from pydantic_ai.toolsets import FunctionToolset
 
-        from contracts.engine import add
+        from util.contracts.engine import add
 
         def toolsets_for(*_: object) -> list[object]:
             return [FunctionToolset([add])]

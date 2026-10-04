@@ -8,8 +8,8 @@ from __future__ import annotations
 import asyncpg
 import pytest
 
-from aio import asyncio_test
-from controller_db import requires_postgres, temporary_schema
+from util.aio import asyncio_test
+from util.controller_db import requires_postgres, temporary_schema
 
 pytestmark = requires_postgres
 

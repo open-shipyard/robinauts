@@ -23,7 +23,6 @@ from unittest.mock import MagicMock, create_autospec
 import httpx
 import pytest
 
-from aio import asyncio_test
 from robinauts.agent_engines.contract.domain import (
     Done,
     ProviderKind,
@@ -37,6 +36,7 @@ from robinauts.controller.composition import compose, configure
 from robinauts.controller.contract.domain import StorageConfig, StorageKind
 from robinauts.web.app import LOCAL_IDENTITY, create_app
 from util import stack
+from util.aio import asyncio_test
 
 
 def mock_engine() -> MagicMock:

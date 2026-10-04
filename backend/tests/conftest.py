@@ -19,7 +19,7 @@ green run in which they did not, and the variable being set proves only that
 somebody meant them to: `-m "not io"` sets it and skips every one of them.
 So the tests marked `database` are counted as they run, and a run that
 required a database and counted none is failed at the end, saying so. The
-decision itself is in `postgres.py`, where it can be tested without a
+decision itself is in `util/postgres.py`, where it can be tested without a
 session to fake.
 
 It speaks only about a run that got as far as running tests. A session that
@@ -105,7 +105,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     """Fail a run that was told to prove the database and did not."""
     # Imported here rather than at the top: this file is loaded before the
     # `pythonpath` of pyproject.toml puts `tests/` on the path.
-    from postgres import REQUIRE_POSTGRES, database_required, database_tests_missing
+    from util.postgres import REQUIRE_POSTGRES, database_required, database_tests_missing
 
     if session.config.option.collectonly or exitstatus not in _SPEAKS_FOR_ITSELF:
         return

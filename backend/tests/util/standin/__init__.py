@@ -12,7 +12,7 @@ Later steps reuse it: the auth routes (step 6) and the browser test sign in
 through this same server, so its interface is meant to be lived with.
 """
 
-from standin.provider import (
+from util.standin.provider import (
     Misbehaviour,
     Received,
     StandInProvider,

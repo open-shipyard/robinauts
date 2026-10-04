@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from postgres import (
+from util.postgres import (
     DATABASE_URL,
     REQUIRE_POSTGRES,
     database_required,

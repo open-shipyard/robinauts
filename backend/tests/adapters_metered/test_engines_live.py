@@ -17,8 +17,6 @@ from collections.abc import Callable
 
 import pytest
 
-from aio import asyncio_test
-from engine_settings import NoSecrets
 from robinauts.agent_engines.contract.domain import (
     AgentDefinition,
     Done,
@@ -33,6 +31,8 @@ from robinauts.agent_engines.langchain_engine.engine import LangChainEngine
 from robinauts.agent_engines.langchain_engine.memory import InProcessMemory as LangChainMemory
 from robinauts.agent_engines.pydantic_ai_engine.engine import PydanticAIEngine
 from robinauts.agent_engines.pydantic_ai_engine.memory import InProcessMemory as PydanticAIMemory
+from util.aio import asyncio_test
+from util.engine_settings import NoSecrets
 
 pytestmark = [pytest.mark.io, pytest.mark.live]
 

@@ -10,12 +10,12 @@ from unittest.mock import create_autospec
 
 import pytest
 
-from aio import asyncio_test
 from robinauts.agent_engines.contract.domain import ProviderKind
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
 from robinauts.controller.application.engines import build_engines
 from robinauts.controller.contract import domain
 from robinauts.controller.core.engine_settings import engine_settings, engine_storage
+from util.aio import asyncio_test
 
 
 def config(engine: str, kind: domain.ProviderKind = domain.ProviderKind.ANTHROPIC) -> domain.Config:
