@@ -140,24 +140,31 @@ def test_a_conversation_with_echo_answers_keeps_and_edits(server: str, page: Pag
     expect(page.locator('[data-role="user"]')).not_to_contain_text("hello")
 
 
-def test_an_answer_that_failed_says_so_until_one_ends_well(server: str, page: Page) -> None:
+def test_a_failed_answer_says_so_in_its_place_and_keeps_saying_it(server: str, page: Page) -> None:
     page.goto(server)
     page.get_by_role("button", name="New chat").click()
     expect(page.get_by_label("Agent")).to_have_value("echo")
 
     page.get_by_label("Message input").fill("poison")  # echo ends this turn badly
     page.get_by_label("Send message").click()
-    failed = page.get_by_text(DID_NOT_FINISH)
+    answers = page.locator('[data-role="assistant"]')
+    failed = answers.first.get_by_text(DID_NOT_FINISH)
     expect(failed).to_be_visible()
+    expect(page.get_by_text(DID_NOT_FINISH)).to_have_count(1)
 
     page.reload()
     expect(page.locator('[data-role="user"]')).to_contain_text("poison")
     expect(failed).to_be_visible()
+    expect(page.get_by_text(DID_NOT_FINISH)).to_have_count(1)
 
-    # A reply goes under the failed answer, which stays; ending well takes the notice away.
+    # A reply goes under the failed answer, which stays, and still says it failed.
     page.get_by_label("Message input").fill("hello")
     page.get_by_label("Send message").click()
-    answers = page.locator('[data-role="assistant"]')
     expect(answers).to_have_count(2)
     expect(answers.last).to_contain_text("The tool said: hello")
-    expect(failed).not_to_be_visible()
+    expect(failed).to_be_visible()
+
+    page.reload()
+    expect(answers.last).to_contain_text("The tool said: hello")
+    expect(failed).to_be_visible()
+    expect(page.get_by_text(DID_NOT_FINISH)).to_have_count(1)

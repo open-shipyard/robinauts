@@ -435,7 +435,8 @@ export function reduce(state: ChatState, action: ChatAction): ChatState {
         sending: false,
         writing: null,
         thinking: null,
-        ended: action.endedBadly,
+        // Said once: by the failed answer when there is one at the end.
+        ended: messages.at(-1)?.state === "failed" ? null : action.endedBadly,
         before: null,
       };
     }
@@ -1053,7 +1054,10 @@ function folded(
     thread[thread.length - 1] = answered(answer, message);
   }
   return thread.map((message, at) => {
-    if (message.role !== "assistant" || !unanswered(message)) return message;
+    if (message.role !== "assistant" || message.state === "failed") {
+      return message;
+    }
+    if (!unanswered(message)) return message;
     if (at === thread.length - 1 && runId !== null) {
       return { ...message, state: "running" };
     }
@@ -1112,6 +1116,10 @@ function held(message: Message): ChatMessage {
       }
       return [];
     }),
-    state: "stored",
+    // **An answer whose turn failed is stored**, with what it did before it
+    // failed, and it says so where the answer is (`docs/specs/ui.md`).
+    ...(message.failed
+      ? { state: "failed" as const, detail: ENDED_BADLY.get("failed") ?? "" }
+      : { state: "stored" as const }),
   };
 }

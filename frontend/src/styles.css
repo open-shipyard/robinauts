@@ -193,3 +193,16 @@
     outline-offset: 2px;
   }
 }
+
+/*
+ * A failed answer says so where the answer would be, in the palette's quiet
+ * colours rather than as an alarm (`docs/specs/ui.md`). The vendored error box
+ * is red; it is restyled here, by the class it carries, so that the copy stays
+ * as it came (`src/chat/assistant-ui/vendor/README.md`). Unlayered, so it wins
+ * over the utilities on the element.
+ */
+.aui-message-error-root {
+  border-color: var(--line);
+  background-color: var(--panel);
+  color: var(--muted);
+}
