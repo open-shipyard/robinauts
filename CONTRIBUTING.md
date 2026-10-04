@@ -56,8 +56,8 @@ or one at a time:
     scripts/check-audit.sh      pip-audit over the whole locked set
     scripts/check-frontend.sh   the frontend: format, lint, types, tests,
                                 the build with its licence gate, npm audit
-    scripts/check-ui.sh         the interface in a browser (Playwright),
-                                over a server on the echo engine and
+    scripts/check-e2e.sh        the interface in a browser (Playwright),
+                                over a server on both agent engines and
                                 PostgreSQL: the one ROBINAUTS_TEST_DATABASE_URL
                                 names, or a throwaway one in Docker
     scripts/check-wheel.sh      the wheel: built, looked inside, installed
@@ -70,7 +70,7 @@ merge button rather than showing a red cross — is branch protection, which
 the project owner still has to switch on
 ([docs/oss-checklist.md](docs/oss-checklist.md)).
 
-`check-tests.sh`, `check-ui.sh`, `check-licences.sh` and `check-reuse.sh`
+`check-tests.sh`, `check-e2e.sh`, `check-licences.sh` and `check-reuse.sh`
 pass their arguments on to the tool they wrap, so
 `scripts/check-tests.sh -k licence` does what you would expect.
 `check-dco.sh` takes a commit range and defaults to what this branch adds to

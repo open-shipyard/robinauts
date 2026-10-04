@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 #
-# The interface in a real browser: backend/tests/ui/, which a plain test run
+# The interface in a real browser: backend/tests/e2e/, which a plain test run
 # does not collect. It builds the interface, installs Playwright's Chromium and
-# runs the tests against a server on the echo engine, which needs no key.
+# runs the tests against a real server on both agent engines, over a model
+# server and an MCP server the tests run on this machine, so none needs a key.
 # Slower than the rest of the suite, so CI runs it after the fast tests.
 # Further arguments are passed on to pytest.
 #
@@ -24,7 +25,7 @@ if [ -z "${CI:-}" ] && [ -z "${ROBINAUTS_NODE_CHOSEN:-}" ] &&
     export ROBINAUTS_NODE_CHOSEN
     exec bash -c 'cd "$1/frontend" && . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1 &&
         nvm use >/dev/null 2>&1 && shift && exec "$@"' \
-        bash "$root" "$root/scripts/check-ui.sh" "$@"
+        bash "$root" "$root/scripts/check-e2e.sh" "$@"
 fi
 
 # The image the `test` job of .github/workflows/ci.yml pins: PostgreSQL 16.15.
@@ -58,4 +59,4 @@ export PYTHONDONTWRITEBYTECODE
 uv run --locked --no-build playwright install ${CI:+--with-deps} chromium
 
 uv run --locked --no-build python ../scripts/wait_for_postgres.py
-uv run --locked --no-build pytest tests/ui "$@"
+uv run --locked --no-build pytest tests/e2e "$@"
