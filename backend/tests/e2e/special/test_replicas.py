@@ -3,7 +3,8 @@
 
 """Two servers on one database, and servers killed in the middle of a turn: a turn longer than
 one model call's timeout, a conversation that another server takes over, and a turn nobody
-opens that the sweep ends.
+opens that the sweep ends. A turn stopped, and a conversation deleted, through the server that
+does not run the turn.
 
 ``ToolEchoModel`` calls the MCP server's ``nap`` with the question: "wait N" sleeps N seconds,
 "hang" sleeps for ten minutes.
@@ -16,6 +17,7 @@ import re
 import subprocess
 import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import asyncpg
@@ -23,11 +25,14 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from util import stack
-from util.browser import DID_NOT_FINISH, browser_page, send
+from util.browser import DID_NOT_FINISH, browser_page, history, send
 from util.fake_openai import FakeLocalGPTServer, FakeModel, ToolEchoModel
 from util.mcp_server import mcp_server
 
 pytestmark = [pytest.mark.io, pytest.mark.database]
+
+# What the interface says of an answer that was stopped (frontend/src/chat/assistant-ui/state.ts).
+STOPPED = "This answer was stopped before it was finished."
 
 WORK = """
 [work]
@@ -78,6 +83,24 @@ def conversation_id(page: Page) -> str:
     return page.url.rsplit("/", 1)[-1]
 
 
+def purged(url: str, session: str) -> bool:
+    """Whether the session is gone, waiting up to 15 s: on a thread, beside Playwright's loop."""
+
+    async def gone() -> bool:
+        connection = await asyncpg.connect(url)
+        try:
+            return not await connection.fetchval("SELECT 1 FROM sessions WHERE id = $1", session)
+        finally:
+            await connection.close()
+
+    with ThreadPoolExecutor(1) as thread:
+        for _ in range(150):
+            if thread.submit(asyncio.run, gone()).result():
+                return True
+            time.sleep(0.1)
+    return False
+
+
 async def ended_turn(url: str, session: str) -> tuple[str, str | None]:
     """The session's turn's state, and whether its answer was stored marked failed."""
     connection = await asyncpg.connect(url)
@@ -110,9 +133,34 @@ def test_replicas(local_gpt: FakeLocalGPTServer, tools_url: str, tmp_path: Path)
             new_chat(page, a)
             send(page, "wait 4")
             expect(answers.first).to_contain_text("The tool said: WAIT 4", timeout=15_000)
+            first = conversation_id(page)
 
-            # 2. "hang", then A is killed: on B the answer shows as failed with its tool call,
+            # 2. "hang" on A, stopped on B: the answer ends as stopped, and the conversation
+            #    takes a new message.
+            new_chat(page, a)
+            stopped = hang(page)
+            page.goto(f"{b}/#/c/{stopped}")
+            page.get_by_label("Stop generating").click()
+            expect(page.get_by_text(STOPPED)).to_be_visible(timeout=15_000)
+            send(page, "wait 0")
+            expect(answers.last).to_contain_text("WAIT 0", timeout=15_000)
+
+            # 3. "hang" on A, deleted on B: gone from both lists, and purged once A has stopped.
+            new_chat(page, a)
+            deleted = hang(page)
+            page.goto(b)
+            page.get_by_role("button", name="Actions for hang").first.click()
+            page.get_by_role("button", name="Delete", exact=True).click()
+            page.get_by_role("button", name="Yes, delete: hang").click()
+            expect(history(page)).to_have_text(["hang", "wait 4"])
+            page.goto(a)
+            expect(history(page)).to_have_text(["hang", "wait 4"])
+            assert purged(url, deleted)
+
+            # 4. "hang", then A is killed: on B the answer shows as failed with its tool call,
             #    and the conversation takes a new message.
+            page.goto(f"{a}/#/c/{first}")
+            expect(answers).to_have_count(1)
             conversation = hang(page)
             started[0].kill()
             page.goto(f"{b}/#/c/{conversation}")
@@ -123,7 +171,7 @@ def test_replicas(local_gpt: FakeLocalGPTServer, tools_url: str, tmp_path: Path)
             said = re.compile(r'The tool said: .*NAP\(\{"TEXT": "HANG"\}\).*HELLO', re.S)
             expect(answers.last).to_contain_text(said, timeout=15_000)
 
-            # 3. A2 starts a turn that hangs and is killed, and nobody opens that conversation.
+            # 5. A2 starts a turn that hangs and is killed, and nobody opens that conversation.
             with stack.server(config, url, stack.API_KEY, started) as a2:
                 new_chat(page, a2)
                 hanging = hang(page)

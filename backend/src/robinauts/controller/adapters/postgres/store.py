@@ -5,19 +5,20 @@
 
 Every operation checks the owner and ``deleted_at`` itself, as the port promises. The
 session row is locked first in every transaction that writes a session and one of its
-turns: ``start_turn`` with ``FOR SHARE``, ``finish_turn`` and ``hide_session`` with an
-``UPDATE`` or a ``FOR NO KEY UPDATE``, so that no two of them deadlock. Constraint names
-are the interface with the database: a violation is translated by name. Watchers are
-woken by ``NOTIFY`` on one listening connection per store, held apart from the pool, and
-read the store again in every case, so a notification lost with a dropped connection
-costs a timeout and nothing else.
+turns: ``start_turn`` with ``FOR SHARE``, ``finish_turn`` with an ``UPDATE``, so that the
+two never deadlock. Constraint names are the interface with the database: a violation is
+translated by name. Watchers are woken by ``NOTIFY`` on one listening connection per store,
+held apart from the pool, and read the store again in every case, so a notification lost
+with a dropped connection costs a timeout and nothing else. A request to stop a turn comes
+on the same connection, and one that is lost is read back with the next renewal of the
+turn's lease.
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 
 import asyncpg
@@ -45,6 +46,9 @@ from robinauts.controller.ports.store import (
 CHANNEL = "robinauts_turns"
 """Where a turn's writes are announced: ``<turn> <position>``, or ``<turn> end``."""
 
+CANCEL_CHANNEL = "robinauts_cancel"
+"""Where a request to stop a turn is announced: ``<turn>``."""
+
 ONE_RUNNING = "turns_one_running_per_session"
 POSITION_TAKEN = "turn_events_pkey"
 USER_EXISTS = "users_provider_subject_key"
@@ -64,6 +68,11 @@ JOIN sessions AS s ON s.id = t.session_id
 WHERE t.id = $3 AND t.session_id = $2 AND s.owner_id = $1 AND s.deleted_at IS NULL
   AND t.state = 'running' AND t.lease_until > $7
 FOR SHARE OF t
+"""
+
+_NOT_RUNNING = """
+  AND NOT EXISTS (SELECT 1 FROM turns AS t WHERE t.session_id = s.id
+    AND t.state = 'running' AND t.lease_until > $1)
 """
 
 _T_COLUMNS = ", ".join("t." + c for c in _TURN_COLUMNS.split(", "))
@@ -126,6 +135,7 @@ class PostgresStore(Store):
         self._dsn = dsn
         self._listener: asyncpg.Connection | None = None
         self._waiters: dict[uuid.UUID, set[asyncio.Future[None]]] = {}
+        self._stops: list[Callable[[uuid.UUID], object]] = []
         self._opening: asyncio.Lock | None = None
 
     @property
@@ -224,25 +234,24 @@ class PostgresStore(Store):
         return [_session(row) for row in rows]
 
     async def hide_session(self, owner: uuid.UUID, session: uuid.UUID, at: datetime) -> None:
-        async with self._pool.acquire() as connection, connection.transaction():
-            # The row first, then the question: a second statement's snapshot sees a turn
-            # that `start_turn` committed under the lock, where one UPDATE's would not.
-            held = await connection.fetchval(_VISIBLE + " FOR NO KEY UPDATE", session, owner)
-            if held is None:
-                raise SessionNotFoundError(str(session))
-            status = await connection.execute(
-                "UPDATE sessions SET deleted_at = $2 WHERE id = $1 AND NOT EXISTS"
-                " (SELECT 1 FROM turns WHERE session_id = $1 AND state = 'running')",
-                session,
-                at,
-            )
-            if _rows(status) == 0:
-                raise TurnActiveError(str(session))
-
-    async def purge_session(self, owner: uuid.UUID, session: uuid.UUID) -> None:
-        await self._pool.execute(
-            "DELETE FROM sessions WHERE id = $1 AND owner_id = $2", session, owner
+        status = await self._pool.execute(
+            "UPDATE sessions SET deleted_at = $3"
+            " WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL",
+            session,
+            owner,
+            at,
         )
+        if _rows(status) == 0:
+            raise SessionNotFoundError(str(session))
+
+    async def purge_session(self, owner: uuid.UUID, session: uuid.UUID, now: datetime) -> bool:
+        status = await self._pool.execute(
+            "DELETE FROM sessions AS s WHERE id = $2 AND owner_id = $3" + _NOT_RUNNING,
+            now,
+            session,
+            owner,
+        )
+        return _rows(status) > 0
 
     async def messages_of(self, owner: uuid.UUID, session: uuid.UUID) -> list[Document]:
         async with self._pool.acquire() as connection:
@@ -412,14 +421,44 @@ class PostgresStore(Store):
 
     async def renew_leases(
         self, turns: Sequence[uuid.UUID], now: datetime, until: datetime
-    ) -> None:
-        await self._pool.execute(
+    ) -> list[uuid.UUID]:
+        rows = await self._pool.fetch(
             "UPDATE turns SET lease_until = $3"
-            " WHERE id = ANY($1) AND state = 'running' AND lease_until > $2",
+            " WHERE id = ANY($1) AND state = 'running' AND lease_until > $2"
+            " RETURNING id, cancel_requested_at",
             list(turns),
             now,
             until,
         )
+        return [row["id"] for row in rows if row["cancel_requested_at"] is not None]
+
+    async def request_cancel(
+        self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID, at: datetime
+    ) -> None:
+        async with self._pool.acquire() as connection, connection.transaction():
+            status = await connection.execute(
+                "UPDATE turns AS t SET cancel_requested_at = $4 FROM sessions AS s"
+                " WHERE s.id = t.session_id AND s.id = $2 AND s.owner_id = $1"
+                "   AND s.deleted_at IS NULL AND t.id = $3 AND t.state = 'running'",
+                owner,
+                session,
+                turn,
+                at,
+            )
+            if _rows(status) > 0:
+                await connection.execute("SELECT pg_notify($1, $2)", CANCEL_CHANNEL, str(turn))
+
+    async def listen_for_cancels(self, stop: Callable[[uuid.UUID], object]) -> None:
+        self._stops.append(stop)
+        await self._listen()
+
+    async def hidden_sessions(self, now: datetime) -> list[Session]:
+        rows = await self._pool.fetch(
+            f"SELECT {_SESSION_COLUMNS} FROM sessions AS s"
+            " WHERE deleted_at IS NOT NULL" + _NOT_RUNNING,
+            now,
+        )
+        return [_session(row) for row in rows]
 
     async def expired_turns(self, now: datetime) -> list[tuple[uuid.UUID, Turn]]:
         rows = await self._pool.fetch(
@@ -515,6 +554,7 @@ class PostgresStore(Store):
                 raise RuntimeError("a store that waits for events needs the database's dsn")
             listener = await asyncpg.connect(self._dsn)
             await listener.add_listener(CHANNEL, self._notified)
+            await listener.add_listener(CANCEL_CHANNEL, self._cancelled)
             self._listener = listener
 
     def _notified(self, connection: object, pid: int, channel: str, payload: str) -> None:
@@ -526,6 +566,14 @@ class PostgresStore(Store):
         for woken in self._waiters.get(turn, ()):
             if not woken.done():
                 woken.set_result(None)
+
+    def _cancelled(self, connection: object, pid: int, channel: str, payload: str) -> None:
+        try:
+            turn = uuid.UUID(payload)
+        except ValueError:
+            return
+        for stop in self._stops:
+            stop(turn)
 
     async def _visible(
         self, connection: asyncpg.Connection, owner: uuid.UUID, session: uuid.UUID

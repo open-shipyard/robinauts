@@ -41,6 +41,7 @@ from robinauts.controller.contract.domain import (
     ResultLanded,
     Role,
     Session,
+    SessionNotFoundError,
     TextPart,
     TextPiece,
     ToolCallPart,
@@ -223,5 +224,5 @@ async def _end(
     """End a turn, with what it answered if anything; nothing more if the turn is lost."""
     try:
         await writer.finish(state, error, answer, writer.last(TurnEnded(state)))
-    except TurnLostError:
+    except (TurnLostError, SessionNotFoundError):
         return

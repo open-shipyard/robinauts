@@ -168,26 +168,20 @@ class StoreContract:
         assert await store.get_session(me.id, one.id) == renamed
 
     @store_test
-    async def test_a_hide_is_refused_while_a_turn_runs_and_hides_the_session_after(
-        self, store: Store
-    ) -> None:
+    async def test_a_hide_during_a_turn_refuses_its_next_write(self, store: Store) -> None:
         me, one, _, running = await self.started(store)
-        with pytest.raises(TurnActiveError):
-            await store.hide_session(me.id, one.id, NOW)
-        await store.finish_turn(
-            me.id, one.id, running.id, TurnState.CANCELLED, NOW, None, None, [piece(1)], NOW
-        )
         await store.hide_session(me.id, one.id, NOW)
+        with pytest.raises((TurnLostError, SessionNotFoundError)):
+            await self.append(store, me, one, running, piece(1))
         with pytest.raises(SessionNotFoundError):
             await store.get_session(me.id, one.id)
         on_purged = turn(one.id, uuid.uuid4())
         with pytest.raises(SessionNotFoundError):
             await store.start_turn(me.id, on_purged, None)
         assert await store.sessions_of(me.id, 10, None) == []
-        await store.purge_session(me.id, one.id)
-        with pytest.raises(SessionNotFoundError):
-            await store.get_session(me.id, one.id)
-        await store.purge_session(me.id, one.id)
+        assert not await store.purge_session(me.id, one.id, NOW)
+        assert await store.purge_session(me.id, one.id, NOW + 4 * MINUTE)
+        assert not await store.purge_session(me.id, one.id, NOW + 4 * MINUTE)
 
     # --- turns --------------------------------------------------------------
 

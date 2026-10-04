@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
 
 from robinauts.controller.contract.domain import (
@@ -39,6 +39,8 @@ class MemoryStore(Store):
         self._turns: dict[uuid.UUID, Turn] = {}
         self._events: dict[uuid.UUID, list[StoredEvent]] = {}
         self._changed = asyncio.Condition()
+        self._cancel_requested: set[uuid.UUID] = set()
+        self._stops: list[Callable[[uuid.UUID], object]] = []
 
     async def open(self) -> None:
         """Nothing to open: the engines keep their memory in this process too."""
@@ -108,22 +110,22 @@ class MemoryStore(Store):
 
     async def hide_session(self, owner: uuid.UUID, session: uuid.UUID, at: datetime) -> None:
         self._visible(owner, session)
-        if self._running(session) is not None:
-            raise TurnActiveError(str(session))
         self._hidden[session] = at
         await self._notify()
 
-    async def purge_session(self, owner: uuid.UUID, session: uuid.UUID) -> None:
+    async def purge_session(self, owner: uuid.UUID, session: uuid.UUID, now: datetime) -> bool:
         found = self._sessions.get(session)
-        if found is None or found.owner_id != owner:
-            return
+        if found is None or found.owner_id != owner or self._live(session, now):
+            return False
         del self._sessions[session]
         self._hidden.pop(session, None)
         self._messages.pop(session, None)
         for turn in [t for t in self._turns.values() if t.session_id == session]:
             del self._turns[turn.id]
             self._events.pop(turn.id, None)
+            self._cancel_requested.discard(turn.id)
         await self._notify()
+        return True
 
     async def messages_of(self, owner: uuid.UUID, session: uuid.UUID) -> list[Document]:
         self._visible(owner, session)
@@ -224,11 +226,35 @@ class MemoryStore(Store):
 
     async def renew_leases(
         self, turns: Sequence[uuid.UUID], now: datetime, until: datetime
-    ) -> None:
+    ) -> list[uuid.UUID]:
+        renewed = []
         for turn in turns:
             found = self._turns.get(turn)
             if found is not None and found.state is TurnState.RUNNING and found.lease_until > now:
                 self._turns[turn] = dataclasses.replace(found, lease_until=until)
+                renewed.append(turn)
+        return [t for t in renewed if t in self._cancel_requested]
+
+    async def request_cancel(
+        self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID, at: datetime
+    ) -> None:
+        self._visible(owner, session)
+        running = self._running(session)
+        if running is not None and running.id == turn:
+            self._cancel_requested.add(turn)
+            for stop in self._stops:
+                stop(turn)
+
+    async def listen_for_cancels(self, stop: Callable[[uuid.UUID], object]) -> None:
+        self._stops.append(stop)
+
+    async def hidden_sessions(self, now: datetime) -> list[Session]:
+        return [self._sessions[s] for s in self._hidden if not self._live(s, now)]
+
+    def _live(self, session: uuid.UUID, now: datetime) -> bool:
+        """Whether a turn of the session runs with its lease not passed ``now``."""
+        running = self._running(session)
+        return running is not None and running.lease_until > now
 
     async def expired_turns(self, now: datetime) -> list[tuple[uuid.UUID, Turn]]:
         return [
