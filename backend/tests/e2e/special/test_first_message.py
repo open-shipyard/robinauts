@@ -49,10 +49,9 @@ def aux_first_message(agent: str, server: str, page: Page, local_gpt: FakeLocalG
     assert len(calls) == 4
 
 
-# No LangChain run yet: with no checkpoint to continue from, the LangChain engine resumes the
-# thread's latest state, so the edited and regenerated turns are sent the replaced thread
-# (issue "langchain-no-checkpoint-resumes-latest"). Add it back with the fix.
-
-
 def test_pydantic_ai_first_message(server: str, page: Page, local_gpt: FakeLocalGPTServer) -> None:
     aux_first_message("pydantic_ai", server, page, local_gpt)
+
+
+def test_langchain_first_message(server: str, page: Page, local_gpt: FakeLocalGPTServer) -> None:
+    aux_first_message("langchain", server, page, local_gpt)

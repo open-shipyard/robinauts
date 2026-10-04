@@ -16,8 +16,16 @@ from contextlib import aclosing
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    RemoveMessage,
+    ToolMessage,
+)
 from langchain_core.runnables import RunnableConfig
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from robinauts.agent_engines.contract.domain import (
     AgentDefinition,
@@ -69,8 +77,11 @@ class LangChainEngine(AgentEngine):
         if not await self._memory.exists(session_id):
             raise SessionNotFoundError(str(session_id))
         thread: RunnableConfig = {"configurable": {"thread_id": str(session_id)}}
+        # Without a checkpoint the saver loads the thread's latest state: clear its messages.
         start: RunnableConfig = thread
+        fresh: list[BaseMessage] = [RemoveMessage(id=REMOVE_ALL_MESSAGES)]
         if checkpoint_id is not None:
+            fresh = []
             start = {"configurable": {"thread_id": str(session_id), "checkpoint_id": checkpoint_id}}
             if await self._memory.saver.aget_tuple(start) is None:
                 raise CheckpointNotFoundError(checkpoint_id)
@@ -82,7 +93,7 @@ class LangChainEngine(AgentEngine):
             checkpointer=self._memory.saver,
         )
         stream = graph.astream(
-            {"messages": [HumanMessage(prompt)]}, start, stream_mode=["messages", "updates"]
+            {"messages": [*fresh, HumanMessage(prompt)]}, start, stream_mode=["messages", "updates"]
         )
         # The deadline bounds the run, not the caller's handling of what is yielded.
         deadline = asyncio.get_running_loop().time() + timeout_seconds
