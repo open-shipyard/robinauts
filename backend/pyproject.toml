@@ -185,6 +185,7 @@ norecursedirs = [
     "{arch}",
     "live",
     "ui",
+    "e2e",
 ]
 
 

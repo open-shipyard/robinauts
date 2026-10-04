@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 #
-# The interface in a real browser: backend/tests/ui/, which a plain test run
-# does not collect. It builds the interface, installs Playwright's Chromium and
-# runs the tests against a server on the echo engine, which needs no key.
+# The interface in a real browser: backend/tests/ui/ and backend/tests/e2e/,
+# which a plain test run does not collect. It builds the interface, installs
+# Playwright's Chromium and runs the tests against a server on the echo engine,
+# or on a model server the test runs on this machine, so none needs a key.
 # Slower than the rest of the suite, so CI runs it after the fast tests.
 # Further arguments are passed on to pytest.
 #
@@ -58,4 +59,4 @@ export PYTHONDONTWRITEBYTECODE
 uv run --locked --no-build playwright install ${CI:+--with-deps} chromium
 
 uv run --locked --no-build python ../scripts/wait_for_postgres.py
-uv run --locked --no-build pytest tests/ui "$@"
+uv run --locked --no-build pytest tests/ui tests/e2e "$@"
