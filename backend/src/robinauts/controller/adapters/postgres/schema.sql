@@ -154,8 +154,8 @@ CREATE INDEX IF NOT EXISTS sessions_deleted_at_idx
 -- ---------------------------------------------------------------------------
 
 -- One message of a session: a node of its tree. A question is stored before
--- its turn starts, and an answer when its turn finishes. A turn that fails
--- leaves no answer.
+-- its turn starts, and an answer when its turn ends: a failed turn's is marked
+-- failed in its document. A cancelled or interrupted turn leaves none.
 --
 -- `document` is the whole message in the controller's versioned format
 -- (docs/architecture/data-model.md): the fields below again, its parts (text,
@@ -314,8 +314,7 @@ CREATE INDEX IF NOT EXISTS turns_lease_until_idx
 -- application when the event is written, as that moment plus the retention
 -- (hours, not days), and the sweep deletes what has passed it. Ending a turn
 -- touches none of its events. Until they expire, the events are the only copy
--- of what a turn's reasoning said and of what a turn that failed had
--- streamed, which is why the retention is short.
+-- of what a turn's reasoning said, which is why the retention is short.
 --
 -- The primary key is `(turn_id, position)`. The runner numbers its turn's
 -- events, starting at 1, and is their only writer. The same document offered

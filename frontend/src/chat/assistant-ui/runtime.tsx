@@ -593,8 +593,7 @@ function turnsOf(dispatch: (action: ChatAction) => void, first: ChatProps) {
     if (text === "") return;
     if (busy()) return told(text);
     // Not the end of the thread where that is a question nobody answered:
-    // sending again is how a turn that went wrong is retried (`under`), and
-    // the backend is asked for it as an edit of that question.
+    // the new message replaces it (`under`, `askedIn`).
     const parentId = under(state);
     const conversationId = state.conversationId;
     if (conversationId !== null) {

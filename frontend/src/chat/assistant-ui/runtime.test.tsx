@@ -1258,12 +1258,10 @@ test("a reply after a tool round hangs under the tool message, not the answer", 
   });
 });
 
-test("after a turn that went wrong, asking again replaces the question", async () => {
-  // The answer a failed run was producing is in no conversation
-  // (`docs/specs/runs.md`), so the thread ends on the question. The format
-  // refuses a question under a question, and asking again is how the turn is
-  // retried: the new one takes the old one's place, as an edit of it -- here
-  // of the first question, which hangs under nothing.
+test("after an interrupted turn, asking again replaces the question", async () => {
+  // An interrupted turn stores no answer, so the thread ends on the question,
+  // and the new one takes its place, as an edit of it -- here of the first
+  // question, which hangs under nothing.
   const posts: Call[] = [];
   stub((call) => {
     if (call.url === `/api/conversations/${CONVERSATION}`) {
@@ -1271,7 +1269,7 @@ test("after a turn that went wrong, asking again replaces the question", async (
         opened(conversation(1), [TREE[0]!], {
           ended_badly: {
             run_id: RUN,
-            state: "failed",
+            state: "interrupted",
             ended_at: "2026-09-22T10:00:00Z",
           },
         }),
@@ -1837,10 +1835,9 @@ test("stopping before the first token leaves the box empty", async () => {
   });
 });
 
-test("a refused retry leaves the question it was retrying on the thread", async () => {
-  // The thread ends on a question nobody answered, so the retry goes after
-  // that question's *parent* (`under`) and takes its place on the screen. A
-  // refusal must put the question back.
+test("a refused message leaves the unanswered question it replaced on the thread", async () => {
+  // The thread ends on a question nobody answered, so a new message takes its
+  // place on the screen (`under`). A refusal must put the question back.
   inTurn({
     [`/api/conversations/${CONVERSATION}`]: [
       () =>
@@ -1848,7 +1845,7 @@ test("a refused retry leaves the question it was retrying on the thread", async 
           opened(conversation(1), [TREE[0]!], {
             ended_badly: {
               run_id: RUN,
-              state: "failed",
+              state: "interrupted",
               ended_at: "2026-09-23T10:00:00Z",
             },
           }),

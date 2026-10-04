@@ -107,8 +107,9 @@ and sends `RUN_STARTED` (`web/agui.py`).
 
 ### 7. The runner loads what it needs and announces the answer
 
-`run_turn` loads the session, the question, the agent's configuration and the parent
-answer's checkpoint id. Today these are passed in as objects. It starts a lease tick
+`run_turn` loads the session, the question, the agent's configuration and the
+checkpoint id of the nearest answer above the question that has one: a failed answer
+has none. Today these are passed in as objects. It starts a lease tick
 in the background (stage two; in block 5 the lease is written once, with the turn),
 then appends `MessageStarted` at position 1, numbered by itself. That first append is
 its claim on the turn: refused, it has lost the turn to a second runner, and it

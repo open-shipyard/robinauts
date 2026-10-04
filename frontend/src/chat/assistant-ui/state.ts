@@ -157,8 +157,8 @@ export interface ChatState {
    *
    * A turn the server refuses is one that never happened, so what it did to
    * the screen is undone: an edit that cut the thread and put a question at
-   * its end, a regeneration that cut an answer off, a retry that replaced
-   * the question nobody answered. The snapshot is what was there, and it is
+   * its end, a regeneration or a retry that cut an answer off, a message that
+   * replaced the question nobody answered. The snapshot is what was there, and it is
    * put back as it was rather than reconstructed.
    */
   before: ChatMessage[] | null;
@@ -263,14 +263,9 @@ export function saidFor(code: string): string {
  * What a new question goes after: the end of the thread, or just before it.
  *
  * Usually the end itself. **Unless the end is a question nobody answered** --
- * which is what a run that failed, was cancelled or was interrupted leaves
- * behind, since the answer it was producing is in no conversation
- * (`docs/specs/runs.md`) -- and then it is the message before that question.
- * Two reasons, and they are the same reason: the format refuses a message of
- * role `user` under another (`InvalidMessageTreeError`,
- * `docs/specs/conversations.md`), and **asking again is how such a turn is
- * retried**. The question that went unanswered comes off the screen, and
- * the new one stands where it stood.
+ * what a cancelled or interrupted run leaves behind; a failed one stores its
+ * answer -- and then it is the message before that question: the new one
+ * stands where the unanswered one stood.
  */
 export function under(state: ChatState): string | null {
   const tail = state.messages.at(-1);
@@ -1032,8 +1027,9 @@ function sameData(one: unknown, other: unknown): boolean {
  * **An answer whose calls were never answered** is the store's record of a
  * batch that did not finish: still running when it is the last message and
  * a run is in flight (its results are what the stream will bring), and
- * otherwise over the way the run was -- failed, with the sentence that says
- * so, or cancelled -- so that its calls are drawn as what they are.
+ * otherwise over the way the run was -- interrupted, with the sentence that
+ * says so, or cancelled -- so that its calls are drawn as what they are. An
+ * answer whose turn failed says so itself (`held`).
  */
 function folded(
   messages: readonly Message[],

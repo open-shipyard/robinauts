@@ -81,7 +81,7 @@ documented here, which is what "documented with the API" means for them.
 | method and path | body | answers |
 |---|---|---|
 | `POST /api/turns` | `{"agent_id": str, "model_id": str\|null, "text": str}` | the stream of the turn answering the first question of a **new** conversation |
-| `POST /api/conversations/{id}/turns` | `{"text": str, "parent_id": uuid, "model_id": str\|null}` **or** `{"text": str, "edit": uuid, "model_id": str\|null}` **or** `{"regenerate": uuid, "model_id": str\|null}` | the stream of the turn it began |
+| `POST /api/conversations/{id}/turns` | `{"text": str, "parent_id": uuid, "model_id": str\|null}` **or** `{"text": str, "edit": uuid, "model_id": str\|null}` **or** `{"regenerate": uuid, "model_id": str\|null}` **or** `{"retry": uuid, "model_id": str\|null}` | the stream of the turn it began |
 | `GET /api/conversations/{id}/runs/{run_id}/events?after=<position>` | — | the stream of that turn from `after`; `Last-Event-ID` says the same thing, and is read when `after` is absent; a run that is not in that conversation answers 404, as one in somebody else's does |
 | `POST /api/conversations/{id}/runs/{run_id}/cancel` | — | 204; the turn ends as cancelled. 409 for a turn another process runs |
 
@@ -90,7 +90,10 @@ documented here, which is what "documented with the API" means for them.
   parent, or under nothing when it was the conversation's first, and refuses
   a message that is not a question of the conversation (404). A body with
   `text` and neither is refused (422). `regenerate` is the assistant message
-  to produce again; the turn answers that answer's question.
+  to produce again; the turn answers that answer's question. `retry` is a
+  failed answer to try again: the same, with the model told about the failure
+  ([ui.md](ui.md)); a message that is not a failed answer of the conversation
+  is refused (404).
 - Every stream carries `Content-Type: text/event-stream`,
   `Cache-Control: no-store`, `X-Accel-Buffering: no`, and
   `X-Robinauts-Run-Id` and `X-Robinauts-Conversation-Id` — the turn's id and

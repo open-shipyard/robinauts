@@ -21,7 +21,7 @@ agent to another engine, and what its sessions then do, is stage two.
 | user | `id` | `provider` and `subject` (unique together), `name`, `email`, `created_at` | no |
 | session | `id` | `owner_id`, `agent`, `engine`, `title`, `created_at`, `updated_at`, `deleted_at` | no |
 | message | `id` | `session_id`, `parent_id`, `role`, `created_at` | **yes** |
-| turn | `id` | `session_id`, `follows`, `model`, `state`, `started_at`, `ended_at`, `error`, `lease_until`, `cancel_requested_at` | no |
+| turn | `id` | `session_id`, `follows`, `model`, `state`, `started_at`, `ended_at`, `error`, `lease_until`, `cancel_requested_at`, `retries` | no |
 | turn event | `(turn_id, position)` | `expires_at` | **yes** |
 | user session | `id` | `user_id`, `secret_hash` (unique), `created_at`, `expires_at` | no |
 | pending login | `state_hash` | `provider`, `nonce`, `verifier`, `return_to`, `created_at`, `expires_at` | no |
@@ -53,8 +53,9 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   or nothing for the first question. An edit is a new message under an earlier parent.
   The visible thread is the path from the root to the newest message.
 - **A turn answers one question.** `follows` is a user message of the same session. A
-  question has any number of turns: its first, each regeneration, and those that
-  failed.
+  question has any number of turns: its first, each regeneration and retry, and
+  those that failed. A retry's `retries` names the failed answer it tries again,
+  which the model is told about (`docs/specs/ui.md`).
 - **A turn produces at most one answer.** A finished turn stores one assistant
   message, whose `parent_id` is the question and whose document names the turn.
   A failed turn stores what it streamed before it failed, as an answer marked
@@ -249,12 +250,13 @@ Every event carries `v`, `kind`, `turn_id` and `position`, and then:
 One number for both documents, each with its own table of upgrades, since an upgrade
 written for one would make nonsense of the other.
 
-- **Additive changes keep the version:** a new kind of part or of event, and a new
-  role. A build that does not know a kind refuses **the document holding it**, by
-  name, and reads every other. A message is refused whole, since a message shown
-  without part of itself is one misread.
-- **Anything else moves it:** a new key, or a change to the meaning or shape of what
-  is already written. Nothing is read past, so a build that dropped a key it did not
+- **Additive changes keep the version:** a new kind of part or of event, a new
+  role, and a new key written only when it is set and read as unset when absent
+  (`failed`). A build that does not know a kind, or such a key, refuses **the
+  document holding it**, by name, and reads every other. A message is refused whole,
+  since a message shown without part of itself is one misread.
+- **Anything else moves it:** a key every document must have, or a change to the
+  meaning or shape of what is already written. Nothing is read past, so a build that dropped a key it did not
   know would write the record back without it.
 - **A reader** reads every version up to its own, lifting older documents one version
   at a time, and refuses a version above its own.
