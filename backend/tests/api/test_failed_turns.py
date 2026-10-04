@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 import pytest
 
-from controller_db import requires_postgres
+from util.controller_db import requires_postgres
 from util.fake_openai import FakeModel, PoisonEchoModel
 from util.stack import AGENTS
 

@@ -14,9 +14,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from robinauts.agent_engines.contract.ports import EngineFactory, installed
 from robinauts.agent_engines.contract.ports import StorageConfig as EngineStorage
 from robinauts.agent_engines.contract.ports import StorageKind as EngineStorageKind
-from robinauts.agent_engines.contract.ports import installed
 from robinauts.controller.adapters.config_file import read_config
 from robinauts.controller.adapters.dispatch import InProcessDispatcher
 from robinauts.controller.adapters.memory.credentials import MemoryCredentials
@@ -63,7 +63,14 @@ class Composed:
     credentials: Credentials
 
 
-def compose(config: Config, *, storage: StorageConfig, secret_for: SecretLookup) -> Composed:
+def compose(
+    config: Config,
+    *,
+    storage: StorageConfig,
+    secret_for: SecretLookup,
+    engines: Mapping[str, EngineFactory] | None = None,
+) -> Composed:
+    """`engines` are the factories by engine name; the installed ones when not given."""
     store: Store
     credentials: Credentials
     if storage.kind is StorageKind.POSTGRES:
@@ -78,7 +85,12 @@ def compose(config: Config, *, storage: StorageConfig, secret_for: SecretLookup)
         raise NotImplementedError(f"{storage.kind} storage")
     dispatcher = InProcessDispatcher()
     controller = RobinautsController(
-        config, store=store, storage=storage, secret_for=secret_for, dispatcher=dispatcher
+        config,
+        store=store,
+        storage=storage,
+        secret_for=secret_for,
+        dispatcher=dispatcher,
+        engines=engines,
     )
     # Handed over here, so that no adapter imports the application.
     dispatcher.run = controller.run_turn

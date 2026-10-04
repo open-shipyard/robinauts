@@ -13,9 +13,6 @@ from datetime import UTC, datetime, timedelta
 import asyncpg
 import pytest
 
-from aio import asyncio_test
-from contracts.store import StoreContract
-from controller_db import TemporarySchema, requires_postgres, temporary_schema, url
 from robinauts.controller.adapters.postgres.pool import codecs, open_pool
 from robinauts.controller.adapters.postgres.schema import create_schema
 from robinauts.controller.adapters.postgres.store import PostgresStore
@@ -30,6 +27,9 @@ from robinauts.controller.contract.domain import (
     User,
 )
 from robinauts.controller.ports.store import Store, StoredMessage
+from util.aio import asyncio_test
+from util.contracts.store import StoreContract
+from util.controller_db import TemporarySchema, requires_postgres, temporary_schema, url
 
 pytestmark = requires_postgres
 

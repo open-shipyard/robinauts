@@ -9,7 +9,6 @@ import uuid
 
 import pytest
 
-from aio import asyncio_test
 from robinauts.agent_engines.contract.domain import (
     AgentDefinition,
     Done,
@@ -19,6 +18,7 @@ from robinauts.agent_engines.contract.domain import (
     ToolResult,
 )
 from robinauts.agent_engines.echo_engine.engine import ANSWER, POISONED, TOOL, EchoEngine
+from util.aio import asyncio_test
 
 AGENT = AgentDefinition(system_prompt="")
 

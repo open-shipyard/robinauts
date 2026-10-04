@@ -16,7 +16,7 @@ virtual environment, a throwaway database, ``robinauts db init`` -- and then
 runs this against what it built. What this adds is everything that needs a
 browser's worth of behaviour:
 
-- two **stand-in OpenID Connect providers** (``backend/tests/standin``), each
+- two **stand-in OpenID Connect providers** (``backend/tests/util/standin``), each
   on a loopback port of its own, standing in for Google and for Okta;
 - a **TLS terminator** in front of the server, so that the deployment really
   is ``https`` and the ``__Host-`` cookies really are set. That is what the
@@ -424,7 +424,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     sys.path.insert(0, str(args.standin))
-    from standin.provider import StandInProvider
+    from util.standin.provider import StandInProvider
 
     addresses(args.backend_port, args.proxy_port)
     free(PROXY_PORT, "the TLS terminator")

@@ -5,11 +5,11 @@
 
 from __future__ import annotations
 
-from contracts.credentials import CredentialsContract
 from robinauts.controller.adapters.memory.credentials import MemoryCredentials
 from robinauts.controller.adapters.memory.store import MemoryStore
 from robinauts.controller.contract.ports import Credentials
 from robinauts.controller.ports.store import Store
+from util.contracts.credentials import CredentialsContract
 
 
 class TestMemoryCredentials(CredentialsContract):

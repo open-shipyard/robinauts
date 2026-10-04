@@ -17,10 +17,6 @@ from typing import Any
 import pytest
 from pydantic_ai.toolsets import FunctionToolset
 
-from aio import asyncio_test
-from chat_completions import PATH, Vendor, calling, finished, said, streamed
-from contracts.engine import AGENT, ANSWER, ARGUMENTS, CALL_ID, add
-from engine_settings import Keys, NoSecrets
 from robinauts.agent_engines.contract.domain import (
     Done,
     Event,
@@ -39,6 +35,10 @@ from robinauts.agent_engines.langchain_engine.memory import InProcessMemory as L
 from robinauts.agent_engines.pydantic_ai_engine import engine as pydantic_ai_module
 from robinauts.agent_engines.pydantic_ai_engine.engine import PydanticAIEngine
 from robinauts.agent_engines.pydantic_ai_engine.memory import InProcessMemory as PydanticAIMemory
+from util.aio import asyncio_test
+from util.chat_completions import PATH, Vendor, calling, finished, said, streamed
+from util.contracts.engine import AGENT, ANSWER, ARGUMENTS, CALL_ID, add
+from util.engine_settings import Keys, NoSecrets
 
 ENDPOINT = "https://gateway.example.test/v1"
 PROMPT = "What are two and three?"

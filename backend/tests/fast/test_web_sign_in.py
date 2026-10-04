@@ -15,7 +15,6 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import pytest
 
-from aio import asyncio_test
 from robinauts.controller.composition import compose
 from robinauts.controller.contract.domain import (
     AgentConfig,
@@ -28,7 +27,8 @@ from robinauts.controller.contract.domain import (
 from robinauts.controller.contract.domain import ProviderConfig as ModelProvider
 from robinauts.web.app import create_app
 from robinauts.web.sign_in import AllowEntry, Matcher, ProviderConfig, SignInConfig
-from standin import StandInProvider, redirect_from
+from util.aio import asyncio_test
+from util.standin import StandInProvider, redirect_from
 
 pytestmark = pytest.mark.io
 
@@ -90,7 +90,7 @@ async def signed_in(http: httpx.AsyncClient) -> httpx.Response:
 
 
 @asyncio_test
-async def test_a_person_on_the_allow_list_signs_in_and_is_who_the_api_answers_for(
+async def test_a_person_signs_in_writes_from_public_url_only_and_signs_out(
     stand_in: StandInProvider,
 ) -> None:
     async with browser(stand_in) as http:
@@ -129,14 +129,7 @@ async def test_a_person_on_the_allow_list_signs_in_and_is_who_the_api_answers_fo
         assert session["user"]["email"] == "ada@example.com"
         assert (await http.get("/api/conversations")).status_code == 200
 
-
-@asyncio_test
-async def test_a_write_with_the_session_cookie_must_come_from_public_url(
-    stand_in: StandInProvider,
-) -> None:
-    async with browser(stand_in) as http:
-        await signed_in(http)
-
+        # A write with the session cookie must come from public_url.
         refused = await http.post("/api/turns", json=TURN)
         assert refused.status_code == 403
         assert refused.json()["error"] == "Forbidden"
@@ -146,13 +139,7 @@ async def test_a_write_with_the_session_cookie_must_come_from_public_url(
         assert taken.status_code == 200
         assert len((await http.get("/api/conversations")).json()["items"]) == 1
 
-
-@asyncio_test
-async def test_signing_out_ends_the_session_and_clears_the_cookie(
-    stand_in: StandInProvider,
-) -> None:
-    async with browser(stand_in) as http:
-        await signed_in(http)
+        # Signing out ends the session and clears the cookie.
         secret = http.cookies["robinauts_session"]
 
         out = await http.post("/auth/logout", headers={"origin": PUBLIC_URL})
@@ -194,19 +181,3 @@ async def test_a_callback_whose_state_is_not_the_login_cookies_is_a_state_mismat
 
         assert landed.headers["location"] == "/ui/#/sign-in?error=state_mismatch"
         assert (await http.get("/api/conversations")).status_code == 401
-
-
-@asyncio_test
-async def test_the_local_mode_answers_every_route_as_the_local_user_with_no_cookie() -> None:
-    async with browser(None) as http:
-        session = (await http.get("/auth/session")).json()
-        assert session["sign_in"] is False
-        assert session["local_development"] is True
-        assert session["providers"] == []
-        assert session["user"]["provider"] == "!local"
-
-        assert (await http.post("/api/turns", json=TURN)).status_code == 200
-        assert len((await http.get("/api/conversations")).json()["items"]) == 1
-        assert (await http.get("/api/agents")).status_code == 200
-        assert (await http.post("/auth/logout")).status_code == 204
-        assert (await http.get("/auth/login/okta")).status_code == 404

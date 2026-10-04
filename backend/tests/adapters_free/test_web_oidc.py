@@ -17,7 +17,6 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from aio import asyncio_test
 from robinauts.web.oidc import DISCOVERY_PATH, Claims, Exchange
 from robinauts.web.sign_in import (
     ProviderConfig,
@@ -26,7 +25,8 @@ from robinauts.web.sign_in import (
     SignInErrorCode,
     random_secret,
 )
-from standin import Misbehaviour, StandInProvider, redirect_from
+from util.aio import asyncio_test
+from util.standin import Misbehaviour, StandInProvider, redirect_from
 
 pytestmark = pytest.mark.io
 

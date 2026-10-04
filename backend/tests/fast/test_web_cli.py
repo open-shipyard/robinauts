@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import create_autospec
 
 import pytest
 import uvicorn
@@ -36,19 +37,19 @@ def test_a_provider_is_served_with_its_sign_in() -> None:
     assert list(sign_in.providers) == ["okta"]
 
 
-def test_no_provider_is_refused_without_the_mode() -> None:
-    with pytest.raises(ConfigError, match="--dev-no-sign-in"):
-        serving({}, {}, host="127.0.0.1", dev_no_sign_in=False)
-
-
-def test_the_mode_cannot_be_combined_with_a_sign_in_table() -> None:
-    with pytest.raises(ConfigError, match="cannot be combined"):
-        serving({"public_url": SIGN_IN["public_url"]}, {}, host="127.0.0.1", dev_no_sign_in=True)
-
-
-def test_the_mode_refuses_a_host_off_loopback() -> None:
-    with pytest.raises(ConfigError, match="--host 0.0.0.0"):
-        serving({}, {}, host="0.0.0.0", dev_no_sign_in=True)
+@pytest.mark.parametrize(
+    ("tables", "host", "mode", "refusal"),
+    [
+        ({}, "127.0.0.1", False, "--dev-no-sign-in"),
+        ({}, "0.0.0.0", True, "--host 0.0.0.0"),
+        ({"agent": {}}, "127.0.0.1", True, "agent: unknown key"),
+    ],
+)
+def test_a_start_is_refused_with_its_reason(
+    tables: dict[str, object], host: str, mode: bool, refusal: str
+) -> None:
+    with pytest.raises(ConfigError, match=refusal):
+        serving(tables, {}, host=host, dev_no_sign_in=mode)
 
 
 @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost"])
@@ -57,19 +58,16 @@ def test_the_mode_serves_a_loopback_host(host: str) -> None:
     assert sign_in is None
 
 
-def test_an_unknown_top_level_key_is_named() -> None:
-    with pytest.raises(ConfigError, match="agent: unknown key"):
-        serving({"agent": {}}, {}, host="127.0.0.1", dev_no_sign_in=True)
-
-
 def test_a_refused_start_exits_before_it_binds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     path = tmp_path / "robinauts.toml"
     path.write_text('public_url = "https://robinauts.example.com"\n')
     monkeypatch.setenv("ROBINAUTS_CONFIG", str(path))
-    monkeypatch.setattr(uvicorn, "run", pytest.fail)
+    serve = create_autospec(uvicorn.run, spec_set=True)
+    monkeypatch.setattr(uvicorn, "run", serve)
     with pytest.raises(SystemExit) as exited:
         run(["start", "--dev-no-sign-in"])
     assert exited.value.code == 1
     assert "cannot be combined" in capsys.readouterr().err
+    serve.assert_not_called()

@@ -26,17 +26,6 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.toolsets import FunctionToolset
 
-from contracts.engine import (
-    ANSWER,
-    ARGUMENTS,
-    CALL_ID,
-    EngineMemoryContract,
-    EngineTurnContract,
-    ModelFailure,
-    Script,
-    add,
-)
-from engine_settings import Keys, NoSecrets, settings_for
 from robinauts.agent_engines.contract.domain import (
     AgentDefinition,
     ModelsConfig,
@@ -58,6 +47,17 @@ from robinauts.agent_engines.pydantic_ai_engine.clients import chat_model
 from robinauts.agent_engines.pydantic_ai_engine.engine import PydanticAIEngine
 from robinauts.agent_engines.pydantic_ai_engine.memory import InProcessMemory
 from robinauts.agent_engines.pydantic_ai_engine.tools import toolset_for, toolsets_for
+from util.contracts.engine import (
+    ANSWER,
+    ARGUMENTS,
+    CALL_ID,
+    EngineMemoryContract,
+    EngineTurnContract,
+    ModelFailure,
+    Script,
+    add,
+)
+from util.engine_settings import Keys, NoSecrets, settings_for
 
 
 @pytest.mark.parametrize(

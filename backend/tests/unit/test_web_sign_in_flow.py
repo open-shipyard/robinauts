@@ -12,7 +12,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from aio import asyncio_test
 from robinauts.controller.composition import compose
 from robinauts.controller.contract.domain import Config, StorageConfig, StorageKind, UserSession
 from robinauts.web.app import LOCAL_IDENTITY
@@ -27,6 +26,7 @@ from robinauts.web.sign_in import (
     safe_return_to,
     secret_hash,
 )
+from util.aio import asyncio_test
 
 ADA = Claims(
     subject="248289761001",

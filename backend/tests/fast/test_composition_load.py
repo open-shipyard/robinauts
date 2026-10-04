@@ -5,23 +5,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from robinauts.controller.composition import load
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
-ECHO = EXAMPLES / "echo.toml"
 
 
-def test_loads_the_echo_example() -> None:
-    config, secret_for = load(ECHO, {"X": "y"})
-    assert config.agents["echo"].engine == "echo"
+@pytest.mark.parametrize(
+    ("example", "agent", "engine"),
+    [
+        ("echo.toml", "echo", "echo"),
+        ("langchain.toml", "assistant", "langchain"),
+        ("pydantic-ai.toml", "assistant", "pydantic-ai"),
+    ],
+)
+def test_loads_the_example(example: str, agent: str, engine: str) -> None:
+    config, secret_for = load(EXAMPLES / example, {"X": "y"})
+    assert config.agents[agent].engine == engine
     assert secret_for("X") == "y"
-
-
-def test_loads_the_langchain_example() -> None:
-    config, _ = load(EXAMPLES / "langchain.toml", {})
-    assert config.agents["assistant"].engine == "langchain"
-
-
-def test_loads_the_pydantic_ai_example() -> None:
-    config, _ = load(EXAMPLES / "pydantic-ai.toml", {})
-    assert config.agents["assistant"].engine == "pydantic-ai"

@@ -17,9 +17,6 @@ from typing import Any
 import pytest
 from test_engines_over_chat_completions import SETTINGS
 
-from aio import asyncio_test
-from chat_completions import Vendor, finished, said, streamed
-from mcp_server import mcp_server
 from robinauts.agent_engines.contract.domain import (
     AgentDefinition,
     ToolServerAuth,
@@ -32,6 +29,9 @@ from robinauts.agent_engines.langchain_engine.memory import InProcessMemory as L
 from robinauts.agent_engines.pydantic_ai_engine import engine as pydantic_ai_module
 from robinauts.agent_engines.pydantic_ai_engine.engine import PydanticAIEngine
 from robinauts.agent_engines.pydantic_ai_engine.memory import InProcessMemory as PydanticAIMemory
+from util.aio import asyncio_test
+from util.chat_completions import Vendor, finished, said, streamed
+from util.mcp_server import mcp_server
 
 pytestmark = pytest.mark.io
 
