@@ -11,8 +11,8 @@ from playwright.sync_api import Page, expect
 
 from util import browser
 from util.browser import answers, expect_thread, send
-from util.e2e import sent
 from util.fake_openai import FakeLocalGPTServer
+from util.stack import sent
 
 pytestmark = [pytest.mark.io, pytest.mark.database]
 

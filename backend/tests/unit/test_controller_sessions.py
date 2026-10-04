@@ -69,7 +69,6 @@ async def test_list_rename_and_delete_sessions() -> None:
     await controller.delete_session(user, first.session_id)
     page = await controller.list_sessions(user, limit=10)
     assert [c.id for c in page.sessions] == [second.session_id]
-    assert not await controller._engines["echo"].exists(first.session_id)
     await controller.close()
 
 

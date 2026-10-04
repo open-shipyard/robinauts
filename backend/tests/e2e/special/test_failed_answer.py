@@ -13,8 +13,8 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from util.browser import DID_NOT_FINISH, send
-from util.e2e import sent
 from util.fake_openai import FakeLocalGPTServer, FakeModel, PoisonEchoModel
+from util.stack import sent
 
 pytestmark = [pytest.mark.io, pytest.mark.database]
 
