@@ -77,6 +77,11 @@ dev = [
     "black>=24.0",
     "import-linter>=2.0",
     "playwright>=1.50",
+    # Coverage of every test category, the server the API and e2e tests start included.
+    # The upper bound on `coverage` is the ten-day cooldown (.github/dependabot.yml): 7.16.2
+    # was published on 2026-09-27 and this was adopted on 2026-10-04.
+    "pytest-cov>=7.1",
+    "coverage>=7.16.1,<7.16.2",
 ]
 
 [tool.uv]
@@ -159,9 +164,9 @@ markers = [
     "database: tests that need the PostgreSQL named by ROBINAUTS_TEST_DATABASE_URL",
     "live: tests that call a real model provider with a real key, and cost money",
 ]
-# `tests/live/` is never collected by a plain run, and therefore never by CI:
+# `tests/adapters_metered/` is never collected by a plain run, and therefore never by CI:
 # those tests call a vendor with a real key and are run by hand, by naming the
-# file (`uv run pytest tests/live/test_engines_live.py`). Not a marker
+# file (`uv run pytest tests/adapters_metered/test_engines_live.py`). Not a marker
 # expression in `addopts`, which would set `markexpr` on every run and so
 # silence the check that the database tests really ran (tests/conftest.py).
 #
@@ -170,7 +175,7 @@ markers = [
 # tests.
 #
 # This setting REPLACES pytest's default list rather than adding to it, so the
-# default is written out here with `live` and `ui` on the end. Dropping any of
+# default is written out here with `adapters_metered` and `e2e` on the end. Dropping any of
 # the rest would send collection into a virtual environment or a build
 # directory.
 norecursedirs = [
@@ -183,9 +188,25 @@ norecursedirs = [
     "node_modules",
     "venv",
     "{arch}",
-    "live",
+    "adapters_metered",
     "e2e",
 ]
+
+# `uv run pytest --cov` measures a run. The `robinauts` servers that tests/api and tests/e2e
+# start are measured too: `patch = ["subprocess"]` follows them, and `sigterm` saves their
+# data when the tests stop them.
+[tool.coverage.run]
+source = ["robinauts"]
+branch = true
+parallel = true
+patch = ["subprocess"]
+sigterm = true
+# The pytest process of an e2e run imports no `robinauts`: only its servers do.
+disable_warnings = ["no-data-collected"]
+
+[tool.coverage.report]
+skip_covered = true
+show_missing = true
 
 
 # ---------------------------------------------------------------------------
