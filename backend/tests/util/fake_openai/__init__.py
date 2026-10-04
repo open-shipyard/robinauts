@@ -9,13 +9,14 @@ so a test picks the behaviour by picking the model:
 """
 
 from util.fake_openai.echo_model import EchoModel, PoisonEchoModel, ToolEchoModel
-from util.fake_openai.server import CallTool, FakeLocalGPTServer, FakeModel
+from util.fake_openai.server import CallTool, FakeLocalGPTServer, FakeModel, Overloaded
 
 __all__ = [
     "CallTool",
     "EchoModel",
     "FakeLocalGPTServer",
     "FakeModel",
+    "Overloaded",
     "PoisonEchoModel",
     "ToolEchoModel",
 ]

@@ -10,6 +10,13 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+MODEL_RETRIES = 2
+"""How many times a vendor's client retries a model call that failed with a 429, a 5xx or a lost
+connection."""
+
+MODEL_CALLS_PER_TURN = 200
+"""How many model calls one turn may make, so how many tool rounds it may take."""
+
 
 class EngineError(Exception):
     pass

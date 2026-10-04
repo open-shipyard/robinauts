@@ -32,7 +32,8 @@ def test_version_prints_the_version(capsys: pytest.CaptureFixture[str]) -> None:
 
 
 def test_a_provider_is_served_with_its_sign_in() -> None:
-    _, _, sign_in = serving(SIGN_IN, {}, host="0.0.0.0", dev_no_sign_in=False)
+    database = {"ROBINAUTS_DATABASE_URL": "postgresql://robinauts.example.com/robinauts"}
+    _, _, sign_in = serving(SIGN_IN, database, host="0.0.0.0", dev_no_sign_in=False)
     assert sign_in is not None
     assert list(sign_in.providers) == ["okta"]
 

@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+
+"""The start-ups the real ``robinauts`` executable refuses."""
+
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from util import stack
+
+pytestmark = pytest.mark.io
+
+SIGN_IN = """
+public_url = "https://robinauts.example.com"
+
+[providers.okta]
+title = "Okta"
+issuer = "https://example.okta.com/oauth2/default"
+client_id = "robinauts"
+client_secret_env = "ROBINAUTS_OKTA_SECRET"
+
+[[allow]]
+provider = "okta"
+everyone = true
+"""
+
+
+def test_a_start_with_sign_in_and_no_database_is_refused(tmp_path: Path) -> None:
+    config = tmp_path / "robinauts.toml"
+    config.write_text(SIGN_IN)
+    environment = {**os.environ, "ROBINAUTS_CONFIG": str(config)}
+    environment.pop("ROBINAUTS_DATABASE_URL", None)
+    command = [str(stack.ROBINAUTS), "start", "--port", str(stack.free_port())]
+    try:
+        started = subprocess.run(command, env=environment, capture_output=True, timeout=10)
+    except subprocess.TimeoutExpired:
+        raise AssertionError("the server started without a database") from None
+    assert started.returncode != 0
+    assert b"no database: set ROBINAUTS_DATABASE_URL" in started.stderr
