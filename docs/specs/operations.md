@@ -85,9 +85,7 @@ All optional, all set by the operator:
 
 - requests per minute per user;
 - a maximum attachment size;
-- timeouts for a model call, a tool call and a whole run; the bound on the
-  tool rounds one turn may take is each agent adapter's own default and is
-  not a setting;
+- timeouts for a model call, a tool call and a whole run;
 - a model's `context_window`, in tokens, which is what the frameworks keep
   a conversation's history within
   ([ADR 0005](../adr/0005-the-framework-owns-the-loop-and-the-memory.md)):
@@ -96,6 +94,10 @@ All optional, all set by the operator:
 - a token budget per user per period, which refuses new turns once spent
   and is shown to the user. It depends on usage recording and arrives with
   it.
+
+Two bounds are fixed and are not settings. A turn may make 200 model calls,
+one per tool round. A model call that fails with a 429, a 5xx, a timeout or
+a lost connection is retried twice before the turn fails.
 
 ## Retention
 

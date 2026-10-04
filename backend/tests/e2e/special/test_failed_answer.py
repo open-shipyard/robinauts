@@ -29,7 +29,7 @@ def fake_model() -> FakeModel:
 def aux_failed_answer(agent: str, server: str, page: Page, local_gpt: FakeLocalGPTServer) -> None:
     calls = local_gpt.received
 
-    # 1. "New chat", pick the agent, send "poison": the model server answers 500, and the
+    # 1. "New chat", pick the agent, send "poison": the model server answers 400, and the
     #    answer's place says it did not finish, once.
     page.goto(server)
     page.get_by_role("button", name="New chat").click()

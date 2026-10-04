@@ -27,6 +27,7 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai.toolsets import FunctionToolset
 
 from robinauts.agent_engines.contract.domain import (
+    MODEL_RETRIES,
     AgentDefinition,
     ModelsConfig,
     ProviderKind,
@@ -77,7 +78,7 @@ def test_an_anthropic_model_is_built_from_the_settings(
     assert isinstance(client, AsyncAnthropic)
     assert client.api_key == "key-of-p"
     assert str(client.base_url).rstrip("/") == endpoint
-    assert (client.max_retries, client.timeout) == (0, 7.0)
+    assert (client.max_retries, client.timeout) == (MODEL_RETRIES, 7.0)
     assert model_settings == {"timeout": 7.0, "max_tokens": 321}
 
 
@@ -98,7 +99,7 @@ def test_an_openai_model_is_built_from_the_settings(
     assert isinstance(client, AsyncOpenAI)
     assert client.api_key == "key-of-p"
     assert str(client.base_url).rstrip("/") == endpoint
-    assert (client.max_retries, client.timeout) == (0, 7.0)
+    assert (client.max_retries, client.timeout) == (MODEL_RETRIES, 7.0)
     assert model_settings == {"timeout": 7.0, "max_tokens": 321}
 
 

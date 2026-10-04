@@ -7,7 +7,8 @@ Bound to port 0, so the operating system picks the port; ``base_url`` is what a
 provider's ``base_url`` should be set to. Every request body is kept in
 ``received``, in order. A model answers with text, or with a ``CallTool`` that
 asks the client to run a tool and send its result back. A model that raises is
-answered ``500``, as the vendor answers a call it failed.
+answered ``400``, as the vendor refuses a call for good. A model that raises ``Overloaded`` is
+answered ``503``, a hiccup the client retries.
 """
 
 from __future__ import annotations
@@ -21,6 +22,10 @@ from types import TracebackType
 from typing import Any, Protocol
 
 COMPLETION_ID = "chatcmpl-fake"
+
+
+class Overloaded(Exception):
+    """Raised by a model to have the server answer ``503``, as an overloaded vendor."""
 
 
 @dataclass(frozen=True)
@@ -110,8 +115,13 @@ def _handler_for(server: FakeLocalGPTServer) -> type[BaseHTTPRequestHandler]:
             model = request.get("model", "fake-gpt")
             try:
                 answer = server.answer(request)
-            except Exception as refused:  # a model that raises is the vendor failing the call
-                self._send_json(500, {"error": {"message": str(refused), "type": "server_error"}})
+            except Overloaded as busy:
+                self._send_json(503, {"error": {"message": str(busy), "type": "server_error"}})
+                return
+            except Exception as refused:  # a model that raises is the vendor refusing the call
+                self._send_json(
+                    400, {"error": {"message": str(refused), "type": "invalid_request_error"}}
+                )
                 return
             if request.get("stream"):
                 self._stream(request, answer, model)
