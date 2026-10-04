@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""A server on the two-engine configuration of ``util.e2e``, its model server, and a browser.
+"""The platform of ``util.stack`` for each test, and a browser on it.
 
 ``fake_model`` is what the model server answers with, and ``tools_url`` the MCP server the
 ``<engine>_tools`` agents use (none by default); a test module overrides either.
@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Page
 
-from util import browser
-from util.e2e import API_KEY, config_for
+from util import stack
+from util.browser import browser_page
 from util.fake_openai import EchoModel, FakeLocalGPTServer, FakeModel
 
 
@@ -38,13 +38,17 @@ def local_gpt(fake_model: FakeModel) -> Iterator[FakeLocalGPTServer]:
 
 @pytest.fixture
 def server(local_gpt: FakeLocalGPTServer, tools_url: str | None, tmp_path: Path) -> Iterator[str]:
+    """The URL of a real server on the configuration of ``util.stack``, and a schema of its own."""
     config = tmp_path / "robinauts.toml"
-    config.write_text(config_for(local_gpt.base_url, tools_url))
-    with browser.database(config) as url, browser.server(config, url, env=API_KEY) as running:
+    config.write_text(stack.config_for(local_gpt.base_url, tools_url))
+    with (
+        stack.database(config) as url,
+        stack.server(config, url, env=stack.API_KEY) as running,
+    ):
         yield running
 
 
 @pytest.fixture
 def page() -> Iterator[Page]:
-    with browser.browser_page() as page:
+    with browser_page() as page:
         yield page
