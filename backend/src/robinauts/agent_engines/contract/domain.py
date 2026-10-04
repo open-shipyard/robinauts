@@ -82,6 +82,8 @@ class ToolServerConfig:
     timeout_seconds: float = 60.0
     # The header `auth = "header"` sends the secret in, as it is; set for that mode alone.
     header: str = ""
+    # Tools of the server's that the agent is not given, by the server's own names.
+    exclude: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

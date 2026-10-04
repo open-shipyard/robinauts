@@ -32,7 +32,8 @@ What an internal platform team deploys and controls.
   iteration; an operator who needs the server to know the person waits for
   per-user credentials. What an agent may do through a server is bounded by the credential's scopes and by the
   server's own admin gates, and by nothing here: every tool the agent's
-  servers offer runs without asking. A server configured with `auth =
+  servers offer, but those a table's `exclude` leaves out (below), runs
+  without asking. A server configured with `auth =
   "none"` — a public one, such as Microsoft Learn's — is sent no credential
   at all: what it sees is the deployment's address and the arguments the
   model wrote for the call, and nothing that names anyone. The client that
@@ -53,6 +54,13 @@ What an internal platform team deploys and controls.
     `Authorization`. Headers sent beside the credential, such as a user id
     some servers want next to a bearer, are not configurable yet.
   - `none`: nothing.
+- **A tool server's `exclude`** lists tools of the server, by the server's
+  own names, that agents are not given: both engines leave them out of
+  the tools the model is offered. One use is a tool whose input schema a
+  model provider refuses, which fails every turn of every agent that uses
+  the server; Composio's `COMPOSIO_MANAGE_SKILL` has `anyOf` at the top of
+  its schema, which Anthropic's API refuses. A value that is not a list of
+  names is refused at start-up.
 
 ## Configuration
 

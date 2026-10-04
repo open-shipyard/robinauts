@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from robinauts.controller.contract.domain import ConfigError, ProviderKind, ToolServerAuth
@@ -95,3 +97,35 @@ def test_a_header_on_another_auth_is_refused() -> None:
     message = str(raised.value)
     assert "tool_servers.gh: `header` is for auth \"header\" alone, not auth 'bearer'" in message
     assert "tool_servers.wiki: `header` is for auth \"header\" alone, not auth 'basic'" in message
+
+
+@pytest.mark.parametrize(
+    ("exclude", "parsed", "problem"),
+    [
+        ([], (), None),
+        (["COMPOSIO_MANAGE_SKILL"], ("COMPOSIO_MANAGE_SKILL",), None),
+        (["a", "b"], ("a", "b"), None),
+        ("a", None, "exclude is not a list of tool names: 'a'"),
+        (["a", 1], None, "exclude is not a list of tool names: ['a', 1]"),
+    ],
+)
+def test_a_tool_server_excludes_tools_by_name(
+    exclude: object, parsed: tuple[str, ...] | None, problem: str | None
+) -> None:
+    raw = {"tool_servers": {"t": {"url": "https://t", "auth": "none", "exclude": exclude}}}
+    if problem is None:
+        assert parse_config(raw).tool_servers["t"].exclude == parsed
+    else:
+        with pytest.raises(ConfigError, match=re.escape(f"tool_servers.t: {problem}")):
+            parse_config(raw)
+
+
+def test_an_agent_naming_a_tool_server_twice_is_refused() -> None:
+    raw = {
+        "model_providers": {"p": {"kind": "anthropic", "api_key_env": "K"}},
+        "models": {"fast": {"provider": "p", "name": "fast-1"}},
+        "tool_servers": {"t": {"url": "https://t", "auth": "none"}},
+        "agents": {"a": {**AGENT, "engine": "echo", "tools": ["t", "t"]}},
+    }
+    with pytest.raises(ConfigError, match=re.escape("agents.a: tool server(s) named twice: t")):
+        parse_config(raw)

@@ -19,7 +19,7 @@ from robinauts.agent_engines.contract.domain import (
 from robinauts.agent_engines.contract.ports import EngineSettings
 
 
-def toolset_for(server: ToolServerConfig, settings: EngineSettings) -> MCPToolset[Any]:
+def toolset_for(server: ToolServerConfig, settings: EngineSettings) -> AbstractToolset[Any]:
     headers = {}
     if server.auth is ToolServerAuth.BEARER:
         headers["Authorization"] = f"Bearer {settings.tool_secrets.secret_for(server.id)}"
@@ -29,12 +29,16 @@ def toolset_for(server: ToolServerConfig, settings: EngineSettings) -> MCPToolse
     elif server.auth is ToolServerAuth.HEADER:
         headers[server.header] = settings.tool_secrets.secret_for(server.id)
     # Nothing connects here: the agent's run opens the session and closes it when the run ends.
-    return MCPToolset(
+    toolset = MCPToolset(
         server.url,
         headers=headers,
         init_timeout=server.timeout_seconds,
         read_timeout=server.timeout_seconds,
     )
+    if not server.exclude:
+        return toolset
+    excluded = set(server.exclude)
+    return toolset.filtered(lambda _context, tool: tool.name not in excluded)
 
 
 def toolsets_for(agent: AgentDefinition, settings: EngineSettings) -> list[AbstractToolset[Any]]:

@@ -75,6 +75,7 @@ def engine_settings(config: domain.Config, secret_for: SecretLookup) -> EngineSe
                 t.user,
                 t.timeout_seconds,
                 t.header,
+                t.exclude,
             )
             for t in config.tool_servers.values()
         },
