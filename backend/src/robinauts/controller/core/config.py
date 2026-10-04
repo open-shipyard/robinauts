@@ -78,6 +78,8 @@ def parse_config(raw: Mapping[str, Any]) -> Config:
         for tool in agent.tools:
             if tool not in tool_servers:
                 problems.append(f"agents.{agent.id}: tool server {tool!r} is not configured")
+        if twice := sorted({tool for tool in agent.tools if agent.tools.count(tool) > 1}):
+            problems.append(f"agents.{agent.id}: tool server(s) named twice: {', '.join(twice)}")
         if agent.engine not in ENGINES:
             problems.append(f"agents.{agent.id}: engine {agent.engine!r} is not one of {ENGINES}")
     if problems:

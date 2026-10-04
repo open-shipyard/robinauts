@@ -118,3 +118,14 @@ def test_a_tool_server_excludes_tools_by_name(
     else:
         with pytest.raises(ConfigError, match=re.escape(f"tool_servers.t: {problem}")):
             parse_config(raw)
+
+
+def test_an_agent_naming_a_tool_server_twice_is_refused() -> None:
+    raw = {
+        "model_providers": {"p": {"kind": "anthropic", "api_key_env": "K"}},
+        "models": {"fast": {"provider": "p", "name": "fast-1"}},
+        "tool_servers": {"t": {"url": "https://t", "auth": "none"}},
+        "agents": {"a": {**AGENT, "engine": "echo", "tools": ["t", "t"]}},
+    }
+    with pytest.raises(ConfigError, match=re.escape("agents.a: tool server(s) named twice: t")):
+        parse_config(raw)

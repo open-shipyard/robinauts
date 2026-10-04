@@ -44,15 +44,15 @@ async def tools_for(agent: AgentDefinition, settings: EngineSettings) -> list[Ba
     if not agent.tools:
         return []
     servers = settings.models.tool_servers
-    client = MultiServerMCPClient(
-        {server_id: connection_for(servers[server_id], settings) for server_id in agent.tools}
-    )
+    # One connection per server, however often the agent names it.
+    connections = {s: connection_for(servers[s], settings) for s in agent.tools}
+    client = MultiServerMCPClient(connections)
     # Listing opens a session per server and each tool opens its own per call: nothing to close.
     # Per server, so that each one's `exclude` applies to its own tools' names.
-    listed = await asyncio.gather(*(client.get_tools(server_name=s) for s in agent.tools))
+    listed = await asyncio.gather(*(client.get_tools(server_name=s) for s in connections))
     return [
         tool
-        for server_id, tools in zip(agent.tools, listed, strict=True)
+        for server_id, tools in zip(connections, listed, strict=True)
         for tool in tools
         if tool.name not in servers[server_id].exclude
     ]
