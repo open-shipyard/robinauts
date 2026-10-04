@@ -1,11 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""A real server on a config and a schema of its own, and a browser, for ``tests/ui`` and
-``tests/e2e``.
+"""A real server on a config and a schema of its own, and a browser, for ``tests/e2e``.
 
-Neither directory is collected by a plain run (``norecursedirs``): ``scripts/check-ui.sh``
-builds the interface, installs the browser and runs them. The schema is made in the
+That directory is not collected by a plain run (``norecursedirs``): ``scripts/check-e2e.sh``
+builds the interface, installs the browser and runs it. The schema is made in the
 PostgreSQL that ``ROBINAUTS_TEST_DATABASE_URL`` names and dropped afterwards.
 """
 
@@ -73,7 +72,7 @@ def database(config: Path) -> Iterator[str]:
     """The URL of a new schema, with this build's tables in it, dropped afterwards."""
     given = os.environ.get("ROBINAUTS_TEST_DATABASE_URL")
     if not given:
-        pytest.fail("no ROBINAUTS_TEST_DATABASE_URL: run scripts/check-ui.sh, or set it")
+        pytest.fail("no ROBINAUTS_TEST_DATABASE_URL: run scripts/check-e2e.sh, or set it")
     schema = "robinauts_ui_" + uuid.uuid4().hex
     asyncio.run(run_statement(given, f'CREATE SCHEMA "{schema}"'))
     try:
@@ -90,7 +89,7 @@ def database(config: Path) -> Iterator[str]:
 def server(config: Path, database_url: str, env: Mapping[str, str] = {}) -> Iterator[str]:
     """The URL of a server on that config, without sign-in, stopped afterwards."""
     if not (ROOT / "frontend" / "dist" / "index.html").is_file():
-        pytest.fail("the interface is not built: run scripts/check-ui.sh")
+        pytest.fail("the interface is not built: run scripts/check-e2e.sh")
     port = free_port()
     environment = {**os.environ, **env, "ROBINAUTS_CONFIG": str(config)}
     environment["ROBINAUTS_DATABASE_URL"] = database_url

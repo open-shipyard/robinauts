@@ -3,8 +3,8 @@
 
 """A failed answer, through each engine, says so in its place and keeps saying it.
 
-Ported from ``tests/ui``, where the echo engine fails the turn: here the model server fails the
-call, through ``PoisonEchoModel``, so the failure goes through a real engine's error handling.
+The model server fails the call, through ``PoisonEchoModel``, so the failure goes through a real
+engine's error handling.
 """
 
 from __future__ import annotations
