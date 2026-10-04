@@ -267,6 +267,8 @@ class RobinautsController(Controller):
     async def _ask(
         self, user: User, session: Session, parent_id: uuid.UUID | None, model: str, text: str
     ) -> TurnStarted:
+        if not text or not text.strip():
+            raise InvalidValueError("a message needs some text")
         question = Message(
             uuid.uuid4(),
             session.id,
