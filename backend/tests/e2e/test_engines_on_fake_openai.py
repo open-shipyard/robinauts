@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""A message typed in the browser goes through the LangChain engine to an OpenAI-compatible
-server and back, and the answer is kept in PostgreSQL.
+"""A message typed in the browser goes through each engine to an OpenAI-compatible server and
+back, and the answer is kept in PostgreSQL.
 
 The server is ``FakeLocalGPTServer`` on this machine, answering with ``EchoModel``.
 """
@@ -34,11 +34,17 @@ provider = "local_gpt"
 name = "fake-gpt"
 title = "Local GPT"
 
-[agents.assistant]
-title = "Assistant"
+[agents.langchain]
+title = "LangChain"
 system_prompt = "{system_prompt}"
 model = "local_gpt"
 engine = "langchain"
+
+[agents.pydantic_ai]
+title = "Pydantic AI"
+system_prompt = "{system_prompt}"
+model = "local_gpt"
+engine = "pydantic-ai"
 """
 
 
@@ -65,12 +71,12 @@ def page() -> Iterator[Page]:
         yield page
 
 
-def test_a_message_is_answered_by_the_fake_gpt_and_kept(
-    server: str, page: Page, local_gpt: FakeLocalGPTServer
-) -> None:
+def aux_base_journey(agent: str, server: str, page: Page, local_gpt: FakeLocalGPTServer) -> None:
+    """The journey every engine walks, on the agent with that id."""
     page.goto(server)
     page.get_by_role("button", name="New chat").click()
-    expect(page.get_by_label("Agent")).to_have_value("assistant")
+    page.get_by_label("Agent").select_option(agent)
+    expect(page.get_by_label("Agent")).to_have_value(agent)
 
     browser.send(page, PROMPT)
     question = page.locator('[data-role="user"]').get_by_role("paragraph")
@@ -88,3 +94,11 @@ def test_a_message_is_answered_by_the_fake_gpt_and_kept(
         ("system", SYSTEM_PROMPT),
         ("user", PROMPT),
     ]
+
+
+def test_langchain_base_journey(server: str, page: Page, local_gpt: FakeLocalGPTServer) -> None:
+    aux_base_journey("langchain", server, page, local_gpt)
+
+
+def test_pydantic_ai_base_journey(server: str, page: Page, local_gpt: FakeLocalGPTServer) -> None:
+    aux_base_journey("pydantic_ai", server, page, local_gpt)
