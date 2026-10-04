@@ -5,8 +5,9 @@
 
 Bound to port 0, so the operating system picks the port; ``base_url`` is what a
 provider's ``base_url`` should be set to. Every request body is kept in
-``received``, in order. A model that raises is answered ``500``, as the vendor
-answers a call it failed.
+``received``, in order. A model answers with text, or with a ``CallTool`` that
+asks the client to run a tool and send its result back. A model that raises is
+answered ``500``, as the vendor answers a call it failed.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import TracebackType
 from typing import Any, Protocol
@@ -21,9 +23,18 @@ from typing import Any, Protocol
 COMPLETION_ID = "chatcmpl-fake"
 
 
+@dataclass(frozen=True)
+class CallTool:
+    """An answer that is a call of the tool ``name`` with ``arguments``, not text."""
+
+    name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+    call_id: str = "call_fake"
+
+
 class FakeModel(Protocol):
-    def reply(self, messages: list[dict[str, Any]]) -> str:
-        """The answer's text, given the request's ``messages`` as the client sent them."""
+    def reply(self, messages: list[dict[str, Any]]) -> str | CallTool:
+        """The answer, given the request's ``messages`` as the client sent them."""
         ...
 
 
@@ -60,11 +71,10 @@ class FakeLocalGPTServer:
     ) -> None:
         self.stop()
 
-    def answer(self, request: dict[str, Any]) -> tuple[str, dict[str, Any]]:
-        """The text the model replies with, and the request's model name echoed back."""
+    def answer(self, request: dict[str, Any]) -> str | CallTool:
         with self._lock:
             self.received.append(request)
-        return self.model.reply(request["messages"]), request.get("model", "fake-gpt")
+        return self.model.reply(request["messages"])
 
 
 def _chunk(model: str, delta: dict[str, Any], finish: str | None = None) -> dict[str, Any]:
@@ -82,6 +92,14 @@ def _usage(text: str) -> dict[str, int]:
     return {"prompt_tokens": 1, "completion_tokens": completion, "total_tokens": 1 + completion}
 
 
+def _tool_call(call: CallTool) -> dict[str, Any]:
+    return {
+        "id": call.call_id,
+        "type": "function",
+        "function": {"name": call.name, "arguments": json.dumps(call.arguments)},
+    }
+
+
 def _handler_for(server: FakeLocalGPTServer) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
@@ -89,40 +107,57 @@ def _handler_for(server: FakeLocalGPTServer) -> type[BaseHTTPRequestHandler]:
                 self._send_json(404, {"error": {"message": f"no route {self.path}"}})
                 return
             request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            model = request.get("model", "fake-gpt")
             try:
-                text, model = server.answer(request)
+                answer = server.answer(request)
             except Exception as refused:  # a model that raises is the vendor failing the call
                 self._send_json(500, {"error": {"message": str(refused), "type": "server_error"}})
                 return
             if request.get("stream"):
-                self._stream(request, text, model)
+                self._stream(request, answer, model)
             else:
-                self._send_json(200, self._completion(text, model))
+                self._send_json(200, self._completion(answer, model))
 
-        def _completion(self, text: str, model: str) -> dict[str, Any]:
+        def _completion(self, answer: str | CallTool, model: str) -> dict[str, Any]:
+            if isinstance(answer, CallTool):
+                message = {"role": "assistant", "content": None, "tool_calls": [_tool_call(answer)]}
+                finish, usage = "tool_calls", _usage("")
+            else:
+                message = {"role": "assistant", "content": answer}
+                finish, usage = "stop", _usage(answer)
             return {
                 "id": COMPLETION_ID,
                 "object": "chat.completion",
                 "created": 1,
                 "model": model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {"role": "assistant", "content": text},
-                        "finish_reason": "stop",
-                    }
-                ],
-                "usage": _usage(text),
+                "choices": [{"index": 0, "message": message, "finish_reason": finish}],
+                "usage": usage,
             }
 
-        def _stream(self, request: dict[str, Any], text: str, model: str) -> None:
-            # One chunk per word, each keeping the whitespace after it, so they join back exactly.
-            pieces = re.findall(r"\s*\S+\s*|\s+", text)
-            chunks = [
-                _chunk(model, {"role": "assistant", "content": ""}),
-                *(_chunk(model, {"content": piece}) for piece in pieces),
-                _chunk(model, {}, "stop"),
-            ]
+        def _stream(self, request: dict[str, Any], answer: str | CallTool, model: str) -> None:
+            if isinstance(answer, CallTool):
+                # The call's id and name first, then its arguments, as the vendor streams one.
+                call = _tool_call(answer)
+                arguments = call["function"]["arguments"]
+                call["function"]["arguments"] = ""
+                chunks = [
+                    _chunk(model, {"role": "assistant", "content": None}),
+                    _chunk(model, {"tool_calls": [{"index": 0, **call}]}),
+                    _chunk(
+                        model, {"tool_calls": [{"index": 0, "function": {"arguments": arguments}}]}
+                    ),
+                    _chunk(model, {}, "tool_calls"),
+                ]
+                text = ""
+            else:
+                # One chunk per word, each keeping the whitespace after it, so they join back.
+                pieces = re.findall(r"\s*\S+\s*|\s+", answer)
+                chunks = [
+                    _chunk(model, {"role": "assistant", "content": ""}),
+                    *(_chunk(model, {"content": piece}) for piece in pieces),
+                    _chunk(model, {}, "stop"),
+                ]
+                text = answer
             if (request.get("stream_options") or {}).get("include_usage"):
                 chunks.append({**_chunk(model, {}), "choices": [], "usage": _usage(text)})
             body = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"

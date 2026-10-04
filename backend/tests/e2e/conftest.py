@@ -3,8 +3,8 @@
 
 """A server on the two-engine configuration of ``util.e2e``, its model server, and a browser.
 
-``fake_model`` is what the model server answers with; a test module overrides it to inject
-another.
+``fake_model`` is what the model server answers with, and ``tools_url`` the MCP server the
+``<engine>_tools`` agents use (none by default); a test module overrides either.
 """
 
 from __future__ import annotations
@@ -26,15 +26,20 @@ def fake_model() -> FakeModel:
 
 
 @pytest.fixture
+def tools_url() -> str | None:
+    return None
+
+
+@pytest.fixture
 def local_gpt(fake_model: FakeModel) -> Iterator[FakeLocalGPTServer]:
     with FakeLocalGPTServer(fake_model) as running:
         yield running
 
 
 @pytest.fixture
-def server(local_gpt: FakeLocalGPTServer, tmp_path: Path) -> Iterator[str]:
+def server(local_gpt: FakeLocalGPTServer, tools_url: str | None, tmp_path: Path) -> Iterator[str]:
     config = tmp_path / "robinauts.toml"
-    config.write_text(config_for(local_gpt.base_url))
+    config.write_text(config_for(local_gpt.base_url, tools_url))
     with browser.database(config) as url, browser.server(config, url, env=API_KEY) as running:
         yield running
 

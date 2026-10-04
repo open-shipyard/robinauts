@@ -2,7 +2,11 @@
 # Copyright The Robinauts Authors
 
 """The configuration ``tests/e2e`` runs the server on: one agent per engine, both on models
-served by ``FakeLocalGPTServer``, and what a request to it should carry."""
+served by ``FakeLocalGPTServer``, and what a request to it should carry.
+
+Given an MCP server, it also has one agent per engine with that server's tools,
+``<engine>_tools``.
+"""
 
 from __future__ import annotations
 
@@ -39,11 +43,34 @@ model = "local_gpt"
 engine = "pydantic-ai"
 """
 
+TOOLS_CONFIG = """
+[tool_servers.tools]
+url = "{tools_url}"
+auth = "none"
+
+[agents.langchain_tools]
+title = "LangChain with tools"
+system_prompt = "{system_prompt}"
+model = "local_gpt"
+engine = "langchain"
+tools = ["tools"]
+
+[agents.pydantic_ai_tools]
+title = "Pydantic AI with tools"
+system_prompt = "{system_prompt}"
+model = "local_gpt"
+engine = "pydantic-ai"
+tools = ["tools"]
+"""
+
 API_KEY = {"LOCAL_GPT_KEY": "not-a-real-key"}
 
 
-def config_for(base_url: str) -> str:
-    return CONFIG.format(base_url=base_url, system_prompt=SYSTEM_PROMPT)
+def config_for(base_url: str, tools_url: str | None = None) -> str:
+    config = CONFIG.format(base_url=base_url, system_prompt=SYSTEM_PROMPT)
+    if tools_url is not None:
+        config += TOOLS_CONFIG.format(tools_url=tools_url, system_prompt=SYSTEM_PROMPT)
+    return config
 
 
 def sent(request: dict[str, Any]) -> list[tuple[str, str]]:
