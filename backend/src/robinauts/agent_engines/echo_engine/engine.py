@@ -44,9 +44,11 @@ class EchoEngine(AgentEngine):
         return frozenset(ProviderKind)
 
     async def setup(self) -> None:
+        # Nothing to set up: it keeps no memory.
         pass
 
     async def create(self, session_id: uuid.UUID) -> None:
+        # Nothing to record: every session exists.
         pass
 
     async def exists(self, session_id: uuid.UUID) -> bool:
@@ -75,7 +77,9 @@ class EchoEngine(AgentEngine):
         yield Done(text=ANSWER + result, checkpoint_id=str(uuid.uuid4()))
 
     async def fork(self, source_id: uuid.UUID, target_id: uuid.UUID, *, checkpoint_id: str) -> None:
+        # Nothing to copy: no turn reads an earlier one.
         pass
 
     async def forget(self, session_id: uuid.UUID) -> None:
+        # Nothing to delete: it keeps no memory.
         pass
