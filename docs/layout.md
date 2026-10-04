@@ -255,7 +255,7 @@ that layer tomorrow is inside the rule without anybody remembering to list
 it, and the one sub-package that may import the framework is written as an
 *exception* to the rule rather than as an omission from it. A test writes a
 module into `adapters/` that imports the framework and asserts the contract
-breaks (`tests/unit/test_architecture.py`).
+breaks (`tests/tooling/test_architecture.py`).
 
 This is the backend's counterpart of the frontend seam in ADR 0001.
 **The discard test:** three places name the adapter, and deleting the
@@ -264,7 +264,7 @@ import in `app.py` and its one entry in that module's `ENGINES` table; the
 contract exceptions in `backend/pyproject.toml` that name the sub-package;
 and the sub-package's own tests — its own module, its live test, and its
 half of the tests both engines are held to over OpenAI's protocol
-(`unit/test_engines_over_chat_completions.py`), which name both engines and
+(`adapters_free/test_engines_over_chat_completions.py`), which name both engines and
 cannot be written without both.
 
 Plus one that names no adapter and would fail all the same: the composition
@@ -366,7 +366,7 @@ HTTP clients are confined to adapters.
 The dependency matrix is enforced with
 [import-linter](https://import-linter.readthedocs.io/) contracts declared
 in `backend/pyproject.toml` and run in the test suite
-(`tests/unit/test_architecture.py`) from the first scaffold. Contracts
+(`tests/tooling/test_architecture.py`) from the first scaffold. Contracts
 cover:
 
 - domain imports nothing from robinauts

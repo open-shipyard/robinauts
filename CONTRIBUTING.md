@@ -140,7 +140,7 @@ file is the one place for such pins, and CI reads uv's version from it too.
 ### PostgreSQL for the tests
 
 Most of the suite needs nothing but Python. The tests under
-`backend/tests/integration/` need a PostgreSQL, and they are **given** one
+`backend/tests/adapters_free/` and `backend/tests/api/` need a PostgreSQL, and they are **given** one
 rather than starting one: set `ROBINAUTS_TEST_DATABASE_URL` to its URL and
 run the tests as usual.
 

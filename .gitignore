@@ -1,6 +1,9 @@
 .venv/
 __pycache__/
 .pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 .ruff_cache/
 .import_linter_cache/
 

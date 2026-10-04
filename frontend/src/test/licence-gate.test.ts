@@ -9,7 +9,7 @@
  * refusals, over fixtures.
  *
  * The list of forbidden identifiers is shared with the Python gate through
- * `scripts/licence-fixtures.json`, which `backend/tests/unit/test_licence_gate.py`
+ * `scripts/licence-fixtures.json`, which `backend/tests/tooling/test_licence_gate.py`
  * reads too: the two gates enforce one policy, so they are held to one list
  * rather than to two that look alike.
  */

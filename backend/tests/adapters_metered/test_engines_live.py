@@ -3,7 +3,8 @@
 
 """One real turn of each engine per route. Run by hand, never by CI.
 
-``tests/live`` is not collected by a plain run (``norecursedirs``); name the file to run it.
+``tests/adapters_metered`` is not collected by a plain run (``norecursedirs``); name the file
+to run it.
 Each test reads its key from a variable of its own and skips without it. Every test runs once
 per engine (the engine is in the test's id).
 """
