@@ -14,13 +14,11 @@ import pytest
 from playwright.sync_api import Page, expect
 
 from util import browser
+from util.browser import DID_NOT_FINISH
 
 pytestmark = [pytest.mark.io, pytest.mark.database]
 
 ECHO_CONFIG = browser.ROOT / "examples" / "echo.toml"
-
-# What the interface says of an answer that failed (frontend/src/chat/assistant-ui/state.ts).
-DID_NOT_FINISH = "This answer did not finish: something went wrong while it was being produced."
 
 
 @pytest.fixture

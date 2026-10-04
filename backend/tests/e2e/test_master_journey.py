@@ -10,83 +10,19 @@ the question it answers, and what the engine sent it shows what the engine remem
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from pathlib import Path
-from typing import Any
-
 import pytest
 from playwright.sync_api import Page, expect
 
 from util import browser
 from util.browser import answers, expect_thread, history, send
-from util.fake_openai import EchoModel, FakeLocalGPTServer
+from util.e2e import sent
+from util.fake_openai import FakeLocalGPTServer
 
 pytestmark = [pytest.mark.io, pytest.mark.database]
-
-SYSTEM_PROMPT = "You are a robinaut."
-
-CONFIG = """
-[model_providers.local_gpt]
-kind = "openai-compatible"
-base_url = "{base_url}"
-api_key_env = "LOCAL_GPT_KEY"
-
-[models.local_gpt]
-provider = "local_gpt"
-name = "fake-gpt"
-title = "Local GPT"
-
-[models.local_gpt_2]
-provider = "local_gpt"
-name = "fake-gpt-2"
-title = "Local GPT 2"
-
-[agents.langchain]
-title = "LangChain"
-system_prompt = "{system_prompt}"
-model = "local_gpt"
-engine = "langchain"
-
-[agents.pydantic_ai]
-title = "Pydantic AI"
-system_prompt = "{system_prompt}"
-model = "local_gpt"
-engine = "pydantic-ai"
-"""
-
-
-@pytest.fixture
-def local_gpt() -> Iterator[FakeLocalGPTServer]:
-    with FakeLocalGPTServer(EchoModel()) as running:
-        yield running
-
-
-@pytest.fixture
-def server(local_gpt: FakeLocalGPTServer, tmp_path: Path) -> Iterator[str]:
-    config = tmp_path / "robinauts.toml"
-    config.write_text(CONFIG.format(base_url=local_gpt.base_url, system_prompt=SYSTEM_PROMPT))
-    with (
-        browser.database(config) as url,
-        browser.server(config, url, env={"LOCAL_GPT_KEY": "not-a-real-key"}) as running,
-    ):
-        yield running
-
-
-@pytest.fixture
-def page() -> Iterator[Page]:
-    with browser.browser_page() as page:
-        yield page
 
 
 def echoed(*questions: str) -> list[tuple[str, str]]:
     return [(q, q) for q in questions]
-
-
-def sent(request: dict[str, Any]) -> list[tuple[str, str]]:
-    """The conversation a request carried, as ``(role, text)``, its system prompt checked."""
-    system, *rest = request["messages"]
-    assert (system["role"], system["content"]) == ("system", SYSTEM_PROMPT)
-    return [(m["role"], m["content"]) for m in rest]
 
 
 def history_of(*questions: str) -> list[tuple[str, str]]:

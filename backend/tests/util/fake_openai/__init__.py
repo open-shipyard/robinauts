@@ -8,7 +8,7 @@ so a test picks the behaviour by picking the model:
 ``FakeLocalGPTServer(EchoModel())``.
 """
 
-from util.fake_openai.echo_model import EchoModel
+from util.fake_openai.echo_model import EchoModel, PoisonEchoModel
 from util.fake_openai.server import FakeLocalGPTServer, FakeModel
 
-__all__ = ["EchoModel", "FakeLocalGPTServer", "FakeModel"]
+__all__ = ["EchoModel", "FakeLocalGPTServer", "FakeModel", "PoisonEchoModel"]

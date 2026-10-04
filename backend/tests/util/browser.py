@@ -31,6 +31,9 @@ from playwright.sync_api import Locator, Page, expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[3]
 ROBINAUTS = Path(sys.executable).with_name("robinauts")
 
+# What the interface says of an answer that failed (frontend/src/chat/assistant-ui/state.ts).
+DID_NOT_FINISH = "This answer did not finish: something went wrong while it was being produced."
+
 
 def free_port() -> int:
     with socket.socket() as probe:
