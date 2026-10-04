@@ -24,8 +24,13 @@ class TurnDispatcher(ABC):
         """Run the turn, somewhere, and return at once."""
 
     @abstractmethod
+    def stop(self, turn: uuid.UUID) -> bool:
+        """Cancel the turn if this process runs it, once however often it is asked, and return
+        at once: true when this process runs it."""
+
+    @abstractmethod
     async def cancel(self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID) -> bool:
-        """Cancel the turn if this process runs it, and wait for it to end: true when it did,
+        """Stop the turn if this process runs it, and wait for it to end: true when it did,
         false when the turn is not this process's."""
 
     @abstractmethod

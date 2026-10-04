@@ -28,7 +28,6 @@ from robinauts.controller.contract.domain import (
     SessionNotFoundError,
     StorageConfig,
     StorageKind,
-    TurnActiveError,
     TurnEnded,
     TurnStarted,
     TurnState,
@@ -168,7 +167,7 @@ async def test_a_cancel_before_the_runner_claimed_ends_the_turn_cancelled() -> N
 
 
 @asyncio_test
-async def test_a_cancel_of_a_turn_another_process_runs_is_refused() -> None:
+async def test_a_cancel_of_a_turn_another_process_runs_reaches_it() -> None:
     store = MemoryStore()
     engine, gate = gated_engine()
     first = await over(store, engines={"echo": lambda *_: engine})
@@ -176,10 +175,11 @@ async def test_a_cancel_of_a_turn_another_process_runs_is_refused() -> None:
     user = await first.ensure_user(Identity("local", "me"))
     started = await first.start_session(user, agent="echo", model="echo", text="one")
     await store.wait_for_events(user.id, started.session_id, started.turn_id, 0, 5.0)
-    with pytest.raises(TurnActiveError):
-        await second.cancel_turn(user, started.session_id, started.turn_id)
-    gate.set()
+    await second.cancel_turn(user, started.session_id, started.turn_id)
     await settled(second, user, started)
+    turn = await store.get_turn(user.id, started.session_id, started.turn_id)
+    assert turn is not None
+    assert turn.state is TurnState.CANCELLED
     await first.close()
     await second.close()
 

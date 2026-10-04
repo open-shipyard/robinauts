@@ -16,6 +16,7 @@ class InProcessDispatcher(TurnDispatcher):
         self.run = run
         """The controller's ``run_turn``, handed over by the composition."""
         self._tasks: dict[uuid.UUID, asyncio.Task[None]] = {}
+        self._stopped: set[uuid.UUID] = set()
 
     async def dispatch(self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID) -> None:
         if self.run is None:
@@ -26,14 +27,24 @@ class InProcessDispatcher(TurnDispatcher):
 
     def _settled(self, turn: uuid.UUID, task: asyncio.Task[None]) -> None:
         self._tasks.pop(turn, None)
+        self._stopped.discard(turn)
         if not task.cancelled():
             task.exception()
+
+    def stop(self, turn: uuid.UUID) -> bool:
+        task = self._tasks.get(turn)
+        if task is None:
+            return False
+        if turn not in self._stopped:
+            self._stopped.add(turn)
+            task.cancel()
+        return True
 
     async def cancel(self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID) -> bool:
         task = self._tasks.get(turn)
         if task is None:
             return False
-        task.cancel()
+        self.stop(turn)
         await asyncio.wait({task})
         return True
 

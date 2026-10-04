@@ -89,13 +89,15 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   same turn is refused at position 1, before it has run the engine, because each
   runner mints the answer's id afresh and so no two claims are the same document.
 - **Deleting hides, then purges.** `deleted_at` makes a session not found and closes
-  it to turns. The hide is refused while a turn is running (`TurnActiveError`), so no
-  runner and no engine writes under a purge: the controller first ends a turn whose
-  lease has passed, cancels the turn it runs itself and waits for it to end, and a
-  turn run by another process is refused until stage two's cancel through the store.
+  it to turns. The controller first asks a running turn to stop. The hide comes next,
+  and a runner in another process finds its next write refused. The purge waits until
+  no turn runs: at once when none ran or this process ended it, else by the sweep.
   The purge calls `forget` on the engine the session records, which may no longer be
   the one its agent's configuration names, then deletes the session with its
   messages, turns and events.
+- **A cancel goes through the store.** It sets `cancel_requested_at` on the running
+  turn and announces it. The process that runs the turn cancels its task. A missed
+  announcement is read back with the next renewal of the lease.
 - **Events expire.** `expires_at` is set when an event is written, as that moment
   plus a retention of hours. Ending a turn touches none of its events. The answer is
   in `messages` and the outcome is in `turns`, so after a turn ends nothing reads its
@@ -113,8 +115,7 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   since a `turn_ended` event is the runner's; a watcher that finds the turn ended with
   none supplies it from the record. A runner that outlives its lease has lost the turn
   whether or not a reader has found it: every write names its time, and the store
-  refuses one past the lease. Reading back `cancel_requested_at` with each renewal is
-  stage two.
+  refuses one past the lease.
 - **No clocks and no ids in a store.** The controller mints every id and sets every
   time.
 - **A session and its records are addressed from the owner down.** Every operation on

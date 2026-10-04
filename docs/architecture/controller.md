@@ -33,7 +33,7 @@ signed in is web's own concern, the user session.
 - `list_sessions`: most recently updated first, a page at a time.
 - `open_session`: one moment of a session, its messages and its active turn if any.
 - `rename_session`
-- `delete_session`: the records, and the engine's memory with them; refused while a turn runs.
+- `delete_session`: the records, and the engine's memory with them, after stopping a running turn.
 - `fork_session`: a new session from a message of another, independent from then on.
 
 ## Turns
@@ -42,7 +42,7 @@ signed in is web's own concern, the user session.
 - `send_message`: a message under a chosen parent, with the model. An edit is this under an
   earlier parent.
 - `regenerate_answer`: the answer to a question again, under the same question.
-- `cancel_turn`: stop the turn named, if this process runs it.
+- `cancel_turn`: stop the turn named, whichever process runs it.
 - `watch_turn`: the events of the turn named, from a position, as they happen, ending with how
   it ended.
 

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -90,11 +90,13 @@ class Store(ABC):
 
     @abstractmethod
     async def hide_session(self, owner: uuid.UUID, session: uuid.UUID, at: datetime) -> None:
-        """From then on the session is not found. ``TurnActiveError`` while a turn runs."""
+        """From then on the session is not found, even while a turn runs: that turn's next
+        write is refused."""
 
     @abstractmethod
-    async def purge_session(self, owner: uuid.UUID, session: uuid.UUID) -> None:
-        """Delete the session with its messages, turns and events; nothing if it is gone."""
+    async def purge_session(self, owner: uuid.UUID, session: uuid.UUID, now: datetime) -> bool:
+        """Delete the session with its messages, turns and events, unless a turn of it runs
+        with its lease not passed ``now``: true when it did, false also if it is gone."""
 
     @abstractmethod
     async def messages_of(self, owner: uuid.UUID, session: uuid.UUID) -> list[Document]:
@@ -163,9 +165,25 @@ class Store(ABC):
     @abstractmethod
     async def renew_leases(
         self, turns: Sequence[uuid.UUID], now: datetime, until: datetime
-    ) -> None:
+    ) -> list[uuid.UUID]:
         """Each of those turns that is running, with its lease not passed ``now``, holds it
-        until ``until``; in one operation."""
+        until ``until``; in one operation. The ones asked to stop, which a stop missed."""
+
+    @abstractmethod
+    async def request_cancel(
+        self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID, at: datetime
+    ) -> None:
+        """Mark the turn, if it is running, as asked to stop, and tell every process that
+        listens with ``listen_for_cancels``."""
+
+    @abstractmethod
+    async def listen_for_cancels(self, stop: Callable[[uuid.UUID], object]) -> None:
+        """From then on, call ``stop`` with each turn asked to stop, from any process."""
+
+    @abstractmethod
+    async def hidden_sessions(self, now: datetime) -> list[Session]:
+        """Every hidden session with no running turn whose lease has not passed ``now``: what
+        is left to purge."""
 
     @abstractmethod
     async def expired_turns(self, now: datetime) -> list[tuple[uuid.UUID, Turn]]:
