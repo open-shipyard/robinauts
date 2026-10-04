@@ -231,7 +231,7 @@ with `auth = "header"` and `header = "x-api-key"`. In Composio's dashboard,
 create an MCP server from the toolkits you want and copy its id into the URL
 in place of `SERVER_ID`, and take the project's API key from the project's
 settings; export the key as `COMPOSIO_API_KEY` in the shell that runs
-`start.sh`, which, unlike GitHub's token, stays in the script's environment.
+`start.sh`, which, as with GitHub's token, hands it to the server alone.
 Put a Composio user id in place of `USER_ID`: the tools act through the
 accounts that user has connected in Composio. **That user is you**, the
 operator, for everybody who chats: a deployment is one identity to a tool
