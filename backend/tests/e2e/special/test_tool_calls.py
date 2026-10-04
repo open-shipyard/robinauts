@@ -96,8 +96,12 @@ def aux_tool_calls(agent: str, server: str, page: Page, local_gpt: FakeLocalGPTS
 
     # 5. Retry it ("Refresh" on the failed answer): the model is told what the failed answer
     #    did, the tool call and its output quoted, and the retry fails again the same way.
+    #    The old failed answer is on the screen until the new one replaces it, so wait for
+    #    the new one's id before reading its failure.
+    first_try = answers.last.get_attribute("data-message-id")
     answers.last.hover()
     answers.last.get_by_role("button", name="Refresh").click()
+    expect(answers.last).not_to_have_attribute("data-message-id", first_try or "")
     expect(answers).to_have_count(2)
     expect(answers.last.get_by_text(DID_NOT_FINISH)).to_be_visible()
     assert len(calls) == 6
