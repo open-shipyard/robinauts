@@ -83,10 +83,10 @@ def jumped(by: timedelta) -> Any:
     return lambda: datetime.now(UTC) + by
 
 
-async def gated_turn() -> tuple[Any, Any, asyncio.Event, User, TurnStarted]:
+async def gated_turn(**options: Any) -> tuple[Any, Any, asyncio.Event, User, TurnStarted]:
     """A turn on a ``gated_engine``, started and held at the gate."""
     engine, gate = gated_engine()
-    controller = await opened(engine)
+    controller = await over(MemoryStore(), engines={"echo": lambda *_: engine}, **options)
     user = await controller.ensure_user(Identity("local", "me"))
     started = await controller.start_session(user, agent="echo", model="echo", text="one")
     await controller._store.wait_for_events(user.id, started.session_id, started.turn_id, 0, 5.0)
@@ -133,7 +133,7 @@ async def test_a_runner_refused_mid_stream_writes_nothing_more() -> None:
 
 @asyncio_test
 async def test_a_turn_whose_lease_has_passed_is_interrupted_and_a_new_turn_starts() -> None:
-    controller, engine, gate, user, started = await gated_turn()
+    controller, engine, gate, user, started = await gated_turn(event_wait_timeout=0.01)
     sid = started.session_id
     controller._now = jumped(FIVE_MINUTES)
     watched = [e async for e in controller.watch_turn(user, sid, started.turn_id)]

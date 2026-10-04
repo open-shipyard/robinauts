@@ -61,8 +61,9 @@ from robinauts.controller.ports.store import Cursor, Store
 LEASE_MARGIN = timedelta(minutes=1)
 """What a turn's lease allows past its timeout."""
 
-WAIT_SECONDS = 15.0
-"""How long a watcher waits for an event before it reads the store again."""
+EVENT_WAIT_TIMEOUT = 15.0
+"""How long a watcher waits for an event before it reads the store again, and checks whether
+the turn's lease has passed."""
 
 CLOSE_TIMEOUT = 10.0
 """How long `close` waits for the turns this process runs before it interrupts them."""
@@ -85,6 +86,7 @@ class RobinautsController(Controller):
         secret_for: SecretLookup,
         dispatcher: TurnDispatcher,
         close_timeout: float = CLOSE_TIMEOUT,
+        event_wait_timeout: float = EVENT_WAIT_TIMEOUT,
         now: Callable[[], datetime] | None = None,
         engines: Mapping[str, EngineFactory] | None = None,
     ) -> None:
@@ -94,6 +96,7 @@ class RobinautsController(Controller):
         self._secret_for = secret_for
         self._dispatcher = dispatcher
         self._close_timeout = close_timeout
+        self._event_wait_timeout = event_wait_timeout
         self._now = now or (lambda: datetime.now(UTC))
         self._engines: dict[str, AgentEngine] = {}
         self._factories: dict[str, EngineFactory] = {}
@@ -430,7 +433,9 @@ class RobinautsController(Controller):
                 after = numbered.position
                 if isinstance(numbered.event, TurnEnded):
                     return
-            await self._store.wait_for_events(user.id, session_id, turn.id, after, WAIT_SECONDS)
+            await self._store.wait_for_events(
+                user.id, session_id, turn.id, after, self._event_wait_timeout
+            )
             if await self._store.events_after(user.id, session_id, turn.id, after):
                 continue
             await self._store.end_expired_turn(user.id, session_id, self._now())
