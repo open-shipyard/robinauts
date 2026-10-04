@@ -66,13 +66,15 @@ WHERE t.id = $3 AND t.session_id = $2 AND s.owner_id = $1 AND s.deleted_at IS NU
 FOR SHARE OF t
 """
 
+_T_COLUMNS = ", ".join("t." + c for c in _TURN_COLUMNS.split(", "))
+
 _END_EXPIRED = f"""
 UPDATE turns AS t
 SET state = 'interrupted', ended_at = $3, error = 'lease expired'
 FROM sessions AS s
 WHERE s.id = t.session_id AND s.id = $2 AND s.owner_id = $1 AND s.deleted_at IS NULL
-  AND t.state = 'running' AND t.lease_until < $3
-RETURNING {", ".join("t." + c for c in _TURN_COLUMNS.split(", "))}
+  AND t.id = $4 AND t.state = 'running' AND t.lease_until < $3
+RETURNING {_T_COLUMNS}
 """
 
 
@@ -392,10 +394,41 @@ class PostgresStore(Store):
             raise
 
     async def end_expired_turn(
-        self, owner: uuid.UUID, session: uuid.UUID, now: datetime
+        self,
+        owner: uuid.UUID,
+        session: uuid.UUID,
+        turn: uuid.UUID,
+        now: datetime,
+        answer: StoredMessage | None = None,
     ) -> Turn | None:
-        row = await self._pool.fetchrow(_END_EXPIRED, owner, session, now)
-        return None if row is None else _turn(row)
+        async with self._pool.acquire() as connection, connection.transaction():
+            row = await connection.fetchrow(_END_EXPIRED, owner, session, now, turn)
+            if row is None:
+                return None
+            if answer is not None:
+                await self._insert_message(connection, answer)
+            await connection.execute("SELECT pg_notify($1, $2)", CHANNEL, f"{row['id']} end")
+        return _turn(row)
+
+    async def renew_leases(
+        self, turns: Sequence[uuid.UUID], now: datetime, until: datetime
+    ) -> None:
+        await self._pool.execute(
+            "UPDATE turns SET lease_until = $3"
+            " WHERE id = ANY($1) AND state = 'running' AND lease_until > $2",
+            list(turns),
+            now,
+            until,
+        )
+
+    async def expired_turns(self, now: datetime) -> list[tuple[uuid.UUID, Turn]]:
+        rows = await self._pool.fetch(
+            f"SELECT s.owner_id, {_T_COLUMNS} FROM turns AS t"
+            " JOIN sessions AS s ON s.id = t.session_id"
+            " WHERE t.state = 'running' AND t.lease_until < $1 AND s.deleted_at IS NULL",
+            now,
+        )
+        return [(row["owner_id"], _turn(row)) for row in rows]
 
     async def active_turn(self, owner: uuid.UUID, session: uuid.UUID) -> Turn | None:
         async with self._pool.acquire() as connection:

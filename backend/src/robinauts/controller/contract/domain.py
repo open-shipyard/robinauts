@@ -129,11 +129,22 @@ class AgentConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkConfig:
+    """``[work]``: how long a turn may run, and how a turn's lease is kept, in seconds."""
+
+    max_turn_seconds: float = 1200.0
+    lease_seconds: float = 90.0
+    heartbeat_seconds: float = 30.0
+    sweep_seconds: float = 300.0
+
+
+@dataclass(frozen=True, slots=True)
 class Config:
     providers: Mapping[str, ProviderConfig] = field(default_factory=dict)
     models: Mapping[str, ModelConfig] = field(default_factory=dict)
     tool_servers: Mapping[str, ToolServerConfig] = field(default_factory=dict)
     agents: Mapping[str, AgentConfig] = field(default_factory=dict)
+    work: WorkConfig = field(default_factory=WorkConfig)
 
 
 class StorageKind(StrEnum):

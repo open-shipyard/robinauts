@@ -60,8 +60,10 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   message, whose `parent_id` is the question and whose document names the turn.
   A failed turn stores what it streamed before it failed, as an answer marked
   `failed`, with no checkpoint; a reply hangs under it, and the next turn continues
-  from the nearest answer above it that has a checkpoint. A cancelled or interrupted
-  turn stores none. Every answer comes from exactly one turn.
+  from the nearest answer above it that has a checkpoint. An interrupted turn stores
+  the same. Its runner writes it on a shutdown; after a crash, whoever ends the turn
+  rebuilds it from its events. A cancelled turn stores none.
+  Every answer comes from exactly one turn.
 - **A turn has its events**, numbered from 1.
 
 ## Rules every store keeps
@@ -98,18 +100,21 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   plus a retention of hours. Ending a turn touches none of its events. The answer is
   in `messages` and the outcome is in `turns`, so after a turn ends nothing reads its
   events but a late watcher. Until they expire, they are the only copy of a turn's
-  reasoning, and of what a cancelled or interrupted turn streamed.
+  reasoning, and of what a cancelled turn streamed.
 - **A turn holds a lease.** `lease_until` is written with the turn, as its start plus
-  its timeout and a margin, and the runner's own deadline is set from it. A running
-  turn whose lease has passed is ended as `interrupted` by the next reader to find it
-  (`open_session`, `start_turn`, `watch_turn`, `cancel_turn`, `delete_session`),
-  through `end_expired_turn`: one conditional write that only a running turn takes,
-  on the record alone, and on the marker a store without a partial index keeps. No
-  event is written, since a `turn_ended` event is the runner's; a watcher that finds
-  the turn ended with none supplies it from the record. A runner that outlives its
-  lease has lost the turn whether or not a reader has found it: every write names
-  its time, and the store refuses one past the lease. Renewing the lease for a long
-  turn, and reading back `cancel_requested_at` with each renewal, are stage two.
+  `lease_seconds`. The process that runs the turn renews it every `heartbeat_seconds`,
+  in one write for all its turns. The runner's deadline is apart: the turn's start
+  plus `max_turn_seconds`. A running turn whose lease has passed is ended as
+  `interrupted` by the next reader to find it (`open_session`, `start_turn`,
+  `watch_turn`, `cancel_turn`, `delete_session`), or by the sweep every
+  `sweep_seconds`. Both go through `end_expired_turn`: one conditional write that only
+  a running turn takes, on the record, the marker a store without a partial index
+  keeps, and the answer, and that wakes the turn's watchers. No event is written,
+  since a `turn_ended` event is the runner's; a watcher that finds the turn ended with
+  none supplies it from the record. A runner that outlives its lease has lost the turn
+  whether or not a reader has found it: every write names its time, and the store
+  refuses one past the lease. Reading back `cancel_requested_at` with each renewal is
+  stage two.
 - **No clocks and no ids in a store.** The controller mints every id and sets every
   time.
 - **A session and its records are addressed from the owner down.** Every operation on

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
 from robinauts.controller.contract.domain import (
@@ -201,18 +202,42 @@ class MemoryStore(Store):
         await self._notify()
 
     async def end_expired_turn(
-        self, owner: uuid.UUID, session: uuid.UUID, now: datetime
+        self,
+        owner: uuid.UUID,
+        session: uuid.UUID,
+        turn: uuid.UUID,
+        now: datetime,
+        answer: StoredMessage | None = None,
     ) -> Turn | None:
         self._visible(owner, session)
         running = self._running(session)
-        if running is None or running.lease_until >= now:
+        if running is None or running.id != turn or running.lease_until >= now:
             return None
         ended = dataclasses.replace(
             running, state=TurnState.INTERRUPTED, ended_at=now, error="lease expired"
         )
         self._turns[running.id] = ended
+        if answer is not None:
+            self._messages[session].append(answer)
         await self._notify()
         return ended
+
+    async def renew_leases(
+        self, turns: Sequence[uuid.UUID], now: datetime, until: datetime
+    ) -> None:
+        for turn in turns:
+            found = self._turns.get(turn)
+            if found is not None and found.state is TurnState.RUNNING and found.lease_until > now:
+                self._turns[turn] = dataclasses.replace(found, lease_until=until)
+
+    async def expired_turns(self, now: datetime) -> list[tuple[uuid.UUID, Turn]]:
+        return [
+            (self._sessions[t.session_id].owner_id, t)
+            for t in self._turns.values()
+            if t.state is TurnState.RUNNING
+            and t.lease_until < now
+            and t.session_id not in self._hidden
+        ]
 
     async def active_turn(self, owner: uuid.UUID, session: uuid.UUID) -> Turn | None:
         self._visible(owner, session)

@@ -155,13 +155,21 @@ def database(config: Path) -> Iterator[str]:
 
 
 @contextmanager
-def server(config: Path, database_url: str, env: Mapping[str, str] = {}) -> Iterator[str]:
-    """The URL of a server on that config, without sign-in, stopped afterwards."""
+def server(
+    config: Path,
+    database_url: str,
+    env: Mapping[str, str] = {},
+    started: list[subprocess.Popen[bytes]] | None = None,
+) -> Iterator[str]:
+    """The URL of a server on that config, without sign-in, stopped afterwards. Its process is
+    added to ``started``, for a test that kills it."""
     port = free_port()
     environment = {**os.environ, **env, "ROBINAUTS_CONFIG": str(config)}
     environment["ROBINAUTS_DATABASE_URL"] = database_url
     command = [str(ROBINAUTS), "start", "--dev-no-sign-in", "--port", str(port)]
     with subprocess.Popen(command, env=environment) as running:
+        if started is not None:
+            started.append(running)
         url = f"http://127.0.0.1:{port}"
         try:
             wait_until_up(url, running)

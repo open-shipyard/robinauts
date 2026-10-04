@@ -5,7 +5,7 @@
 
 The runner numbers its turn's events from 1 and is their only writer. Its first append is
 its claim on the turn: refused, it has lost the turn to another runner and runs no engine.
-Its deadline comes from the turn's lease, never more than the model's timeout. On
+Its deadline is the turn's start plus ``max_turn_seconds``; the process renews the lease. On
 ``TurnLostError`` from any write it closes the engine's stream and writes nothing more: the
 turn is another runner's, a reader ended it, or its lease has passed.
 """
@@ -56,15 +56,15 @@ from robinauts.controller.core.documents import (
     event_to_document,
     stored_message,
 )
+from robinauts.controller.core.partial import failed_answer, with_text
 from robinauts.controller.ports.dispatcher import CLOSE
 from robinauts.controller.ports.store import Store, StoredEvent
 
 RETENTION = timedelta(hours=24)
 """How long a turn's events are kept after they are written, a constant for now."""
 
-DEADLINE_MARGIN = 10.0
-"""Seconds the runner's deadline stays short of the lease, so that a finish lands inside it;
-with less than this left, the runner does not claim the turn."""
+PAST_DEADLINE = "the turn ran past its deadline"
+"""The error of a turn that did, the engine's ``TimeoutError`` having none to say."""
 
 
 class _Writer:
@@ -120,14 +120,6 @@ class _Writer:
         )
 
 
-def _with_text(parts: list[MessagePart], text: str) -> None:
-    """Text that arrives in a row is one part, until a tool call comes between."""
-    if parts and isinstance(parts[-1], TextPart):
-        parts[-1] = TextPart(parts[-1].text + text)
-    else:
-        parts.append(TextPart(text))
-
-
 async def run_turn(
     store: Store,
     engine: AgentEngine,
@@ -138,9 +130,10 @@ async def run_turn(
     prompt: str,
     agent_config: AgentConfig,
     checkpoint_id: str | None,
-    model_timeout: float,
+    max_turn_seconds: float,
 ) -> None:
-    remaining = (turn.lease_until - datetime.now(UTC)).total_seconds() - DEADLINE_MARGIN
+    deadline = turn.started_at + timedelta(seconds=max_turn_seconds)
+    remaining = (deadline - datetime.now(UTC)).total_seconds()
     if remaining <= 0:
         return
     answer_id = uuid.uuid4()
@@ -159,13 +152,13 @@ async def run_turn(
             prompt,
             model=turn.model,
             checkpoint_id=checkpoint_id,
-            timeout_seconds=min(model_timeout, remaining),
+            timeout_seconds=remaining,
         )
         async with aclosing(stream) as events:
             async for event in events:
                 if isinstance(event, TextDelta):
                     await writer.append(TextPiece(answer_id, event.text))
-                    _with_text(parts, event.text)
+                    with_text(parts, event.text)
                 elif isinstance(event, ReasoningDelta):
                     await writer.append(ReasoningPiece(answer_id, event.text))
                 elif isinstance(event, ToolCall):
@@ -210,27 +203,18 @@ async def run_turn(
             await asyncio.wait({finishing})
             if not finishing.cancelled():
                 finishing.exception()
+        elif CLOSE in exc.args:
+            # Like a crash: what it streamed is kept, as an answer marked failed.
+            failed = failed_answer(answer_id, session, turn, parts, datetime.now(UTC))
+            await _end(writer, TurnState.INTERRUPTED, None, failed)
         else:
-            state = TurnState.INTERRUPTED if CLOSE in exc.args else TurnState.CANCELLED
-            await _end(writer, state, None)
+            await _end(writer, TurnState.CANCELLED, None)
         raise
     except Exception as exc:
-        # What it streamed before it failed is kept, as an answer marked failed: the
-        # thread shows it, and a reply hangs under it.
-        failed = Message(
-            answer_id,
-            session.id,
-            parent_id=question.id,
-            role=Role.ASSISTANT,
-            parts=tuple(parts),
-            created_at=datetime.now(UTC),
-            agent=session.agent,
-            engine=session.engine,
-            model=turn.model,
-            turn_id=turn.id,
-            failed=True,
-        )
-        await _end(writer, TurnState.FAILED, clean_text(str(exc)), failed)
+        failed = failed_answer(answer_id, session, turn, parts, datetime.now(UTC))
+        timed_out = isinstance(exc, TimeoutError) and not str(exc)
+        error = PAST_DEADLINE if timed_out else clean_text(str(exc))
+        await _end(writer, TurnState.FAILED, error, failed)
 
 
 async def _end(

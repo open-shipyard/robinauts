@@ -5,10 +5,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import dataclasses
+import logging
 import uuid
-from collections.abc import AsyncGenerator, Callable, Mapping
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from datetime import UTC, datetime, timedelta
 
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
@@ -54,12 +56,12 @@ from robinauts.controller.core.engine_settings import (
     engine_storage,
 )
 from robinauts.controller.core.failures import prompt_after_failures
+from robinauts.controller.core.partial import failed_answer, partial_answer
 from robinauts.controller.core.titles import title_from_text
 from robinauts.controller.ports.dispatcher import TurnDispatcher
 from robinauts.controller.ports.store import Cursor, Store
 
-LEASE_MARGIN = timedelta(minutes=1)
-"""What a turn's lease allows past its timeout."""
+_log = logging.getLogger(__name__)
 
 EVENT_WAIT_TIMEOUT = 15.0
 """How long a watcher waits for an event before it reads the store again, and checks whether
@@ -102,6 +104,7 @@ class RobinautsController(Controller):
         self._factories: dict[str, EngineFactory] = {}
         self._given_engines = engines
         self._handle: object | None = None
+        self._chores: list[asyncio.Task[None]] = []
 
     def _sets_up_engines(self) -> bool:
         """On PostgreSQL `robinauts db init` set the engines up; the server never does."""
@@ -118,9 +121,19 @@ class RobinautsController(Controller):
             self._factories,
             setup=self._sets_up_engines(),
         )
+        work = self._config.work
+        self._chores = [
+            asyncio.create_task(_every(work.heartbeat_seconds, self._renew_leases)),
+            asyncio.create_task(_every(work.sweep_seconds, self.sweep)),
+        ]
 
     async def close(self) -> None:
+        # The leases are renewed until the last turn has ended.
         await self._dispatcher.close(self._close_timeout)
+        for chore in self._chores:
+            chore.cancel()
+        await asyncio.gather(*self._chores, return_exceptions=True)
+        self._chores = []
         self._engines = {}
         await self._store.close()
 
@@ -172,7 +185,7 @@ class RobinautsController(Controller):
 
     async def open_session(self, user: User, session_id: uuid.UUID) -> OpenedSession:
         session = await self._store.get_session(user.id, session_id)
-        await self._store.end_expired_turn(user.id, session_id, self._now())
+        await self._end_expired(session)
         messages = await self._messages(user.id, session_id)
         by_id = {m.id: m for m in messages}
         thread = [messages[-1]]
@@ -197,7 +210,7 @@ class RobinautsController(Controller):
 
     async def delete_session(self, user: User, session_id: uuid.UUID) -> None:
         session = await self._store.get_session(user.id, session_id)
-        await self._store.end_expired_turn(user.id, session_id, self._now())
+        await self._end_expired(session)
         running = await self._store.active_turn(user.id, session_id)
         if running is not None and await self._dispatcher.cancel(user.id, session_id, running.id):
             await self._end_if_running(user, running, TurnState.CANCELLED)
@@ -317,8 +330,7 @@ class RobinautsController(Controller):
     async def cancel_turn(
         self, user: User, session_id: uuid.UUID, turn_id: uuid.UUID | None = None
     ) -> None:
-        await self._store.get_session(user.id, session_id)
-        await self._store.end_expired_turn(user.id, session_id, self._now())
+        await self._end_expired(await self._store.get_session(user.id, session_id))
         running = await self._store.active_turn(user.id, session_id)
         if running is None or (turn_id is not None and running.id != turn_id):
             raise NoActiveTurnError(str(session_id))
@@ -349,9 +361,8 @@ class RobinautsController(Controller):
         model_config = self._config.models.get(model)
         if model_config is None:
             raise UnknownModelError(model)
+        await self._end_expired(session)
         now = self._now()
-        await self._store.end_expired_turn(user.id, session.id, now)
-        timeout = timedelta(seconds=model_config.timeout_seconds)
         turn = Turn(
             uuid.uuid4(),
             session.id,
@@ -359,7 +370,7 @@ class RobinautsController(Controller):
             model=model,
             state=TurnState.RUNNING,
             started_at=now,
-            lease_until=now + timeout + LEASE_MARGIN,
+            lease_until=now + timedelta(seconds=self._config.work.lease_seconds),
             retries=retries,
         )
         stored = stored_message(question) if new_question else None
@@ -384,7 +395,6 @@ class RobinautsController(Controller):
             above = by_id[above].parent_id
         agent_config = self._config.agents[session.agent]
         engine = await self._engine(session.engine)
-        model_timeout = self._config.models[turn.model].timeout_seconds
         # The failed exchanges between the last answer that finished and this question,
         # oldest first: the engine remembers none of them, so the prompt carries them.
         earlier: list[tuple[str, Message]] = []
@@ -408,7 +418,7 @@ class RobinautsController(Controller):
             prompt,
             agent_config,
             checkpoint_id,
-            model_timeout,
+            self._config.work.max_turn_seconds,
         )
 
     async def watch_turn(
@@ -438,7 +448,7 @@ class RobinautsController(Controller):
             )
             if await self._store.events_after(user.id, session_id, turn.id, after):
                 continue
-            await self._store.end_expired_turn(user.id, session_id, self._now())
+            await self._end_expired(await self._store.get_session(user.id, session_id))
             current = await self._store.get_turn(user.id, session_id, turn.id)
             if current is None or current.state is not TurnState.RUNNING:
                 # Ended with no `turn_ended` event of its own, by a reader: the record says
@@ -448,7 +458,43 @@ class RobinautsController(Controller):
                 return
 
     async def sweep(self) -> None:
-        raise NotImplementedError("sweep")
+        for owner, turn in await self._store.expired_turns(self._now()):
+            try:
+                await self._end_expired(await self._store.get_session(owner, turn.session_id), turn)
+            except Exception:
+                _log.exception("could not end turn %s, whose lease has passed", turn.id)
+
+    async def _renew_leases(self) -> None:
+        if turns := self._dispatcher.running():
+            now = self._now()
+            until = now + timedelta(seconds=self._config.work.lease_seconds)
+            await self._store.renew_leases(turns, now, until)
+
+    async def _end_expired(self, session: Session, turn: Turn | None = None) -> None:
+        """End the session's running turn if its lease has passed, as ``interrupted``, and keep
+        what it had streamed as its answer, marked failed. A runner gone with its process
+        wrote no answer: the turn's events are what is left of it."""
+        now = self._now()
+        if turn is None:
+            turn = await self._store.active_turn(session.owner_id, session.id)
+        if turn is None or turn.lease_until >= now:
+            return
+        events = await self._store.events_after(session.owner_id, session.id, turn.id, 0)
+        answer_id, parts = partial_answer(document for _, document in events)
+        answer = failed_answer(answer_id or uuid.uuid4(), session, turn, parts, now)
+        stored = stored_message(answer)
+        await self._store.end_expired_turn(session.owner_id, session.id, turn.id, now, stored)
+
+
+async def _every(seconds: float, chore: Callable[[], Awaitable[None]]) -> None:
+    """Run the chore every so many seconds until cancelled; a failure is logged, and the next
+    run comes as usual."""
+    while True:
+        await asyncio.sleep(seconds)
+        try:
+            await chore()
+        except Exception:
+            _log.exception("%s failed", getattr(chore, "__name__", chore))
 
 
 def _encode_cursor(session: Session) -> str:
