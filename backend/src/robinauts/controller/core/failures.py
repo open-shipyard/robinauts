@@ -7,6 +7,11 @@ The engine remembers nothing of a turn that failed: the next turn continues from
 answer that finished. So the prompt carries what it missed (docs/specs/ui.md): every
 question since then whose answer failed, with what that answer did, best-effort; then the
 new question; and, on a retry, that the person pressed retry.
+
+The note goes in the user's message, so what it quotes from the failed answer -- tool
+output, which comes from arbitrary MCP servers, and the model's own text -- is quoted as a
+JSON string and labelled. Escaped, it cannot start a line of its own and fake the note's
+framing ("The user's new message:") with the user's authority.
 """
 
 from __future__ import annotations
@@ -51,9 +56,15 @@ def _what_it_did(failed: Message) -> list[str]:
         if result is None:
             outcome = "no result"
         else:
-            outcome = ("error: " if result.is_error else "result: ") + result.text[:LONGEST]
+            said = "error" if result.is_error else "result"
+            outcome = f"{said}, tool output: {_quoted(result.text)}"
         lines.append(f"- {call.name}({json.dumps(dict(call.arguments))}) -> {outcome}")
     written = "".join(p.text for p in failed.parts if isinstance(p, TextPart))
     if written:
-        lines.append(f"It had written: {written[:LONGEST]}")
+        lines.append(f"It had written: {_quoted(written)}")
     return lines
+
+
+def _quoted(text: str) -> str:
+    """Cut to ``LONGEST``, then a JSON string: its newlines and quotes are escaped."""
+    return json.dumps(text[:LONGEST], ensure_ascii=False)
