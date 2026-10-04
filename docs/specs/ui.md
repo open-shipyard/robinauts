@@ -16,7 +16,7 @@ That same error notice will include a retry icon button.
 After such failure, the user should be able to proceed with two normal flows, and one special case "retry":
 1. Edit their message.
 2. Reply with a new message.
-3. Retry
+3. Retry with the Refresh button.
 
 
 The same conditions apply whether the failure occurs in the first message of a session or in the middle of a session.
@@ -27,7 +27,7 @@ In case (1) it is the same as any edit, the user change their mind, we should di
 
 In cases (2) and (3) we want the LLM to have hints of what failed in the past turn to either silently retry, try something different or just tell the user what is going wrong.
 
-Note that the retry button is different from the "Refresh" button on a normal response. The "Refresh" button on a normal response is intended to omit that last response from the LLM view and let it generate a new one. The "Refresh" button is handled at the backend as "regenerate". The Retry button keeps context of being a failure.
+Note that the "Refresh" button in a failed response will behave different to the same button on a normal response. The "Refresh" button on a normal response is intended to omit that last response from the LLM view and let it generate a new one. The "Refresh" button is handled at the backend as "regenerate". When used from a failed response, the button keeps context of being a failure.
 
 
 ### Edit their message
@@ -72,10 +72,10 @@ User Message 2:  Was it my fault?
 
 ### Retry
 
-The user press the retry button  in the error notice.
+The user press the Refresh button  in the error notice.
 
 
-When the user press the retry button the error notice will disappear from the UI and the behavior should look as if there was a fresh message.
+When the user press the Refresh button the error notice will disappear from the UI and the behavior should look as if there was a fresh message.
 
 
 The LLM will see the first message as it was, the error, and a new message indicating the retry.
@@ -89,7 +89,7 @@ User can retry a failed response as many times as they want.
 
 User Message 1: What is the capital of France?
 App Error: There was a problem processing your request, please retry or write a new message.
-User press the retry button.
+User press the Refresh button.
 
 
 The LLM should see:
@@ -97,4 +97,4 @@ The LLM should see:
 User Message 1: What is the capital of France?
 Some tool calling if any from the failed turn
 App Error:  There was a problem processing your request, please retry or write a new message.
-Some app message: User pressed the retry button.
+Some app message: User pressed the Refresh button.

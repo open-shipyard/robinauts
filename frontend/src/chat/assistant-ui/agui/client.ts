@@ -130,22 +130,25 @@ export async function startNewConversation(
 }
 
 /**
- * What a turn in a conversation that exists asks for: a reply, an edit, or an
- * answer again, with the model it runs on -- the picker's, sent with every
- * turn; left out, the backend takes the conversation's last one.
+ * What a turn in a conversation that exists asks for: a reply, an edit, an
+ * answer again, or a retry of one that failed, with the model it runs on --
+ * the picker's, sent with every turn; left out, the backend takes the
+ * conversation's last one.
  */
 export type Turn = (
   | { text: string; parentId: string }
   | { text: string; edit: string }
   | { regenerate: string }
+  | { retry: string }
 ) & { modelId?: string | null };
 
 /**
  * A turn in a conversation that exists, and the run it began.
  *
- * The three shapes are the wire's: `text` with the message it answers, `text`
+ * The four shapes are the wire's: `text` with the message it answers, `text`
  * with the question it is a new version of (the backend works out where that
- * hangs), or the answer to produce again, and then no new message.
+ * hangs), the answer to produce again, or the failed answer to try again
+ * from; the last two carry no text.
  */
 export async function startTurn(
   conversationId: string,
@@ -169,6 +172,7 @@ export async function startTurn(
 
 function wireTurn(turn: Turn): Record<string, string> {
   if ("regenerate" in turn) return { regenerate: turn.regenerate };
+  if ("retry" in turn) return { retry: turn.retry };
   if ("edit" in turn) return { text: turn.text, edit: turn.edit };
   return { text: turn.text, parent_id: turn.parentId };
 }

@@ -104,4 +104,46 @@ async def test_a_failed_turn_keeps_what_it_did_and_the_next_one_replies_under_it
         ]
         assert opened["ended_badly"] is None
         # Continued from the first answer's checkpoint: echo remembers that turn and this one.
-        assert opened["messages"][-1]["parts"][0]["call_id"] == "call-2"
+        call = opened["messages"][-1]["parts"][0]
+        assert call["call_id"] == "call-2"
+        # And told what it missed: the failed exchange, then the new message.
+        prompt = call["arguments"]["text"]
+        assert "Message: poison" in prompt
+        assert "-> error: the message is poisoned" in prompt
+        assert prompt.endswith("The user's new message:\n\nagain")
+
+
+@asyncio_test
+async def test_a_retry_answers_the_question_again_and_tells_the_model_what_failed() -> None:
+    async with client() as http:
+        started = await http.post("/api/turns", json={"agent_id": "echo", "text": "hello"})
+        cid = started.headers["x-robinauts-conversation-id"]
+        answer = (await http.get(f"/api/conversations/{cid}")).json()["messages"][1]
+        poisoned = await http.post(
+            f"/api/conversations/{cid}/turns", json={"text": "poison", "parent_id": answer["id"]}
+        )
+        assert events(poisoned.text)[-1]["type"] == "RUN_ERROR"
+        failed = (await http.get(f"/api/conversations/{cid}")).json()["messages"][3]
+
+        not_failed = await http.post(
+            f"/api/conversations/{cid}/turns", json={"retry": answer["id"]}
+        )
+        assert not_failed.status_code == 404
+
+        # Retried as often as wanted: echo fails "poison" every time.
+        for _ in range(2):
+            retried = await http.post(
+                f"/api/conversations/{cid}/turns", json={"retry": failed["id"]}
+            )
+            assert events(retried.text)[-1]["type"] == "RUN_ERROR"
+            opened = (await http.get(f"/api/conversations/{cid}")).json()
+            question, again = opened["messages"][2:]
+            assert again["id"] != failed["id"]  # a fresh answer to the same question
+            assert (question["parts"][0]["text"], again["failed"]) == ("poison", True)
+            call = again["parts"][0]
+            assert call["call_id"] == "call-2"  # from the first answer's checkpoint
+            prompt = call["arguments"]["text"]
+            assert prompt.startswith("poison\n")
+            assert "-> error: the message is poisoned" in prompt
+            assert "pressed the retry button" in prompt
+            failed = again

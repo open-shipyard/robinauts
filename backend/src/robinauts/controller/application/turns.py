@@ -135,6 +135,7 @@ async def run_turn(
     session: Session,
     turn: Turn,
     question: Message,
+    prompt: str,
     agent_config: AgentConfig,
     checkpoint_id: str | None,
     model_timeout: float,
@@ -143,7 +144,6 @@ async def run_turn(
     if remaining <= 0:
         return
     answer_id = uuid.uuid4()
-    prompt = "".join(p.text for p in question.parts if isinstance(p, TextPart))
     definition = AgentDefinition(agent_config.system_prompt, agent_config.tools)
     parts: list[MessagePart] = []
     writer = _Writer(store, owner, turn)

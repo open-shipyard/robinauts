@@ -264,7 +264,12 @@ CREATE TABLE IF NOT EXISTS turns (
     error text,
     lease_until timestamptz NOT NULL,
     cancel_requested_at timestamptz,
+    -- The failed answer a retry tries again: the model is told about it
+    -- (docs/specs/ui.md). Null on every other turn.
+    retries uuid,
     CONSTRAINT turns_follows_fkey FOREIGN KEY (session_id, follows)
+        REFERENCES messages (session_id, id),
+    CONSTRAINT turns_retries_fkey FOREIGN KEY (session_id, retries)
         REFERENCES messages (session_id, id),
     -- A turn has ended exactly when it is no longer running.
     CONSTRAINT turns_ended_when_not_running CHECK (

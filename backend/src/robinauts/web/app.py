@@ -266,6 +266,7 @@ class TurnRequest(BaseModel):
     parent_id: uuid.UUID | None = None
     edit: uuid.UUID | None = None
     regenerate: uuid.UUID | None = None
+    retry: uuid.UUID | None = None
     model_id: str | None = None
 
 
@@ -667,6 +668,10 @@ def create_app(
             question = next(m for m in reversed(opened.messages[: at + 1]) if m.role is Role.USER)
             started = await controller.regenerate_answer(
                 user, conversation_id, question_id=question.id, model=model
+            )
+        elif body.retry is not None:
+            started = await controller.retry_answer(
+                user, conversation_id, answer_id=body.retry, model=model
             )
         elif body.edit is not None:
             started = await controller.edit_message(

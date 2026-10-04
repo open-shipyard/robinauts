@@ -115,6 +115,17 @@ class Controller(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def retry_answer(
+        self, user: User, session_id: uuid.UUID, *, answer_id: uuid.UUID, model: str
+    ) -> TurnStarted:
+        """A new answer to the question of an answer that failed, as a regeneration is, with
+        the model told about the failure (``docs/specs/ui.md``).
+
+        ``SessionNotFoundError``, ``MessageNotFoundError`` for a message that is not a failed
+        answer of this session, ``UnknownModelError``, ``TurnActiveError`` while a turn runs."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def regenerate_answer(
         self, user: User, session_id: uuid.UUID, *, question_id: uuid.UUID, model: str
     ) -> TurnStarted:

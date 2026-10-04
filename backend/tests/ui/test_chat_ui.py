@@ -157,14 +157,30 @@ def test_a_failed_answer_says_so_in_its_place_and_keeps_saying_it(server: str, p
     expect(failed).to_be_visible()
     expect(page.get_by_text(DID_NOT_FINISH)).to_have_count(1)
 
-    # A reply goes under the failed answer, which stays, and still says it failed.
+    # Retry is the reload button of a failed answer: a fresh answer to the same question,
+    # which echo fails again for "poison".
+    first_try = answers.first.get_attribute("data-message-id")
+    answers.first.hover()
+    page.get_by_role("button", name="Refresh").click()
+    expect(answers.first).not_to_have_attribute("data-message-id", first_try or "")
+    expect(answers).to_have_count(1)
+    expect(failed).to_be_visible()
+    expect(page.get_by_text(DID_NOT_FINISH)).to_have_count(1)
+    # A retry, not a regeneration: the model was told about the failure.
+    conversation = page.url.split("#/c/")[1]
+    opened = page.request.get(f"{server}/api/conversations/{conversation}").json()
+    assert "pressed the retry button" in opened["messages"][-1]["parts"][0]["arguments"]["text"]
+
+    # A reply goes under the failed answer, which stays, and still says it failed. Echo says
+    # back what the model was told: the failed exchange, then the new message.
     page.get_by_label("Message input").fill("hello")
     page.get_by_label("Send message").click()
     expect(answers).to_have_count(2)
-    expect(answers.last).to_contain_text("The tool said: hello")
+    expect(answers.last).to_contain_text("Message: poison")
+    expect(answers.last).to_contain_text("The user's new message: hello")
     expect(failed).to_be_visible()
 
     page.reload()
-    expect(answers.last).to_contain_text("The tool said: hello")
+    expect(answers.last).to_contain_text("The user's new message: hello")
     expect(failed).to_be_visible()
     expect(page.get_by_text(DID_NOT_FINISH)).to_have_count(1)

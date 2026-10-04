@@ -320,6 +320,8 @@ class Turn:
     ended_at: datetime | None = None
     error: str | None = None
     """For the operator, on a turn that ended badly; never sent to a browser."""
+    retries: uuid.UUID | None = None
+    """The failed answer this turn tries again, which the model is told about."""
 
 
 @dataclass(frozen=True, slots=True)

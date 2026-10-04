@@ -700,21 +700,28 @@ function turnsOf(dispatch: (action: ChatAction) => void, first: ChatProps) {
       dispatch({ kind: "told", detail: ONE_AT_A_TIME_ANSWER });
       return;
     }
-    // A regeneration carries no new message: it answers the question that
-    // turn already had, and **replaces the turn**
-    // (`docs/specs/conversations.md`). Everything the turn produced comes
-    // off the screen, so the cut is after its question -- which is not
-    // always `parentId`, the message before the regenerated one: a turn
-    // with tools in it has an answer that called before the answer after
-    // the results (`turnStart`).
+    // **The same button is Retry on an answer that failed** (`docs/specs/ui.md`):
+    // the Thread offers one reload, and what it means is decided here. A
+    // regeneration drops the answer from what the model sees; a retry keeps
+    // the failure for it to see.
+    const retry = state.messages.some(
+      (message) => message.id === regenerate && message.state === "failed",
+    );
+    // Neither carries a new message, and both take the answer off the
+    // screen: a regeneration answers the question that turn already had, and
+    // **replaces the turn** (`docs/specs/conversations.md`). The cut is after
+    // its question -- which is not always `parentId`, the message before the
+    // regenerated one: a turn with tools in it has an answer that called
+    // before the answer after the results (`turnStart`).
     dispatch({
       kind: "again",
       after: turnStart(state, regenerate) ?? parentId,
     });
+    const modelId = props.modelId;
     await follow((signal) =>
       startTurn(
         conversationId,
-        { regenerate, modelId: props.modelId },
+        retry ? { retry: regenerate, modelId } : { regenerate, modelId },
         { signal },
       ),
     );
