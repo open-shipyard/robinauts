@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.import_linter_cache/
+dist/
+*.egg-info/
+LICENSE
+NOTICE
+THIRD_PARTY_LICENSES.txt

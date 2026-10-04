@@ -1,0 +1,100 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+
+name: robinauts
+
+services:
+  # The one dependency of the backend: the PostgreSQL named by
+  # ROBINAUTS_DATABASE_URL (docs/deployment.md).
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: robinauts
+      POSTGRES_PASSWORD: robinauts
+      POSTGRES_DB: robinauts
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U robinauts -d robinauts"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # The backend, built and run with uv (see backend/Dockerfile). On start it
+  # runs `robinauts db init` to create the schema, then `robinauts start`.
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # The url is given to the process here and never on a command line
+      # (docs/deployment.md). `postgres` is this compose's service hostname.
+      ROBINAUTS_DATABASE_URL: postgresql://robinauts:robinauts@postgres:5432/robinauts
+
+      # Local dev: read the models/agents from a mounted config file, with no
+      # sign-in (docs/deployment.md, docs/specs/agents.md). The file holds no
+      # sign-in tables, so it is compatible with --dev-no-sign-in.
+      ROBINAUTS_CONFIG: /config/robinauts.toml
+      ROBINAUTS_START_ARGS: "--dev-no-sign-in"
+
+      # API keys. This project reads NO fixed key variable: each model provider
+      # in the config TOML names its own via `api_key_env`, and the engines never
+      # consult the vendor SDKs' own ANTHROPIC_API_KEY / OPENAI_API_KEY. The names
+      # below are the canonical ones from docs/deployment.md -- they must match the
+      # `api_key_env` values in your config file. Values come from the host env or
+      # a .env file beside this compose file, so no secret is committed here.
+      ROBINAUTS_ANTHROPIC_KEY: ${ROBINAUTS_ANTHROPIC_KEY:-}
+      ROBINAUTS_OPENAI_KEY: ${ROBINAUTS_OPENAI_KEY:-}
+      # Add one variable per provider/tool your config declares, e.g.:
+      # ROBINAUTS_OPENROUTER_KEY: ${ROBINAUTS_OPENROUTER_KEY:-}   # openai-compatible provider
+      # ROBINAUTS_GITHUB_TOKEN: ${ROBINAUTS_GITHUB_TOKEN:-}       # mcp_servers.*.secret_env
+      # ROBINAUTS_GOOGLE_SECRET: ${ROBINAUTS_GOOGLE_SECRET:-}     # sign-in provider client_secret_env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./robinauts.toml:/config/robinauts.toml:ro
+    # Ready when /health answers through socat (port 8000). start_period covers
+    # the initial `uv sync` + `db init` before the server binds. The frontend
+    # waits on this so its forwarder never hits a not-yet-listening backend.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  # The Vite dev server, on Node 24 (the host's Node 20 fails engines checks).
+  # Reachable at http://localhost:5173; it proxies API calls to the backend.
+  frontend:
+    build:
+      # Repo root, so the image can include backend/openapi.json, which
+      # `npm run generate` reads (see frontend/Dockerfile).
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      # Wait until the backend's /health passes, so the forwarder and Vite proxy
+      # never hit a not-yet-listening backend on startup.
+      backend:
+        condition: service_healthy
+    environment:
+      # The compose service name the socat forwarder points loopback :8000 at.
+      BACKEND_HOST: backend
+    ports:
+      - "5173:5173"
+    volumes:
+      # Live editing: mount the source, but keep the image's node_modules (an
+      # anonymous volume shadows the host's, which does not exist / is Node 20's).
+      - ./frontend:/app/frontend
+      - /app/frontend/node_modules
+      # Keep the generated API types in sync with the backend's committed schema.
+      - ./backend/openapi.json:/app/backend/openapi.json:ro
+
+volumes:
+  postgres-data:

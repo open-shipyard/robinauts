@@ -119,6 +119,20 @@ OpenRouter key ([demo/README.md](demo/README.md)):
 
     demo/start.sh          # demo/stop.sh takes it down
 
+## Docker deployment
+
+(Recommended if your host have multiple projects)
+
+To make it easier for developers that might have a conflicting dependecies versions, a local database of their own , or their own companies databases and prefer more granularity, or simply prefer have their projects separated a docker dev deployment exists. You have to follow four simple steps
+
+1. Have Docker engine installed on your host
+2. Create at least one agent and your config file (See [The configuration file section](docs/deployment.md#4-the-configuration-file) on how to do it)
+3. `cp .env.example .env` and change the corresponding values with your secrets.
+4. docker compose up -d in the root of the project
+5. Navigate to localhost:8000
+
+It builds the backend and frontend separately in the container (you couldn't run the frontend outside due to the reverse loopback this project config requires)
+
 ## Planned
 
 - Prepare and stress test performance behind a load balancer.
