@@ -85,10 +85,9 @@ def aux_failed_answer(agent: str, server: str, page: Page, local_gpt: FakeLocalG
     assert len(calls) == 3
 
 
-# No LangChain run yet: with no checkpoint to continue from, the LangChain engine resumes the
-# thread's latest state, so the retry is sent the failed "poison" again (issue
-# "langchain-no-checkpoint-resumes-latest"). Add it back with the fix.
-
-
 def test_pydantic_ai_failed_answer(server: str, page: Page, local_gpt: FakeLocalGPTServer) -> None:
     aux_failed_answer("pydantic_ai", server, page, local_gpt)
+
+
+def test_langchain_failed_answer(server: str, page: Page, local_gpt: FakeLocalGPTServer) -> None:
+    aux_failed_answer("langchain", server, page, local_gpt)
