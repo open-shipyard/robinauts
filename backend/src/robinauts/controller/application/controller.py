@@ -124,17 +124,29 @@ class RobinautsController(Controller):
         await self._store.listen_for_cancels(self._dispatcher.stop)
         work = self._config.work
         self._chores = [
-            asyncio.create_task(_every(work.heartbeat_seconds, self._renew_leases)),
-            asyncio.create_task(_every(work.sweep_seconds, self.sweep)),
+            asyncio.create_task(_every(name, seconds, chore), name=name)
+            for name, seconds, chore in (
+                ("heartbeat", work.heartbeat_seconds, self._renew_leases),
+                ("sweep", work.sweep_seconds, self.sweep),
+            )
         ]
+        for chore in self._chores:
+            chore.add_done_callback(self._chore_ended)
+
+    def _chore_ended(self, chore: asyncio.Task[None]) -> None:
+        """Only `close` ends a chore: one that ends while the controller is open is logged."""
+        if chore in self._chores:
+            error = None if chore.cancelled() else chore.exception()
+            name = chore.get_name()
+            _log.error("the %s ended while the controller is open", name, exc_info=error)
 
     async def close(self) -> None:
         # The leases are renewed until the last turn has ended.
         await self._dispatcher.close(self._close_timeout)
-        for chore in self._chores:
+        chores, self._chores = self._chores, []
+        for chore in chores:
             chore.cancel()
-        await asyncio.gather(*self._chores, return_exceptions=True)
-        self._chores = []
+        await asyncio.gather(*chores, return_exceptions=True)
         self._engines = {}
         await self._store.close()
 
@@ -523,15 +535,25 @@ class RobinautsController(Controller):
             _log.warning("turn %s passed its lease while its task still runs", turn.id)
 
 
-async def _every(seconds: float, chore: Callable[[], Awaitable[None]]) -> None:
-    """Run the chore every so many seconds until cancelled; a failure is logged, and the next
-    run comes as usual."""
+async def _every(name: str, seconds: float, chore: Callable[[], Awaitable[None]]) -> None:
+    """Start the chore every so many seconds until cancelled; a failure is logged, and the next
+    run comes as usual. A run gets as long as the interval: one past it is a failure, since a
+    hung query or a busy pool would otherwise stall the chore with nothing logged. The next run
+    starts one interval after the last one started."""
+    loop = asyncio.get_running_loop()
+    started = loop.time()
     while True:
-        await asyncio.sleep(seconds)
+        await asyncio.sleep(max(0.0, started + seconds - loop.time()))
+        started = loop.time()
+        limit = asyncio.timeout(seconds)
         try:
-            await chore()
+            async with limit:
+                await chore()
         except Exception:
-            _log.exception("%s failed", getattr(chore, "__name__", chore))
+            if limit.expired():
+                _log.error("%s timed out after %s seconds", name, seconds)
+            else:
+                _log.exception("%s failed", name)
 
 
 def _encode_cursor(session: Session) -> str:
