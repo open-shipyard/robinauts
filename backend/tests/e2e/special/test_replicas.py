@@ -2,9 +2,9 @@
 # Copyright The Robinauts Authors
 
 """Two servers on one database, and servers killed in the middle of a turn: a turn longer than
-one model call's timeout, a conversation that another server takes over, and a turn nobody
-opens that the sweep ends. A turn stopped, and a conversation deleted, through the server that
-does not run the turn.
+one model call's timeout and than its first lease, a conversation that another server takes
+over, and a turn nobody opens that the sweep ends. A turn stopped, and a conversation deleted,
+through the server that does not run the turn.
 
 ``ToolEchoModel`` calls the MCP server's ``nap`` with the question: "wait N" sleeps N seconds,
 "hang" sleeps for ten minutes.
@@ -129,10 +129,11 @@ def test_replicas(local_gpt: FakeLocalGPTServer, tools_url: str, tmp_path: Path)
         with browser_page() as page:
             answers = page.locator('[data-role="assistant"]')
 
-            # 1. On A, a turn whose tool call takes 4 s finishes, past the model's 2 s timeout.
+            # 1. On A, a turn whose tool call takes 8 s finishes: past the model's 2 s timeout, and
+            #    past its first 5 s lease, which the heartbeat renews.
             new_chat(page, a)
-            send(page, "wait 4")
-            expect(answers.first).to_contain_text("The tool said: WAIT 4", timeout=15_000)
+            send(page, "wait 8")
+            expect(answers.first).to_contain_text("The tool said: WAIT 8", timeout=20_000)
             first = conversation_id(page)
 
             # 2. "hang" on A, stopped on B: the answer ends as stopped, and the conversation
@@ -152,9 +153,9 @@ def test_replicas(local_gpt: FakeLocalGPTServer, tools_url: str, tmp_path: Path)
             page.get_by_role("button", name="Actions for hang").first.click()
             page.get_by_role("button", name="Delete", exact=True).click()
             page.get_by_role("button", name="Yes, delete: hang").click()
-            expect(history(page)).to_have_text(["hang", "wait 4"])
+            expect(history(page)).to_have_text(["hang", "wait 8"])
             page.goto(a)
-            expect(history(page)).to_have_text(["hang", "wait 4"])
+            expect(history(page)).to_have_text(["hang", "wait 8"])
             assert purged(url, deleted)
 
             # 4. "hang", then A is killed: on B the answer shows as failed with its tool call,
