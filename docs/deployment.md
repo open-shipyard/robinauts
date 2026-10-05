@@ -102,6 +102,15 @@ The server never creates or changes the schema itself. It refuses to start
 against a database that is not the one the build was written against, and
 names the command that fixes it.
 
+Every query has 10 seconds to finish. A query that takes longer, such as
+one waiting on a lock held elsewhere, fails with `TimeoutError`. The log
+then shows a line such as `could not purge deleted session …` or
+`turn … ended on an error`, followed by the traceback. A turn whose
+query timed out fails with "a call timed out before the turn's deadline"
+when its last write still lands. Otherwise it ends as interrupted once
+its lease passes. To find the cause, look in `pg_stat_activity` for long
+transactions and for queries waiting on a lock.
+
 ## 4. The configuration file
 
 One TOML file describes the deployment: the sign-in half and the model

@@ -67,6 +67,9 @@ RETENTION = timedelta(hours=24)
 PAST_DEADLINE = "the turn ran past its deadline"
 """The error of a turn that did, the engine's ``TimeoutError`` having none to say."""
 
+TIMED_OUT = "a call timed out before the turn's deadline"
+"""The error of a turn whose silent ``TimeoutError`` came early, such as a query's."""
+
 
 class _Writer:
     """The turn's events, numbered and written one at a time."""
@@ -213,8 +216,12 @@ async def run_turn(
         raise
     except Exception as exc:
         failed = failed_answer(answer_id, session, turn, parts, datetime.now(UTC))
-        timed_out = isinstance(exc, TimeoutError) and not str(exc)
-        error = PAST_DEADLINE if timed_out else clean_text(str(exc))
+        error = clean_text(str(exc))
+        if isinstance(exc, TimeoutError) and not error:
+            # A query past the pool's time limit raises it too, early. The second of slack
+            # is for the engine's clock, which is the loop's, not the wall's.
+            late = datetime.now(UTC) >= deadline - timedelta(seconds=1)
+            error = PAST_DEADLINE if late else TIMED_OUT
         await _end(writer, TurnState.FAILED, error, failed)
 
 

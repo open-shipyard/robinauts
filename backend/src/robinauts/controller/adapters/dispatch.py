@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 
 from robinauts.controller.ports.dispatcher import CLOSE, TurnDispatcher, TurnRunner
+
+_log = logging.getLogger(__name__)
 
 
 class InProcessDispatcher(TurnDispatcher):
@@ -28,8 +31,8 @@ class InProcessDispatcher(TurnDispatcher):
     def _settled(self, turn: uuid.UUID, task: asyncio.Task[None]) -> None:
         self._tasks.pop(turn, None)
         self._stopped.discard(turn)
-        if not task.cancelled():
-            task.exception()
+        if not task.cancelled() and (error := task.exception()) is not None:
+            _log.error("turn %s ended on an error", turn, exc_info=error)
 
     def stop(self, turn: uuid.UUID) -> bool:
         task = self._tasks.get(turn)
