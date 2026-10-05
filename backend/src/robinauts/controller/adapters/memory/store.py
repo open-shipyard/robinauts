@@ -10,7 +10,7 @@ import asyncio
 import dataclasses
 import uuid
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from robinauts.controller.contract.domain import (
     Session,
@@ -225,13 +225,15 @@ class MemoryStore(Store):
         return ended
 
     async def renew_leases(
-        self, turns: Sequence[uuid.UUID], now: datetime, until: datetime
+        self, turns: Sequence[uuid.UUID], now: datetime, until: datetime, limit: timedelta
     ) -> list[uuid.UUID]:
         renewed = []
         for turn in turns:
             found = self._turns.get(turn)
             if found is not None and found.state is TurnState.RUNNING and found.lease_until > now:
-                self._turns[turn] = dataclasses.replace(found, lease_until=until)
+                self._turns[turn] = dataclasses.replace(
+                    found, lease_until=min(until, found.started_at + limit)
+                )
                 renewed.append(turn)
         return [t for t in renewed if t in self._cancel_requested]
 

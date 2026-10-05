@@ -175,3 +175,16 @@ async def test_a_watcher_on_one_pool_is_woken_by_an_append_on_another() -> None:
             await watcher.close()
             await writer.close()
             await other_pool.close()
+
+
+@asyncio_test
+async def test_a_renewal_holds_the_lease_up_to_the_turns_start_plus_the_limit() -> None:
+    async with temporary_schema() as schema:
+        store = PostgresStore(schema.pool, dsn=url())
+        me, one, _, running = await seeded(store)
+        limit = timedelta(minutes=10)
+        later = NOW + timedelta(minutes=2)
+        await store.renew_leases([running.id], NOW, later, limit)
+        assert (await store.active_turn(me.id, one.id)).lease_until == later
+        await store.renew_leases([running.id], NOW, NOW + timedelta(hours=1), limit)
+        assert (await store.active_turn(me.id, one.id)).lease_until == NOW + limit

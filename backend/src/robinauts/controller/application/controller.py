@@ -346,9 +346,10 @@ class RobinautsController(Controller):
         await self._cancel(user, running)
 
     async def _cancel(self, user: User, turn: Turn) -> None:
-        """Ask the turn to stop, wherever it runs, and wait for it if this process runs it."""
+        """Ask the turn to stop, wherever it runs, and wait a while for it if this process runs
+        it. A task that does not stop keeps the turn until its lease passes."""
         await self._store.request_cancel(user.id, turn.session_id, turn.id, self._now())
-        if await self._dispatcher.cancel(user.id, turn.session_id, turn.id):
+        if await self._dispatcher.cancel(user.id, turn.session_id, turn.id, self._close_timeout):
             # A runner that never claimed the turn wrote nothing: the turn is ended here.
             await self._end_if_running(user.id, turn.session_id, turn.id, TurnState.CANCELLED)
 
@@ -497,8 +498,11 @@ class RobinautsController(Controller):
     async def _renew_leases(self) -> None:
         if turns := self._dispatcher.running():
             now = self._now()
-            until = now + timedelta(seconds=self._config.work.lease_seconds)
-            for turn in await self._store.renew_leases(turns, now, until):
+            work = self._config.work
+            until = now + timedelta(seconds=work.lease_seconds)
+            # A runner past its deadline keeps one lease to write its failed answer.
+            limit = timedelta(seconds=work.max_turn_seconds + work.lease_seconds)
+            for turn in await self._store.renew_leases(turns, now, until, limit):
                 self._dispatcher.stop(turn)
 
     async def _end_expired(self, session: Session, turn: Turn | None = None) -> None:
@@ -515,6 +519,8 @@ class RobinautsController(Controller):
         answer = failed_answer(answer_id or uuid.uuid4(), session, turn, parts, now)
         stored = stored_message(answer)
         await self._store.end_expired_turn(session.owner_id, session.id, turn.id, now, stored)
+        if turn.id in self._dispatcher.running():
+            _log.warning("turn %s passed its lease while its task still runs", turn.id)
 
 
 async def _every(seconds: float, chore: Callable[[], Awaitable[None]]) -> None:

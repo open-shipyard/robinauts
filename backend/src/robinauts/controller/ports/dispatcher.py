@@ -29,9 +29,11 @@ class TurnDispatcher(ABC):
         at once: true when this process runs it."""
 
     @abstractmethod
-    async def cancel(self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID) -> bool:
-        """Stop the turn if this process runs it, and wait for it to end: true when it did,
-        false when the turn is not this process's."""
+    async def cancel(
+        self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID, timeout: float
+    ) -> bool:
+        """Stop the turn if this process runs it, and wait up to ``timeout`` seconds for it to
+        end: true when it did, false when it did not or the turn is not this process's."""
 
     @abstractmethod
     def running(self) -> list[uuid.UUID]:
@@ -40,4 +42,4 @@ class TurnDispatcher(ABC):
     @abstractmethod
     async def close(self, timeout: float) -> None:
         """Wait up to ``timeout`` seconds for the turns this process runs, then cancel the rest
-        naming ``CLOSE``, and wait for those too."""
+        naming ``CLOSE``, and wait a bounded while for those too."""

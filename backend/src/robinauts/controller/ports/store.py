@@ -18,7 +18,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from robinauts.controller.contract.domain import Role, Session, Turn, TurnState, User
@@ -164,10 +164,11 @@ class Store(ABC):
 
     @abstractmethod
     async def renew_leases(
-        self, turns: Sequence[uuid.UUID], now: datetime, until: datetime
+        self, turns: Sequence[uuid.UUID], now: datetime, until: datetime, limit: timedelta
     ) -> list[uuid.UUID]:
         """Each of those turns that is running, with its lease not passed ``now``, holds it
-        until ``until``; in one operation. The ones asked to stop, which a stop missed."""
+        until ``until``, or until its start plus ``limit`` if sooner; in one operation. The
+        ones asked to stop, which a stop missed."""
 
     @abstractmethod
     async def request_cancel(

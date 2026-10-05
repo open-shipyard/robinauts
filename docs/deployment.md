@@ -257,7 +257,8 @@ Notes on what is and is not there:
   answering with another model; the log names the model.
 - **`[work]`.** A turn may run for `max_turn_seconds`. A model's
   `timeout_seconds` bounds each call to that model. A server renews the lease
-  of each turn it runs every `heartbeat_seconds`. A turn whose server died is
+  of each turn it runs every `heartbeat_seconds`, up to `max_turn_seconds` plus
+  `lease_seconds` after the turn's start. A turn whose server died is
   ended once its lease of `lease_seconds` has passed. The next request about
   its conversation ends it, or a sweep every `sweep_seconds` does.
   `heartbeat_seconds` must be at most half of `lease_seconds`.

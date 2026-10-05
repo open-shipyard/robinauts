@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import asyncpg
 
@@ -420,15 +420,16 @@ class PostgresStore(Store):
         return _turn(row)
 
     async def renew_leases(
-        self, turns: Sequence[uuid.UUID], now: datetime, until: datetime
+        self, turns: Sequence[uuid.UUID], now: datetime, until: datetime, limit: timedelta
     ) -> list[uuid.UUID]:
         rows = await self._pool.fetch(
-            "UPDATE turns SET lease_until = $3"
+            "UPDATE turns SET lease_until = LEAST($3, started_at + $4)"
             " WHERE id = ANY($1) AND state = 'running' AND lease_until > $2"
             " RETURNING id, cancel_requested_at",
             list(turns),
             now,
             until,
+            limit,
         )
         return [row["id"] for row in rows if row["cancel_requested_at"] is not None]
 

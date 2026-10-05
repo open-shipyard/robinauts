@@ -6,9 +6,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 
 from robinauts.controller.ports.dispatcher import CLOSE, TurnDispatcher, TurnRunner
+
+_log = logging.getLogger(__name__)
+
+CLOSE_GRACE = 10.0
+"""How long `close` waits for the turns it interrupted to write their answers."""
 
 
 class InProcessDispatcher(TurnDispatcher):
@@ -40,13 +46,17 @@ class InProcessDispatcher(TurnDispatcher):
             task.cancel()
         return True
 
-    async def cancel(self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID) -> bool:
+    async def cancel(
+        self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID, timeout: float
+    ) -> bool:
         task = self._tasks.get(turn)
         if task is None:
             return False
         self.stop(turn)
-        await asyncio.wait({task})
-        return True
+        _, pending = await asyncio.wait({task}, timeout=timeout)
+        if pending:
+            _log.warning("turn %s did not stop within %s s of its cancel", turn, timeout)
+        return not pending
 
     def running(self) -> list[uuid.UUID]:
         return list(self._tasks)
@@ -59,4 +69,7 @@ class InProcessDispatcher(TurnDispatcher):
         for task in pending:
             task.cancel(CLOSE)
         if pending:
-            await asyncio.wait(pending)
+            _, stuck = await asyncio.wait(pending, timeout=CLOSE_GRACE)
+            for turn, task in self._tasks.items():
+                if task in stuck:
+                    _log.warning("turn %s did not stop at close", turn)

@@ -106,16 +106,17 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
 - **A turn holds a lease.** `lease_until` is written with the turn, as its start plus
   `lease_seconds`. The process that runs the turn renews it every `heartbeat_seconds`,
   in one write for all its turns. The runner's deadline is apart: the turn's start
-  plus `max_turn_seconds`. A running turn whose lease has passed is ended as
-  `interrupted` by the next reader to find it (`open_session`, `start_turn`,
-  `watch_turn`, `cancel_turn`, `delete_session`), or by the sweep every
-  `sweep_seconds`. Both go through `end_expired_turn`: one conditional write that only
-  a running turn takes, on the record, the marker a store without a partial index
-  keeps, and the answer, and that wakes the turn's watchers. No event is written,
-  since a `turn_ended` event is the runner's; a watcher that finds the turn ended with
-  none supplies it from the record. A runner that outlives its lease has lost the turn
-  whether or not a reader has found it: every write names its time, and the store
-  refuses one past the lease.
+  plus `max_turn_seconds`. A renewal holds the lease at most until that deadline plus
+  `lease_seconds`, the time a runner has to write its failed answer. A running turn
+  whose lease has passed is ended as `interrupted` by the next reader to find it
+  (`open_session`, `start_turn`, `watch_turn`, `cancel_turn`, `delete_session`), or by
+  the sweep every `sweep_seconds`. Both go through `end_expired_turn`: one conditional
+  write that only a running turn takes, on the record, the marker a store without a
+  partial index keeps, and the answer, and that wakes the turn's watchers. No event is
+  written, since a `turn_ended` event is the runner's; a watcher that finds the turn
+  ended with none supplies it from the record. A runner that outlives its lease has
+  lost the turn whether or not a reader has found it: every write names its time, and
+  the store refuses one past the lease.
 - **No clocks and no ids in a store.** The controller mints every id and sets every
   time.
 - **A session and its records are addressed from the owner down.** Every operation on
