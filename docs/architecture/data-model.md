@@ -102,7 +102,8 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   plus a retention of hours. Ending a turn touches none of its events. The answer is
   in `messages` and the outcome is in `turns`, so after a turn ends nothing reads its
   events but a late watcher. Until they expire, they are the only copy of a turn's
-  reasoning, and of what a cancelled turn streamed.
+  reasoning, and of what a cancelled turn streamed. The sweep deletes expired events,
+  except a running turn's.
 - **A turn holds a lease.** `lease_until` is written with the turn, as its start plus
   `lease_seconds`. The process that runs the turn renews it every `heartbeat_seconds`,
   in one write for all its turns. The runner's deadline is apart: the turn's start

@@ -67,6 +67,9 @@ EVENT_WAIT_TIMEOUT = 15.0
 """How long a watcher waits for an event before it reads the store again, and checks whether
 the turn's lease has passed."""
 
+SWEEP_BATCH = 1000
+"""How many expired events the sweep deletes per statement, each committed on its own."""
+
 CLOSE_TIMEOUT = 10.0
 """How long `close` waits for the turns this process runs before it interrupts them."""
 
@@ -506,6 +509,8 @@ class RobinautsController(Controller):
                 await self._purge(session)
             except Exception:
                 _log.exception("could not purge deleted session %s", session.id)
+        while await self._store.delete_expired_events(self._now(), SWEEP_BATCH) == SWEEP_BATCH:
+            pass
 
     async def _renew_leases(self) -> None:
         if turns := self._dispatcher.running():

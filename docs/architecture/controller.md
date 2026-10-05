@@ -50,4 +50,5 @@ signed in is web's own concern, the user session.
 
 Run by the process that holds the controller, on a schedule of its own, never by a shell.
 
-- `sweep`: delete what has expired, and forget its memory.
+- `sweep`: end the turns whose lease has passed, forget and purge deleted sessions, and delete
+  the expired events of turns that have ended.

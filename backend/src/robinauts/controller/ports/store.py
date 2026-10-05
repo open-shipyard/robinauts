@@ -192,6 +192,11 @@ class Store(ABC):
         session's owner."""
 
     @abstractmethod
+    async def delete_expired_events(self, now: datetime, limit: int) -> int:
+        """Delete up to ``limit`` events past their expiry at ``now``, oldest first, except a
+        running turn's; how many it deleted."""
+
+    @abstractmethod
     async def active_turn(self, owner: uuid.UUID, session: uuid.UUID) -> Turn | None: ...
 
     @abstractmethod

@@ -470,6 +470,17 @@ class PostgresStore(Store):
         )
         return [(row["owner_id"], _turn(row)) for row in rows]
 
+    async def delete_expired_events(self, now: datetime, limit: int) -> int:
+        status = await self._pool.execute(
+            "DELETE FROM turn_events WHERE (turn_id, position) IN ("
+            " SELECT e.turn_id, e.position FROM turn_events AS e"
+            " JOIN turns AS t ON t.id = e.turn_id WHERE e.expires_at < $1"
+            " AND t.state <> 'running' ORDER BY e.expires_at LIMIT $2)",
+            now,
+            limit,
+        )
+        return _rows(status)
+
     async def active_turn(self, owner: uuid.UUID, session: uuid.UUID) -> Turn | None:
         async with self._pool.acquire() as connection:
             await self._visible(connection, owner, session)

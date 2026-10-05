@@ -188,3 +188,23 @@ async def test_a_renewal_holds_the_lease_up_to_the_turns_start_plus_the_limit() 
         assert (await store.active_turn(me.id, one.id)).lease_until == later
         await store.renew_leases([running.id], NOW, NOW + timedelta(hours=1), limit)
         assert (await store.active_turn(me.id, one.id)).lease_until == NOW + limit
+
+
+@asyncio_test
+async def test_expired_events_go_in_batches_and_a_running_turns_stay() -> None:
+    async with temporary_schema() as schema:
+        store = PostgresStore(schema.pool, dsn=url())
+        me, one, asked, ended = await seeded(store)
+        await store.append_event(me.id, one.id, ended.id, 1, DOCUMENT, NOW, NOW)
+        await store.append_event(me.id, one.id, ended.id, 2, DOCUMENT, NOW, NOW)
+        await store.append_event(me.id, one.id, ended.id, 3, DOCUMENT, NOW, EXPIRY)
+        finished = TurnState.FINISHED
+        await store.finish_turn(me.id, one.id, ended.id, finished, NOW, None, None, [], NOW)
+        running = Turn(uuid.uuid4(), one.id, asked.id, "m", TurnState.RUNNING, NOW, LEASE)
+        await store.start_turn(me.id, running, None)
+        await store.append_event(me.id, one.id, running.id, 1, DOCUMENT, NOW, NOW)
+        later = NOW + timedelta(hours=1)
+        assert [await store.delete_expired_events(later, 1) for _ in range(3)] == [1, 1, 0]
+        assert [p for p, _ in await store.events_after(me.id, one.id, ended.id, 0)] == [3]
+        assert len(await store.events_after(me.id, one.id, running.id, 0)) == 1
+        await store.close()

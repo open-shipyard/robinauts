@@ -267,6 +267,18 @@ class MemoryStore(Store):
             and t.session_id not in self._hidden
         ]
 
+    async def delete_expired_events(self, now: datetime, limit: int) -> int:
+        expired = sorted(
+            (e.expires_at, turn, e.position)
+            for turn, events in self._events.items()
+            if self._turns[turn].state is not TurnState.RUNNING
+            for e in events
+            if e.expires_at < now
+        )[:limit]
+        for _, turn, position in expired:
+            self._events[turn] = [e for e in self._events[turn] if e.position != position]
+        return len(expired)
+
     async def active_turn(self, owner: uuid.UUID, session: uuid.UUID) -> Turn | None:
         self._visible(owner, session)
         return self._running(session)
