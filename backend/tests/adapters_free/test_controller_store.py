@@ -101,6 +101,27 @@ async def test_an_append_waits_on_a_readers_end_and_then_inserts_nothing() -> No
 
 
 @asyncio_test
+async def test_a_write_on_a_row_locked_for_ever_times_out_instead_of_hanging() -> None:
+    async with temporary_schema() as schema, asyncio.timeout(10):
+        pool = await open_pool(
+            url(), server_settings={"search_path": schema.name}, command_timeout=0.5
+        )
+        store = PostgresStore(pool, dsn=url())
+        me, one, _, running = await seeded(store)
+        holder = await raw(schema)
+        try:
+            await holder.execute("BEGIN")
+            await holder.execute("SELECT 1 FROM turns WHERE id = $1 FOR UPDATE", running.id)
+            with pytest.raises(TimeoutError):
+                await store.finish_turn(
+                    me.id, one.id, running.id, TurnState.FINISHED, NOW, None, None, [], NOW
+                )
+        finally:
+            await holder.close()
+            await pool.close()
+
+
+@asyncio_test
 async def test_a_finish_and_a_start_raced_never_deadlock_and_the_finish_always_lands() -> None:
     async with temporary_schema() as schema:
         store = PostgresStore(schema.pool, dsn=url())

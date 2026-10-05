@@ -17,13 +17,14 @@ turn's lease.
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import Callable, Sequence
 from datetime import datetime
 
 import asyncpg
 
-from robinauts.controller.adapters.postgres.pool import open_pool
+from robinauts.controller.adapters.postgres.pool import COMMAND_TIMEOUT, open_pool
 from robinauts.controller.adapters.postgres.schema import check_schema
 from robinauts.controller.contract.domain import (
     Role,
@@ -42,6 +43,8 @@ from robinauts.controller.ports.store import (
     StoredEvent,
     StoredMessage,
 )
+
+_log = logging.getLogger(__name__)
 
 CHANNEL = "robinauts_turns"
 """Where a turn's writes are announced: ``<turn> <position>``, or ``<turn> end``."""
@@ -157,7 +160,16 @@ class PostgresStore(Store):
             await listener.close()
         if self._owns_pool and self._pool is not None:
             pool, self._pool = self._pool, None  # type: ignore[assignment]
-            await pool.close()
+            # Closing waits for every connection to come back: a task holding one hangs it.
+            try:
+                await asyncio.wait_for(pool.close(), COMMAND_TIMEOUT)
+            except TimeoutError:
+                _log.warning(
+                    "the pool did not close in %s s, as a query or a task still held a"
+                    " connection: terminated",
+                    COMMAND_TIMEOUT,
+                )
+                pool.terminate()
 
     # --- users --------------------------------------------------------------
 

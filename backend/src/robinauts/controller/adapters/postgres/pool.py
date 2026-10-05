@@ -26,6 +26,16 @@ from robinauts.controller.contract.domain import ConfigError
 MIN_POOL_SIZE = 2
 MAX_POOL_SIZE = 10
 
+COMMAND_TIMEOUT = 10.0
+"""The seconds a query on the pool may take before asyncpg raises ``TimeoutError``.
+
+Every query on the pool is short. Watchers wait on ``NOTIFY`` through a listener connection
+apart from the pool. The slowest legitimate query measured deletes 1000 events in about
+17 ms, and a purge over a big conversation takes about a second. Ten seconds is ten times
+that, under one heartbeat (30 s) and well under the lease (90 s). A hung renewal or final
+write therefore fails while the turn still holds its lease.
+"""
+
 OPENING_FAILURES: tuple[type[BaseException], ...] = (
     asyncpg.PostgresError,
     asyncpg.InterfaceError,
@@ -51,6 +61,7 @@ async def open_pool(
     min_size: int = MIN_POOL_SIZE,
     max_size: int = MAX_POOL_SIZE,
     server_settings: dict[str, str] | None = None,
+    command_timeout: float = COMMAND_TIMEOUT,
 ) -> asyncpg.Pool:
     """A pool for ``dsn`` on the running loop, with the codecs on every connection; the
     caller closes it on the same loop. ``ConfigError`` when the database will not open."""
@@ -61,6 +72,7 @@ async def open_pool(
             max_size=max_size,
             server_settings=server_settings,
             init=codecs,
+            command_timeout=command_timeout,
         )
     except OPENING_FAILURES as refused:
         raise ConfigError(f"the database could not be opened: {refused}") from refused
