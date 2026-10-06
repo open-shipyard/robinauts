@@ -456,7 +456,7 @@ def create_app(
     async def default_model(agent: str) -> str:
         return next(a.default_model for a in await controller.list_agents() if a.id == agent)
 
-    async def watched(
+    async def stream_turn(
         user: User, session_id: uuid.UUID, turn_id: uuid.UUID, after: int
     ) -> StreamingResponse:
         events = controller.watch_turn(user, session_id, turn_id, after=after)
@@ -464,14 +464,14 @@ def create_app(
         # they answer with a status rather than a broken stream.
         first = await anext(events, None)
 
-        async def chained() -> AsyncIterator[NumberedEvent]:
+        async def chain_events() -> AsyncIterator[NumberedEvent]:
             if first is None:
                 return
             yield first
             async for event in events:
                 yield event
 
-        return event_stream(session_id, turn_id, chained())
+        return event_stream(session_id, turn_id, chain_events())
 
     # --- sign-in -----------------------------------------------------------------
 
@@ -655,7 +655,7 @@ def create_app(
         started = await controller.start_session(
             user, agent=body.agent_id, model=model, text=body.text
         )
-        return await watched(user, started.session_id, started.turn_id, 0)
+        return await stream_turn(user, started.session_id, started.turn_id, 0)
 
     @app.post("/api/conversations/{conversation_id}/turns", include_in_schema=False)
     async def send_message(
@@ -686,7 +686,7 @@ def create_app(
             )
         else:
             raise InvalidValueError("a message names the parent_id it answers, or the one it edits")
-        return await watched(user, conversation_id, started.turn_id, 0)
+        return await stream_turn(user, conversation_id, started.turn_id, 0)
 
     @app.get("/api/conversations/{conversation_id}/runs/{run_id}/events", include_in_schema=False)
     async def watch_turn(
@@ -697,7 +697,7 @@ def create_app(
         user: User = asking,
     ) -> StreamingResponse:
         position = after if after is not None else int(last_event_id or 0)
-        return await watched(user, conversation_id, run_id, position)
+        return await stream_turn(user, conversation_id, run_id, position)
 
     @app.post("/api/conversations/{conversation_id}/runs/{run_id}/cancel", status_code=204)
     async def cancel_turn(

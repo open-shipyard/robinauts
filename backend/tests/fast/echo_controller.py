@@ -30,7 +30,7 @@ CONFIG = Config(
 )
 
 
-async def opened(engine: AgentEngine | None = None) -> Lifecycle:
+async def start_echo_controller(engine: AgentEngine | None = None) -> Lifecycle:
     """Started on the echo engine, or on that engine in its place; ``stop`` it after."""
     engines = None if engine is None else {"echo": lambda *_: engine}
     composed = compose(
@@ -41,7 +41,7 @@ async def opened(engine: AgentEngine | None = None) -> Lifecycle:
     return lifecycle
 
 
-async def settled(controller: Controller, user: User, started: TurnStarted) -> None:
+async def wait_for_turn_end(controller: Controller, user: User, started: TurnStarted) -> None:
     """Wait for the turn to end, as a watcher would."""
     async for _ in controller.watch_turn(user, started.session_id, started.turn_id):
         pass

@@ -15,14 +15,15 @@ signed in is web's own concern, the user session.
 - `open`: build the stores on the given storage, build the engines the configuration names, and
   run their setup. A turn a process that went away left running is ended by its lease, by the
   next reader to find it.
-- `close`: wait for the turns this process runs, bounded, interrupt the rest, and release the
-  storage.
+- `close`: release the storage.
 
 ## Worker
 
-The worker claims queued turns from the store and dispatches them in its process. It is
-not an operation of the controller. The shell starts it after `open` and stops it before
-`close` (`web/lifecycle.py`).
+The worker handles the turns its process runs. It claims queued turns from the store and
+dispatches them. It renews their leases every `heartbeat_seconds` and stops a turn that
+any process asks to stop. Its stop waits for those turns, bounded, and interrupts the
+rest. The worker is not an operation of the controller. The shell starts it after `open`
+and stops it before `close` (`web/lifecycle.py`).
 
 ## Users
 

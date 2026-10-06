@@ -99,7 +99,7 @@ The turn dispatcher port is given `(session_id, turn_id)`.
 
 ### 6. Web opens the stream
 
-`watched()` calls `controller.watch_turn(after=0)` and waits for the first event, so
+`stream_turn()` calls `controller.watch_turn(after=0)` and waits for the first event, so
 that a refusal is still answered with a status. It then answers `text/event-stream`
 and sends `RUN_STARTED` (`web/agui.py`).
 

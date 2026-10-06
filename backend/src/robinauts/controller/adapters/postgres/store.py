@@ -502,7 +502,7 @@ class PostgresStore(Store):
             state = await connection.fetchval(
                 "UPDATE turns AS t SET cancel_requested_at = $4,"
                 "   state = CASE WHEN t.state = 'queued' THEN 'cancelled' ELSE t.state END,"
-                "   ended_at = CASE WHEN t.state = 'queued' THEN $4 END"
+                "   ended_at = CASE WHEN t.state = 'queued' THEN $4::timestamptz END"
                 " FROM sessions AS s"
                 " WHERE s.id = t.session_id AND s.id = $2 AND s.owner_id = $1"
                 "   AND s.deleted_at IS NULL AND t.id = $3 AND t.state IN ('queued', 'running')"
@@ -624,12 +624,12 @@ class PostgresStore(Store):
             if self._dsn is None:
                 raise RuntimeError("a store that waits for events needs the database's dsn")
             listener = await asyncpg.connect(self._dsn)
-            await listener.add_listener(CHANNEL, self._notified)
-            await listener.add_listener(CANCEL_CHANNEL, self._cancelled)
-            await listener.add_listener(QUEUED_CHANNEL, self._queued)
+            await listener.add_listener(CHANNEL, self._wake_watchers)
+            await listener.add_listener(CANCEL_CHANNEL, self._stop_cancelled_turn)
+            await listener.add_listener(QUEUED_CHANNEL, self._wake_queued_waiters)
             self._listener = listener
 
-    def _notified(self, connection: object, pid: int, channel: str, payload: str) -> None:
+    def _wake_watchers(self, connection: object, pid: int, channel: str, payload: str) -> None:
         head, _, _ = payload.partition(" ")
         try:
             turn = uuid.UUID(head)
@@ -639,12 +639,16 @@ class PostgresStore(Store):
             if not woken.done():
                 woken.set_result(None)
 
-    def _queued(self, connection: object, pid: int, channel: str, payload: str) -> None:
+    def _wake_queued_waiters(
+        self, connection: object, pid: int, channel: str, payload: str
+    ) -> None:
         for woken in self._queued_waiters:
             if not woken.done():
                 woken.set_result(None)
 
-    def _cancelled(self, connection: object, pid: int, channel: str, payload: str) -> None:
+    def _stop_cancelled_turn(
+        self, connection: object, pid: int, channel: str, payload: str
+    ) -> None:
         try:
             turn = uuid.UUID(payload)
         except ValueError:

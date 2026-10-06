@@ -26,9 +26,9 @@ class InProcessDispatcher(TurnDispatcher):
             raise RuntimeError("the dispatcher has nothing to run turns with")
         task = asyncio.create_task(self.run(owner, session, turn))
         self._tasks[turn] = task
-        task.add_done_callback(lambda done: self._settled(turn, done))
+        task.add_done_callback(lambda done: self._forget_task(turn, done))
 
-    def _settled(self, turn: uuid.UUID, task: asyncio.Task[None]) -> None:
+    def _forget_task(self, turn: uuid.UUID, task: asyncio.Task[None]) -> None:
         self._tasks.pop(turn, None)
         self._stopped.discard(turn)
         if not task.cancelled() and (error := task.exception()) is not None:

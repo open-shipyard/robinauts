@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""The worker: it claims queued turns from the store and hands them to the dispatcher.
+"""The worker: everything about the turns this process runs.
 
-Every process runs one. A turn is claimed by one worker, whichever process stored it. The
-claim makes the turn running, with a fresh lease, which the dispatching process renews.
+It claims queued turns from the store and hands them to the dispatcher. It renews the
+leases of the turns the dispatcher runs, and stops a turn asked to stop, from any process.
+Every process runs one. A turn is claimed by one worker, whichever process stored it.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
+from robinauts.controller.application.intervals import run_at_intervals
 from robinauts.controller.contract.domain import WorkConfig
 from robinauts.controller.ports.dispatcher import TurnDispatcher
 from robinauts.controller.ports.store import Store
@@ -27,6 +29,9 @@ announcement was lost."""
 CLAIM_LIMIT = 10
 """How many turns one claim takes at most."""
 
+CLOSE_TIMEOUT = 10.0
+"""How long `stop` waits for the turns this process runs before it interrupts them."""
+
 
 class Worker:
     def __init__(
@@ -36,25 +41,35 @@ class Worker:
         work: WorkConfig,
         *,
         wait_timeout: float = QUEUE_WAIT_TIMEOUT,
+        close_timeout: float = CLOSE_TIMEOUT,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._store = store
         self._dispatcher = dispatcher
         self._work = work
         self._wait_timeout = wait_timeout
+        self._close_timeout = close_timeout
         self._now = now or (lambda: datetime.now(UTC))
-        self._task: asyncio.Task[None] | None = None
+        self._claiming: asyncio.Task[None] | None = None
+        self._heartbeat: asyncio.Task[None] | None = None
 
-    def start(self) -> None:
-        """Start claiming, on the store the controller opened."""
-        self._task = asyncio.create_task(self._loop(), name="worker")
+    async def start(self) -> None:
+        """Listen for cancels, then start renewing leases and claiming turns, on the store the
+        controller opened."""
+        await self._store.listen_for_cancels(self._dispatcher.stop)
+        self._heartbeat = asyncio.create_task(
+            run_at_intervals(self._work.heartbeat_seconds, self.renew_leases), name="heartbeat"
+        )
+        self._claiming = asyncio.create_task(self._claim_loop(), name="worker")
 
     async def stop(self) -> None:
-        """Stop claiming. The turns already dispatched keep running."""
-        task, self._task = self._task, None
-        if task is not None:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        """Stop claiming, wait for the turns this process runs, bounded, and interrupt the
+        rest. The leases are renewed until the last turn has ended."""
+        await _cancel_and_wait(self._claiming)
+        self._claiming = None
+        await self._dispatcher.close(self._close_timeout)
+        await _cancel_and_wait(self._heartbeat)
+        self._heartbeat = None
 
     async def dispatch_queued(self) -> None:
         """Claim the queued turns and dispatch each, until none is left."""
@@ -67,7 +82,16 @@ class Worker:
             if len(claimed) < CLAIM_LIMIT:
                 return
 
-    async def _loop(self) -> None:
+    async def renew_leases(self) -> None:
+        """Renew the lease of every turn the dispatcher runs, and stop those asked to stop
+        whose announcement was missed."""
+        if turns := self._dispatcher.running():
+            now = self._now()
+            until = now + timedelta(seconds=self._work.lease_seconds)
+            for turn in await self._store.renew_leases(turns, now, until):
+                self._dispatcher.stop(turn)
+
+    async def _claim_loop(self) -> None:
         while True:
             try:
                 await self.dispatch_queued()
@@ -75,3 +99,9 @@ class Worker:
             except Exception:
                 _log.exception("the worker could not claim turns")
                 await asyncio.sleep(self._wait_timeout)
+
+
+async def _cancel_and_wait(task: asyncio.Task[None] | None) -> None:
+    if task is not None:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)

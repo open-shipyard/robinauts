@@ -16,10 +16,10 @@ class Lifecycle:
     async def start(self) -> None:
         """Open the controller, then start the worker on the store it opened."""
         await self.composed.controller.open()
-        self.composed.worker.start()
+        await self.composed.worker.start()
 
     async def stop(self) -> None:
-        """Stop the worker, so that no turn is claimed any more, then close the controller,
-        which waits for the turns this process runs."""
+        """Stop the worker, which waits for the turns this process runs, then close the
+        controller."""
         await self.composed.worker.stop()
         await self.composed.controller.close()

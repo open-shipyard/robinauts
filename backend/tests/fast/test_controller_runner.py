@@ -13,7 +13,7 @@ from typing import Any
 from unittest.mock import create_autospec
 
 import pytest
-from echo_controller import CONFIG, opened, settled
+from echo_controller import CONFIG, start_echo_controller, wait_for_turn_end
 
 from robinauts.agent_engines.contract.domain import Event
 from robinauts.agent_engines.contract.ports import AgentEngine
@@ -65,7 +65,7 @@ class SlowFinishStore(MemoryStore):
         await super().finish_turn(*args, **kwargs)
 
 
-async def over(store: MemoryStore, **options: Any) -> Lifecycle:
+async def over(store: MemoryStore, close_timeout: float = 10.0, **options: Any) -> Lifecycle:
     """A controller over that store, wired as the composition wires one, and started."""
     dispatcher = InProcessDispatcher()
     controller = RobinautsController(
@@ -78,14 +78,16 @@ async def over(store: MemoryStore, **options: Any) -> Lifecycle:
     )
     dispatcher.run = controller.run_turn
     composed = Composed(
-        controller, MemoryCredentials(store), Worker(store, dispatcher, CONFIG.work)
+        controller,
+        MemoryCredentials(store),
+        Worker(store, dispatcher, CONFIG.work, close_timeout=close_timeout),
     )
     lifecycle = Lifecycle(composed)
     await lifecycle.start()
     return lifecycle
 
 
-def jumped(by: timedelta) -> Any:
+def shift_clock(by: timedelta) -> Any:
     return lambda: datetime.now(UTC) + by
 
 
@@ -118,7 +120,7 @@ async def test_a_runner_whose_claim_is_refused_runs_no_engine_and_never_finishes
     assert turn is not None
     assert turn.state is TurnState.RUNNING
     gate.set()
-    await settled(controller, user, started)
+    await wait_for_turn_end(controller, user, started)
     assert len(await controller._store.messages_of(user.id, sid)) == 2
     await lifecycle.stop()
 
@@ -128,7 +130,7 @@ async def test_a_runner_refused_mid_stream_writes_nothing_more() -> None:
     lifecycle, controller, engine, gate, user, started = await gated_turn()
     sid = started.session_id
     task = controller._dispatcher._tasks[started.turn_id]
-    controller._now = jumped(FIVE_MINUTES)
+    controller._now = shift_clock(FIVE_MINUTES)
     assert (await controller.open_session(user, sid)).active is None
     gate.set()
     await task
@@ -145,7 +147,7 @@ async def test_a_runner_refused_mid_stream_writes_nothing_more() -> None:
 async def test_a_turn_whose_lease_has_passed_is_interrupted_and_a_new_turn_starts() -> None:
     lifecycle, controller, engine, gate, user, started = await gated_turn(event_wait_timeout=0.01)
     sid = started.session_id
-    controller._now = jumped(FIVE_MINUTES)
+    controller._now = shift_clock(FIVE_MINUTES)
     watched = [e async for e in controller.watch_turn(user, sid, started.turn_id)]
     assert [type(n.event).__name__ for n in watched] == ["MessageStarted", "TurnEnded"]
     assert watched[-1].event == TurnEnded(TurnState.INTERRUPTED)
@@ -154,7 +156,7 @@ async def test_a_turn_whose_lease_has_passed_is_interrupted_and_a_new_turn_start
     again = await controller.regenerate_answer(
         user, sid, question_id=started.question.id, model="echo"
     )
-    await settled(controller, user, again)
+    await wait_for_turn_end(controller, user, again)
     turn = await controller._store.get_turn(user.id, sid, again.turn_id)
     assert turn is not None
     assert turn.state is TurnState.FINISHED
@@ -163,7 +165,7 @@ async def test_a_turn_whose_lease_has_passed_is_interrupted_and_a_new_turn_start
 
 @asyncio_test
 async def test_a_cancel_before_the_runner_claimed_ends_the_turn_cancelled() -> None:
-    lifecycle = await opened()
+    lifecycle = await start_echo_controller()
     controller: Any = lifecycle.composed.controller
     user = await controller.ensure_user(Identity("local", "me"))
     started = await controller.start_session(user, agent="echo", model="echo", text="one")
@@ -190,7 +192,7 @@ async def test_a_cancel_of_a_turn_another_process_runs_reaches_it() -> None:
     # Started once the first has claimed the turn, so that the second's worker cannot.
     second = await over(store)
     await second.composed.controller.cancel_turn(user, started.session_id, started.turn_id)
-    await settled(second.composed.controller, user, started)
+    await wait_for_turn_end(second.composed.controller, user, started)
     turn = await store.get_turn(user.id, started.session_id, started.turn_id)
     assert turn is not None
     assert turn.state is TurnState.CANCELLED
@@ -202,7 +204,7 @@ async def test_a_cancel_of_a_turn_another_process_runs_reaches_it() -> None:
 async def test_close_interrupts_a_running_turn_and_keeps_an_answer_being_finished() -> None:
     lifecycle, controller, _, _, user, started = await gated_turn()
     sid = started.session_id
-    controller._close_timeout = 0.05
+    lifecycle.composed.worker._close_timeout = 0.05
     await lifecycle.stop()
     turn = await controller._store.get_turn(user.id, sid, started.turn_id)
     assert turn is not None
@@ -235,11 +237,11 @@ async def test_a_session_can_be_deleted_during_a_turn() -> None:
 
 @asyncio_test
 async def test_a_session_whose_engine_the_configuration_no_longer_names_is_deleted() -> None:
-    lifecycle = await opened()
+    lifecycle = await start_echo_controller()
     controller: Any = lifecycle.composed.controller
     user = await controller.ensure_user(Identity("local", "me"))
     started = await controller.start_session(user, agent="echo", model="echo", text="one")
-    await settled(controller, user, started)
+    await wait_for_turn_end(controller, user, started)
     moved = dataclasses.replace(CONFIG.agents["echo"], engine="pydantic-ai")
     controller._config = dataclasses.replace(CONFIG, agents={"echo": moved})
     built_at_open = controller._engines.pop("echo")

@@ -92,7 +92,7 @@ class StoreContract:
     async def close_store(self, store: Store) -> None:
         """Release what the store holds; nothing by default."""
 
-    async def started(self, store: Store) -> tuple[User, Session, StoredMessage, Turn]:
+    async def start_first_turn(self, store: Store) -> tuple[User, Session, StoredMessage, Turn]:
         """A session with its first question and a running turn."""
         me = user()
         await store.add_user_if_absent(me)
@@ -131,7 +131,7 @@ class StoreContract:
 
     @store_test
     async def test_a_session_is_its_owners_and_not_another_users(self, store: Store) -> None:
-        me, one, asked, _ = await self.started(store)
+        me, one, asked, _ = await self.start_first_turn(store)
         assert await store.get_session(me.id, one.id) == one
         assert await store.messages_of(me.id, one.id) == [asked.document]
         other = user("you")
@@ -162,14 +162,14 @@ class StoreContract:
 
     @store_test
     async def test_a_renamed_session_reads_back(self, store: Store) -> None:
-        me, one, _, _ = await self.started(store)
+        me, one, _, _ = await self.start_first_turn(store)
         renamed = Session(one.id, me.id, one.agent, one.engine, one.created_at, one.updated_at, "T")
         await store.update_session(renamed)
         assert await store.get_session(me.id, one.id) == renamed
 
     @store_test
     async def test_a_hide_during_a_turn_refuses_its_next_write(self, store: Store) -> None:
-        me, one, _, running = await self.started(store)
+        me, one, _, running = await self.start_first_turn(store)
         await store.hide_session(me.id, one.id, NOW)
         with pytest.raises((TurnLostError, SessionNotFoundError)):
             await self.append(store, me, one, running, piece(1))
@@ -189,7 +189,7 @@ class StoreContract:
     async def test_a_question_is_stored_with_its_turn_and_a_second_running_turn_refused(
         self, store: Store
     ) -> None:
-        me, one, asked, running = await self.started(store)
+        me, one, asked, running = await self.start_first_turn(store)
         assert await store.active_turn(me.id, one.id) == running
         assert await store.latest_turn(me.id, one.id) == running
         assert await store.get_turn(me.id, one.id, running.id) == running
@@ -203,7 +203,7 @@ class StoreContract:
     async def test_events_are_numbered_by_the_runner_and_read_after_a_position(
         self, store: Store
     ) -> None:
-        me, one, _, running = await self.started(store)
+        me, one, _, running = await self.start_first_turn(store)
         for n in (1, 2, 3):
             await self.append(store, me, one, running, piece(n, str(n)))
         after_one = await store.events_after(me.id, one.id, running.id, 1)
@@ -216,7 +216,7 @@ class StoreContract:
 
     @store_test
     async def test_a_finished_turn_keeps_its_answer_and_its_last_events(self, store: Store) -> None:
-        me, one, asked, running = await self.started(store)
+        me, one, asked, running = await self.start_first_turn(store)
         await self.append(store, me, one, running, piece(1))
         said = answer(one.id, asked.id, NOW + MINUTE)
         later = NOW + 2 * MINUTE
@@ -247,7 +247,7 @@ class StoreContract:
 
     @store_test
     async def test_an_append_or_a_finish_on_an_ended_turn_is_refused(self, store: Store) -> None:
-        me, one, _, running = await self.started(store)
+        me, one, _, running = await self.start_first_turn(store)
         await store.finish_turn(
             me.id, one.id, running.id, TurnState.FAILED, NOW, "boom", None, [piece(1)], NOW
         )
@@ -324,7 +324,7 @@ class StoreContract:
 
     @store_test
     async def test_a_turn_of_another_session_is_not_found_through_it(self, store: Store) -> None:
-        me, _, _, running = await self.started(store)
+        me, _, _, running = await self.start_first_turn(store)
         other = session(me.id)
         await store.add_session(other)
         assert await store.get_turn(me.id, other.id, running.id) is None
@@ -336,7 +336,7 @@ class StoreContract:
     async def test_wait_for_events_returns_on_an_append_and_at_its_timeout(
         self, store: Store
     ) -> None:
-        me, one, _, running = await self.started(store)
+        me, one, _, running = await self.start_first_turn(store)
         assert await store.wait_for_events(me.id, one.id, running.id, 0, 0.05) is False
 
         async def soon() -> None:
