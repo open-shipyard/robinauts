@@ -61,7 +61,7 @@ async def seeded(store: Store) -> tuple[User, Session, StoredMessage, Turn]:
     await store.add_session(one)
     asked = StoredMessage(uuid.uuid4(), one.id, None, Role.USER, NOW, {"v": 1, "text": "hi"})
     running, task = turn(one.id, asked.id, lease_until=LEASE)
-    await store.start_turn(me.id, running, task, asked)
+    await store.queue_turn(me.id, running, task, asked)
     return me, one, asked, running
 
 
@@ -133,7 +133,7 @@ async def test_a_finish_and_a_start_raced_never_deadlock_and_the_finish_always_l
                 store.finish_turn(
                     me.id, one.id, running.id, TurnState.FINISHED, NOW, None, None, [], NOW
                 ),
-                store.start_turn(me.id, again, again_task, None),
+                store.queue_turn(me.id, again, again_task, None),
                 return_exceptions=True,
             )
             assert finished is None, finished
@@ -142,7 +142,7 @@ async def test_a_finish_and_a_start_raced_never_deadlock_and_the_finish_always_l
                 started += 1
                 running = again
             else:
-                await store.start_turn(me.id, again, again_task, None)
+                await store.queue_turn(me.id, again, again_task, None)
                 running = again
         assert started >= 0
         await store.close()

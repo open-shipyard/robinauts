@@ -106,7 +106,7 @@ class Store(ABC):
     # --- turns --------------------------------------------------------------
 
     @abstractmethod
-    async def start_turn(
+    async def queue_turn(
         self, owner: uuid.UUID, turn: Turn, task: Task, question: StoredMessage | None
     ) -> None:
         """Store the question, when there is one, the task and the turn, or none of them:

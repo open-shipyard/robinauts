@@ -151,7 +151,7 @@ class MemoryStore(Store):
 
     # --- turns --------------------------------------------------------------
 
-    async def start_turn(
+    async def queue_turn(
         self, owner: uuid.UUID, turn: Turn, task: Task, question: StoredMessage | None
     ) -> None:
         self._visible(owner, turn.session_id)

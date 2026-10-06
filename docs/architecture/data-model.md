@@ -10,7 +10,7 @@ Engines keep their memory apart, in storage of their own, and nothing here refer
 it (`docs/specs/agent-engines.md`). The controller keeps only the checkpoint id an
 engine hands back, on the answer, and the engine's name on the session and on the
 answer. A turn runs on the engine the session records, which holds its memory, and the
-purge forgets on it, whatever the agent's configuration names today; the controller
+purge forgets on it, whatever the agent's configuration names today; the worker
 builds that engine on demand when the configuration no longer names it. Moving an
 agent to another engine, and what its sessions then do, is stage two.
 
@@ -69,7 +69,7 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
 
 ## Rules every store keeps
 
-- **At most one active turn per session**, held atomically by `start_turn`.
+- **At most one active turn per session**, held atomically by `queue_turn`.
   PostgreSQL holds it with a partial unique index on `turns (session_id) WHERE state
   = 'active'`. A store without one holds it with a record keyed by the session,
   written with the turn on condition that it does not exist, and removed in the same
@@ -114,7 +114,7 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   `heartbeat_seconds`, in one write for all its tasks. The runner's deadline is apart:
   the task's claim plus `max_turn_seconds`. An active turn whose task's lease has
   passed is ended as `interrupted`, and its task as `done`, by the next reader to find
-  it (`open_session`, `start_turn`, `watch_turn`, `cancel_turn`, `delete_session`), or
+  it (`open_session`, `queue_turn`, `watch_turn`, `cancel_turn`, `delete_session`), or
   by the sweep every `sweep_seconds`. Both go through `end_expired_turn`: one
   conditional write that only such a turn takes, on the record, its task, the marker a
   store without a partial index keeps, and the answer, and that wakes the turn's

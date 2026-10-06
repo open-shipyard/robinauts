@@ -12,18 +12,19 @@ signed in is web's own concern, the user session.
 
 ## Lifecycle
 
-- `open`: build the stores on the given storage, build the engines the configuration names, and
-  run their setup. A turn a process that went away left running is ended by its lease, by the
-  next reader to find it.
+- `open`: open the store on the given storage. A turn a process that went away left running is
+  ended by its lease, by the next reader to find it.
 - `close`: release the storage.
 
 ## Worker
 
-The worker handles the tasks its process runs, each running one turn. It claims queued
-tasks from the store and dispatches them, up to `max_running_tasks_per_worker` at once. It
-renews their leases every `heartbeat_seconds` and stops a task that any process asks to
-stop. Its stop waits for those tasks, bounded, and interrupts the rest. The worker is not an operation of the
-controller. The shell starts it after `open` and stops it before `close`
+The worker handles the tasks its process runs, each running one turn. It builds the engines
+the configuration names, and runs their setup, when it starts. It claims queued tasks from
+the store and runs them, up to `max_running_tasks_per_worker` at once. A conversation's
+first turn says so, and the worker creates the engine's session before it runs. It renews
+the tasks' leases every `heartbeat_seconds` and stops a task that any process asks to stop.
+Its stop waits for those tasks, bounded, and interrupts the rest. The worker is not an
+operation of the controller. The shell starts it after `open` and stops it before `close`
 (`web/lifecycle.py`).
 
 ## Users

@@ -16,7 +16,7 @@ CLOSE = "close"
 ``interrupted``, the deployment having stopped with the turn in it, not ``cancelled``."""
 
 TaskRunner = Callable[[Task], Awaitable[None]]
-"""What a dispatcher runs: the controller's ``run_task``, given the claimed task."""
+"""What a dispatcher runs: the worker's ``run_task``, given the claimed task."""
 
 
 class TaskDispatcher(ABC):

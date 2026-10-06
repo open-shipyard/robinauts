@@ -55,6 +55,7 @@ from robinauts.controller.contract.domain import (
 from robinauts.controller.core.documents import (
     clean_text,
     event_to_document,
+    message_from_document,
     stored_message,
 )
 from robinauts.controller.core.partial import failed_answer, with_text
@@ -69,6 +70,28 @@ PAST_DEADLINE = "the turn ran past its deadline"
 
 TIMED_OUT = "a call timed out before the turn's deadline"
 """The error of a turn whose silent ``TimeoutError`` came early, such as a query's."""
+
+
+async def load_messages(store: Store, owner: uuid.UUID, session: uuid.UUID) -> list[Message]:
+    """Every message of the session, decoded, oldest first."""
+    return [message_from_document(d) for d in await store.messages_of(owner, session)]
+
+
+async def end_if_running(
+    store: Store,
+    owner: uuid.UUID,
+    session: uuid.UUID,
+    turn: uuid.UUID,
+    state: TurnState,
+    now: datetime,
+) -> None:
+    """End the turn in that state, with no answer and no event, if it is still active and its
+    task holds a lease: a runner that never claimed it wrote nothing. A turn lost, or a
+    session gone, is left as it is."""
+    try:
+        await store.finish_turn(owner, session, turn, state, now, None, None, [], now)
+    except (TurnLostError, SessionNotFoundError):
+        return
 
 
 class _Writer:

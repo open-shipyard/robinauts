@@ -89,17 +89,13 @@ def compose(
     else:
         raise NotImplementedError(f"{storage.kind} storage")
     dispatcher = InProcessDispatcher()
-    controller = RobinautsController(
-        config,
-        store=store,
-        storage=storage,
-        secret_for=secret_for,
-        dispatcher=dispatcher,
-        engines=engines,
+    controller = RobinautsController(config, store=store, dispatcher=dispatcher)
+    worker = Worker(
+        store, dispatcher, config, storage=storage, secret_for=secret_for, engines=engines
     )
     # Handed over here, so that no adapter imports the application.
-    dispatcher.run = controller.run_task
-    return Composed(controller, credentials, Worker(store, dispatcher, config.work))
+    dispatcher.run = worker.run_task
+    return Composed(controller, credentials, worker)
 
 
 def build(config: Config, *, storage: StorageConfig, secret_for: SecretLookup) -> Controller:

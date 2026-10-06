@@ -5,7 +5,7 @@
 
 Every operation checks the owner and ``deleted_at`` itself, as the port promises. The
 session row is locked first in every transaction that writes a session and one of its
-turns: ``start_turn`` with ``FOR SHARE``, ``finish_turn`` with an ``UPDATE``, so that the
+turns: ``queue_turn`` with ``FOR SHARE``, ``finish_turn`` with an ``UPDATE``, so that the
 two never deadlock. A turn is locked before its task in every transaction that writes both,
 and the claim and the renewal lock tasks alone. Constraint names are the interface with the
 database: a violation is translated by name. Watchers are woken by ``NOTIFY`` on one
@@ -323,7 +323,7 @@ class PostgresStore(Store):
 
     # --- turns --------------------------------------------------------------
 
-    async def start_turn(
+    async def queue_turn(
         self, owner: uuid.UUID, turn: Turn, task: Task, question: StoredMessage | None
     ) -> None:
         try:

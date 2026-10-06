@@ -55,7 +55,7 @@ id and time and encodes the whole message as a versioned document
 
 ### 4. The controller stores the question and starts the turn, atomically
 
-`store.start_turn(turn, task, question)` stores the question, a `queued` task with
+`store.queue_turn(turn, task, question)` stores the question, a `queued` task with
 its `lease_until`, and a turn with its own id, in state `active`, in one operation. If
 the session already has an active turn, it stores none of them and raises
 `TurnActiveError`, which web answers with 409; a hidden session is not found, 404. Today the question is stored
@@ -274,7 +274,7 @@ the client sees the terminal event and stops.
   tick. It cancels the engine's stream, and the turn ends as `cancelled`.
 - **The runner dies**, whether the process crashed or the Lambda was killed. Its lease
   runs out. The next read that finds the turn (`open_session`, `watch_turn`,
-  `start_turn`, `cancel_turn`, `delete_session`), or the sweep, ends it as `interrupted`
+  `queue_turn`, `cancel_turn`, `delete_session`), or the sweep, ends it as `interrupted`
   through `end_expired_turn`. It stores what the turn streamed, rebuilt from its events,
   as an answer marked failed. A watcher that finds the turn ended with no `turn_ended` event
   supplies one from the record. A runner that was slow rather than dead finds its

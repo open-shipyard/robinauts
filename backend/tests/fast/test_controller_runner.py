@@ -64,23 +64,26 @@ class SlowFinishStore(MemoryStore):
         await super().finish_turn(*args, **kwargs)
 
 
-async def over(store: MemoryStore, close_timeout: float = 10.0, **options: Any) -> Lifecycle:
+async def over(
+    store: MemoryStore,
+    close_timeout: float = 10.0,
+    engines: dict[str, Any] | None = None,
+    **options: Any,
+) -> Lifecycle:
     """A controller over that store, wired as the composition wires one, and started."""
     dispatcher = InProcessDispatcher()
-    controller = RobinautsController(
+    controller = RobinautsController(CONFIG, store=store, dispatcher=dispatcher, **options)
+    worker = Worker(
+        store,
+        dispatcher,
         CONFIG,
-        store=store,
         storage=StorageConfig(StorageKind.IN_MEMORY),
         secret_for={}.get,
-        dispatcher=dispatcher,
-        **options,
+        engines=engines,
+        close_timeout=close_timeout,
     )
-    dispatcher.run = controller.run_task
-    composed = Composed(
-        controller,
-        MemoryCredentials(store),
-        Worker(store, dispatcher, CONFIG.work, close_timeout=close_timeout),
-    )
+    dispatcher.run = worker.run_task
+    composed = Composed(controller, MemoryCredentials(store), worker)
     lifecycle = Lifecycle(composed)
     await lifecycle.start()
     return lifecycle
@@ -115,7 +118,7 @@ async def test_a_runner_whose_claim_is_refused_runs_no_engine_and_never_finishes
     # A second runner for the same task, as a duplicate dispatch would be.
     turn = await controller._store.get_turn(user.id, sid, started.turn_id)
     assert turn is not None
-    await controller.run_task(await controller._store.get_task(turn.task_id))
+    await lifecycle.composed.worker.run_task(await controller._store.get_task(turn.task_id))
     assert engine.stream.call_count == 1
     turn = await controller._store.get_turn(user.id, sid, started.turn_id)
     assert turn is not None

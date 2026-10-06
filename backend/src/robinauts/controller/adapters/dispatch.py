@@ -18,7 +18,7 @@ _log = logging.getLogger(__name__)
 class InProcessDispatcher(TaskDispatcher):
     def __init__(self, run: TaskRunner | None = None) -> None:
         self.run = run
-        """The controller's ``run_task``, handed over by the composition."""
+        """The worker's ``run_task``, handed over by the composition."""
         self._tasks: dict[uuid.UUID, asyncio.Task[None]] = {}
         self._stopped: set[uuid.UUID] = set()
 
