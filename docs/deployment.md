@@ -104,7 +104,7 @@ names the command that fixes it.
 
 Every query has 10 seconds to finish. A query that takes longer, such as
 one waiting on a lock held elsewhere, fails with `TimeoutError`. The log
-then shows a line such as `could not end turn …` or
+then shows a line such as `could not end task …` or
 `turn … ended on an error`, followed by the traceback. A turn whose
 query timed out fails with "a call timed out before the turn's deadline"
 when its last write still lands. Otherwise it ends as interrupted once

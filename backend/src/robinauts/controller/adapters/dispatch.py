@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""The turn dispatcher that runs each turn as an asyncio task in this process."""
+"""The task dispatcher that runs each claimed task as an asyncio task in this process."""
 
 from __future__ import annotations
 
@@ -9,46 +9,47 @@ import asyncio
 import logging
 import uuid
 
-from robinauts.controller.ports.dispatcher import CLOSE, TurnDispatcher, TurnRunner
+from robinauts.controller.contract.domain import Task
+from robinauts.controller.ports.dispatcher import CLOSE, TaskDispatcher, TaskRunner
 
 _log = logging.getLogger(__name__)
 
 
-class InProcessDispatcher(TurnDispatcher):
-    def __init__(self, run: TurnRunner | None = None) -> None:
+class InProcessDispatcher(TaskDispatcher):
+    def __init__(self, run: TaskRunner | None = None) -> None:
         self.run = run
-        """The controller's ``run_turn``, handed over by the composition."""
+        """The controller's ``run_task``, handed over by the composition."""
         self._tasks: dict[uuid.UUID, asyncio.Task[None]] = {}
         self._stopped: set[uuid.UUID] = set()
 
-    async def dispatch(self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID) -> None:
+    async def dispatch(self, task: Task) -> None:
         if self.run is None:
-            raise RuntimeError("the dispatcher has nothing to run turns with")
-        task = asyncio.create_task(self.run(owner, session, turn))
-        self._tasks[turn] = task
-        task.add_done_callback(lambda done: self._forget_task(turn, done))
+            raise RuntimeError("the dispatcher has nothing to run tasks with")
+        running = asyncio.create_task(self.run(task))
+        self._tasks[task.id] = running
+        running.add_done_callback(lambda done: self._forget_task(task.id, done))
 
-    def _forget_task(self, turn: uuid.UUID, task: asyncio.Task[None]) -> None:
-        self._tasks.pop(turn, None)
-        self._stopped.discard(turn)
-        if not task.cancelled() and (error := task.exception()) is not None:
-            _log.error("turn %s ended on an error", turn, exc_info=error)
+    def _forget_task(self, task: uuid.UUID, running: asyncio.Task[None]) -> None:
+        self._tasks.pop(task, None)
+        self._stopped.discard(task)
+        if not running.cancelled() and (error := running.exception()) is not None:
+            _log.error("task %s ended on an error", task, exc_info=error)
 
-    def stop(self, turn: uuid.UUID) -> bool:
-        task = self._tasks.get(turn)
-        if task is None:
+    def stop(self, task: uuid.UUID) -> bool:
+        running = self._tasks.get(task)
+        if running is None:
             return False
-        if turn not in self._stopped:
-            self._stopped.add(turn)
-            task.cancel()
+        if task not in self._stopped:
+            self._stopped.add(task)
+            running.cancel()
         return True
 
-    async def cancel(self, owner: uuid.UUID, session: uuid.UUID, turn: uuid.UUID) -> bool:
-        task = self._tasks.get(turn)
-        if task is None:
+    async def cancel(self, task: uuid.UUID) -> bool:
+        running = self._tasks.get(task)
+        if running is None:
             return False
-        self.stop(turn)
-        await asyncio.wait({task})
+        self.stop(task)
+        await asyncio.wait({running})
         return True
 
     def running(self) -> list[uuid.UUID]:

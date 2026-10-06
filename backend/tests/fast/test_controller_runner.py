@@ -75,7 +75,7 @@ async def over(store: MemoryStore, close_timeout: float = 10.0, **options: Any) 
         dispatcher=dispatcher,
         **options,
     )
-    dispatcher.run = controller.run_turn
+    dispatcher.run = controller.run_task
     composed = Composed(
         controller,
         MemoryCredentials(store),
@@ -112,12 +112,14 @@ async def test_a_runner_whose_claim_is_refused_runs_no_engine_and_never_finishes
     active = opened_session.active
     assert isinstance(active, ActiveTurn)
     assert (active.turn_id, active.follows) == (started.turn_id, started.question.id)
-    # A second runner for the same turn, as a duplicate dispatch would be.
-    await controller.run_turn(user.id, sid, started.turn_id)
+    # A second runner for the same task, as a duplicate dispatch would be.
+    turn = await controller._store.get_turn(user.id, sid, started.turn_id)
+    assert turn is not None
+    await controller.run_task(await controller._store.get_task(turn.task_id))
     assert engine.stream.call_count == 1
     turn = await controller._store.get_turn(user.id, sid, started.turn_id)
     assert turn is not None
-    assert turn.state is TurnState.RUNNING
+    assert turn.state is TurnState.ACTIVE
     gate.set()
     await wait_for_turn_end(controller, user, started)
     assert len(await controller._store.messages_of(user.id, sid)) == 2
@@ -128,7 +130,8 @@ async def test_a_runner_whose_claim_is_refused_runs_no_engine_and_never_finishes
 async def test_a_runner_refused_mid_stream_writes_nothing_more() -> None:
     lifecycle, controller, engine, gate, user, started = await gated_turn()
     sid = started.session_id
-    task = controller._dispatcher._tasks[started.turn_id]
+    turn = await controller._store.get_turn(user.id, sid, started.turn_id)
+    task = controller._dispatcher._tasks[turn.task_id]
     controller._now = shift_clock(FIVE_MINUTES)
     assert (await controller.open_session(user, sid)).active is None
     gate.set()

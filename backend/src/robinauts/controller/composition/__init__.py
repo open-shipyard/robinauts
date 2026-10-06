@@ -98,7 +98,7 @@ def compose(
         engines=engines,
     )
     # Handed over here, so that no adapter imports the application.
-    dispatcher.run = controller.run_turn
+    dispatcher.run = controller.run_task
     return Composed(controller, credentials, Worker(store, dispatcher, config.work))
 
 

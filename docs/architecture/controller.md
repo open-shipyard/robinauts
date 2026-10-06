@@ -19,10 +19,10 @@ signed in is web's own concern, the user session.
 
 ## Worker
 
-The worker handles the turns its process runs. It claims queued turns from the store and
-dispatches them, up to `max_running_tasks_per_worker` at once. It renews their leases every
-`heartbeat_seconds` and stops a turn that any process asks to stop. Its stop waits for
-those turns, bounded, and interrupts the rest. The worker is not an operation of the
+The worker handles the tasks its process runs, each running one turn. It claims queued
+tasks from the store and dispatches them, up to `max_running_tasks_per_worker` at once. It
+renews their leases every `heartbeat_seconds` and stops a task that any process asks to
+stop. Its stop waits for those tasks, bounded, and interrupts the rest. The worker is not an operation of the
 controller. The shell starts it after `open` and stops it before `close`
 (`web/lifecycle.py`).
 

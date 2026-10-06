@@ -19,9 +19,12 @@ from typing import Any
 import pytest
 
 from robinauts.controller.contract.domain import (
+    RUN_TURN,
     Role,
     Session,
     SessionNotFoundError,
+    Task,
+    TaskState,
     Turn,
     TurnActiveError,
     TurnLostError,
@@ -55,8 +58,19 @@ def answer(session_id: uuid.UUID, parent: uuid.UUID, at: datetime = NOW) -> Stor
 
 def turn(
     session_id: uuid.UUID, follows: uuid.UUID, lease_until: datetime = NOW + 3 * MINUTE
-) -> Turn:
-    return Turn(uuid.uuid4(), session_id, follows, "m", TurnState.RUNNING, NOW, lease_until)
+) -> tuple[Turn, Task]:
+    """An active turn, and the running task that holds it until ``lease_until``."""
+    turn_id = uuid.uuid4()
+    task = Task(
+        uuid.uuid4(),
+        RUN_TURN,
+        {"turn_id": str(turn_id)},
+        TaskState.RUNNING,
+        NOW,
+        lease_until,
+        claimed_at=NOW,
+    )
+    return Turn(turn_id, session_id, follows, "m", TurnState.ACTIVE, NOW, task.id), task
 
 
 def piece(position: int, text: str = "x") -> StoredEvent:
@@ -99,8 +113,8 @@ class StoreContract:
         one = session(me.id)
         await store.add_session(one)
         asked = question(one.id)
-        running = turn(one.id, asked.id)
-        await store.start_turn(me.id, running, asked)
+        running, running_task = turn(one.id, asked.id)
+        await store.start_turn(me.id, running, running_task, asked)
         return me, one, asked, running
 
     async def append(
@@ -175,9 +189,9 @@ class StoreContract:
             await self.append(store, me, one, running, piece(1))
         with pytest.raises(SessionNotFoundError):
             await store.get_session(me.id, one.id)
-        on_purged = turn(one.id, uuid.uuid4())
+        on_purged, on_purged_task = turn(one.id, uuid.uuid4())
         with pytest.raises(SessionNotFoundError):
-            await store.start_turn(me.id, on_purged, None)
+            await store.start_turn(me.id, on_purged, on_purged_task, None)
         assert await store.sessions_of(me.id, 10, None) == []
         assert not await store.purge_session(me.id, one.id, NOW)
         assert await store.purge_session(me.id, one.id, NOW + 4 * MINUTE)
@@ -194,9 +208,9 @@ class StoreContract:
         assert await store.latest_turn(me.id, one.id) == running
         assert await store.get_turn(me.id, one.id, running.id) == running
         second = question(one.id, "again")
-        while_running = turn(one.id, second.id)
+        while_running, while_running_task = turn(one.id, second.id)
         with pytest.raises(TurnActiveError):
-            await store.start_turn(me.id, while_running, second)
+            await store.start_turn(me.id, while_running, while_running_task, second)
         assert await store.messages_of(me.id, one.id) == [asked.document]
 
     @store_test
@@ -268,8 +282,8 @@ class StoreContract:
         one = session(me.id)
         await store.add_session(one)
         asked = question(one.id)
-        running = turn(one.id, asked.id, lease_until=NOW + MINUTE)
-        await store.start_turn(me.id, running, asked)
+        running, running_task = turn(one.id, asked.id, lease_until=NOW + MINUTE)
+        await store.start_turn(me.id, running, running_task, asked)
         await self.append(store, me, one, running, piece(1), at=NOW + MINUTE / 2)
         expired = piece(2)
         with pytest.raises(TurnLostError):
@@ -288,8 +302,8 @@ class StoreContract:
         one = session(me.id)
         await store.add_session(one)
         asked = question(one.id)
-        running = turn(one.id, asked.id, lease_until=NOW + MINUTE)
-        await store.start_turn(me.id, running, asked)
+        running, running_task = turn(one.id, asked.id, lease_until=NOW + MINUTE)
+        await store.start_turn(me.id, running, running_task, asked)
         assert await store.end_expired_turn(me.id, one.id, running.id, NOW + MINUTE / 2) is None
         assert await store.active_turn(me.id, one.id) == running
         ended = await store.end_expired_turn(me.id, one.id, running.id, NOW + 2 * MINUTE)
@@ -311,11 +325,11 @@ class StoreContract:
         one = session(me.id)
         await store.add_session(one)
         asked = question(one.id)
-        first = turn(one.id, asked.id, lease_until=NOW + MINUTE)
-        await store.start_turn(me.id, first, asked)
+        first, first_task = turn(one.id, asked.id, lease_until=NOW + MINUTE)
+        await store.start_turn(me.id, first, first_task, asked)
         assert await store.end_expired_turn(me.id, one.id, first.id, NOW + 2 * MINUTE) is not None
-        again = turn(one.id, asked.id, lease_until=NOW + 5 * MINUTE)
-        await store.start_turn(me.id, again, None)
+        again, again_task = turn(one.id, asked.id, lease_until=NOW + 5 * MINUTE)
+        await store.start_turn(me.id, again, again_task, None)
         assert await store.active_turn(me.id, one.id) == again
         assert await store.end_expired_turn(me.id, one.id, again.id, NOW + 6 * MINUTE) is not None
         await store.hide_session(me.id, one.id, NOW + 6 * MINUTE)

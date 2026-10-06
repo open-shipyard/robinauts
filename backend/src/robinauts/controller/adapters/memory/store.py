@@ -13,9 +13,10 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 
 from robinauts.controller.contract.domain import (
-    ACTIVE,
     Session,
     SessionNotFoundError,
+    Task,
+    TaskState,
     Turn,
     TurnActiveError,
     TurnLostError,
@@ -38,6 +39,7 @@ class MemoryStore(Store):
         self._hidden: dict[uuid.UUID, datetime] = {}
         self._messages: dict[uuid.UUID, list[StoredMessage]] = {}
         self._turns: dict[uuid.UUID, Turn] = {}
+        self._tasks: dict[uuid.UUID, Task] = {}
         self._events: dict[uuid.UUID, list[StoredEvent]] = {}
         self._changed = asyncio.Condition()
         self._cancel_requested: set[uuid.UUID] = set()
@@ -59,19 +61,26 @@ class MemoryStore(Store):
 
     def _active(self, session: uuid.UUID) -> Turn | None:
         return next(
-            (t for t in self._turns.values() if t.session_id == session and t.state in ACTIVE),
+            (
+                t
+                for t in self._turns.values()
+                if t.session_id == session and t.state is TurnState.ACTIVE
+            ),
             None,
         )
 
-    def _claimable(self, now: datetime) -> list[Turn]:
+    def _claimable(self, now: datetime) -> list[Task]:
         queued = [
-            t
-            for t in self._turns.values()
-            if t.state is TurnState.QUEUED
-            and t.lease_until > now
-            and t.session_id not in self._hidden
+            k for k in self._tasks.values() if k.state is TaskState.QUEUED and k.lease_until > now
         ]
-        return sorted(queued, key=lambda t: (t.started_at, t.id))
+        return sorted(queued, key=lambda k: (k.created_at, k.id))
+
+    def _holds(self, turn: Turn | None, at: datetime) -> bool:
+        """Whether the turn is active and its task runs with a lease not passed ``at``."""
+        if turn is None or turn.state is not TurnState.ACTIVE:
+            return False
+        task = self._tasks[turn.task_id]
+        return task.state is TaskState.RUNNING and task.lease_until > at
 
     def _turn_of(self, session: uuid.UUID, turn: uuid.UUID) -> Turn | None:
         found = self._turns.get(turn)
@@ -129,8 +138,9 @@ class MemoryStore(Store):
         self._messages.pop(session, None)
         for turn in [t for t in self._turns.values() if t.session_id == session]:
             del self._turns[turn.id]
+            self._tasks.pop(turn.task_id, None)
             self._events.pop(turn.id, None)
-            self._cancel_requested.discard(turn.id)
+            self._cancel_requested.discard(turn.task_id)
         await self._notify()
         return True
 
@@ -142,13 +152,14 @@ class MemoryStore(Store):
     # --- turns --------------------------------------------------------------
 
     async def start_turn(
-        self, owner: uuid.UUID, turn: Turn, question: StoredMessage | None
+        self, owner: uuid.UUID, turn: Turn, task: Task, question: StoredMessage | None
     ) -> None:
         self._visible(owner, turn.session_id)
         if self._active(turn.session_id) is not None:
             raise TurnActiveError(str(turn.session_id))
         if question is not None:
             self._messages[turn.session_id].append(question)
+        self._tasks[task.id] = task
         self._turns[turn.id] = turn
         self._events[turn.id] = []
         await self._notify()
@@ -164,8 +175,7 @@ class MemoryStore(Store):
         expires_at: datetime,
     ) -> None:
         self._visible(owner, session)
-        found = self._turn_of(session, turn)
-        if found is None or found.state is not TurnState.RUNNING or found.lease_until <= written_at:
+        if not self._holds(self._turn_of(session, turn), written_at):
             raise TurnLostError(f"turn {turn} is not running")
         events = self._events[turn]
         taken = next((e for e in events if e.position == position), None)
@@ -199,8 +209,11 @@ class MemoryStore(Store):
     ) -> None:
         self._visible(owner, session)
         found = self._turn_of(session, turn)
-        if found is None or found.state is not TurnState.RUNNING or found.lease_until <= ended_at:
+        if found is None or not self._holds(found, ended_at):
             raise TurnLostError(f"turn {turn} is not running")
+        self._tasks[found.task_id] = dataclasses.replace(
+            self._tasks[found.task_id], state=TaskState.DONE
+        )
         if answer is not None:
             self._messages[session].append(answer)
         self._events[turn].extend(events)
@@ -220,38 +233,49 @@ class MemoryStore(Store):
     ) -> Turn | None:
         self._visible(owner, session)
         active = self._active(session)
-        if active is None or active.id != turn or active.lease_until >= now:
+        if active is None or active.id != turn:
             return None
-        error = "queued too long" if active.state is TurnState.QUEUED else "lease expired"
+        task = self._tasks[active.task_id]
+        if task.state is TaskState.DONE or task.lease_until >= now:
+            return None
+        error = "queued too long" if task.state is TaskState.QUEUED else "lease expired"
         ended = dataclasses.replace(active, state=TurnState.INTERRUPTED, ended_at=now, error=error)
         self._turns[active.id] = ended
+        self._tasks[task.id] = dataclasses.replace(task, state=TaskState.DONE)
         if answer is not None:
             self._messages[session].append(answer)
         await self._notify()
         return ended
 
     async def renew_leases(
-        self, turns: Sequence[uuid.UUID], now: datetime, until: datetime
+        self, tasks: Sequence[uuid.UUID], now: datetime, until: datetime
     ) -> list[uuid.UUID]:
         renewed = []
-        for turn in turns:
-            found = self._turns.get(turn)
-            if found is not None and found.state is TurnState.RUNNING and found.lease_until > now:
-                self._turns[turn] = dataclasses.replace(found, lease_until=until)
-                renewed.append(turn)
-        return [t for t in renewed if t in self._cancel_requested]
+        for task in tasks:
+            found = self._tasks.get(task)
+            if found is not None and found.state is TaskState.RUNNING and found.lease_until > now:
+                self._tasks[task] = dataclasses.replace(found, lease_until=until)
+                renewed.append(task)
+        return [k for k in renewed if k in self._cancel_requested]
 
-    async def claim_turns(
-        self, now: datetime, until: datetime, limit: int
-    ) -> list[tuple[uuid.UUID, Turn]]:
+    async def claim_tasks(self, now: datetime, until: datetime, limit: int) -> list[Task]:
         claimed = []
         for found in self._claimable(now)[:limit]:
             running = dataclasses.replace(
-                found, state=TurnState.RUNNING, lease_until=until, claimed_at=now
+                found, state=TaskState.RUNNING, lease_until=until, claimed_at=now
             )
-            self._turns[found.id] = running
-            claimed.append((self._sessions[found.session_id].owner_id, running))
+            self._tasks[found.id] = running
+            claimed.append(running)
         return claimed
+
+    async def get_task(self, task: uuid.UUID) -> Task | None:
+        return self._tasks.get(task)
+
+    async def find_turn(self, turn: uuid.UUID) -> tuple[uuid.UUID, Turn] | None:
+        found = self._turns.get(turn)
+        if found is None or found.session_id in self._hidden:
+            return None
+        return self._sessions[found.session_id].owner_id, found
 
     async def wait_for_queued(self, now: datetime, timeout: float) -> bool:
         async with self._changed:
@@ -270,13 +294,16 @@ class MemoryStore(Store):
         active = self._active(session)
         if active is None or active.id != turn:
             return
-        self._cancel_requested.add(turn)
-        if active.state is TurnState.QUEUED:
+        task = self._tasks[active.task_id]
+        if task.state is TaskState.QUEUED:
+            # No worker holds it: both end here.
+            self._tasks[task.id] = dataclasses.replace(task, state=TaskState.DONE)
             self._turns[turn] = dataclasses.replace(active, state=TurnState.CANCELLED, ended_at=at)
             await self._notify()
-            return
-        for stop in self._stops:
-            stop(turn)
+        elif task.state is TaskState.RUNNING:
+            self._cancel_requested.add(task.id)
+            for stop in self._stops:
+                stop(task.id)
 
     async def listen_for_cancels(self, stop: Callable[[uuid.UUID], object]) -> None:
         self._stops.append(stop)
@@ -285,16 +312,21 @@ class MemoryStore(Store):
         return [self._sessions[s] for s in self._hidden if not self._live(s, now)]
 
     def _live(self, session: uuid.UUID, now: datetime) -> bool:
-        """Whether a turn of the session is queued or runs with its lease not passed ``now``."""
+        """Whether the session has an active turn whose task's lease has not passed ``now``."""
         active = self._active(session)
-        return active is not None and active.lease_until > now
+        return active is not None and self._tasks[active.task_id].lease_until > now
 
-    async def expired_turns(self, now: datetime) -> list[tuple[uuid.UUID, Turn]]:
+    async def expired_tasks(self, now: datetime) -> list[Task]:
         return [
-            (self._sessions[t.session_id].owner_id, t)
-            for t in self._turns.values()
-            if t.state in ACTIVE and t.lease_until < now and t.session_id not in self._hidden
+            k for k in self._tasks.values() if k.state is not TaskState.DONE and k.lease_until < now
         ]
+
+    async def end_expired_task(self, task: uuid.UUID, now: datetime) -> bool:
+        found = self._tasks.get(task)
+        if found is None or found.state is TaskState.DONE or found.lease_until >= now:
+            return False
+        self._tasks[task] = dataclasses.replace(found, state=TaskState.DONE)
+        return True
 
     async def active_turn(self, owner: uuid.UUID, session: uuid.UUID) -> Turn | None:
         self._visible(owner, session)
@@ -314,7 +346,7 @@ class MemoryStore(Store):
     ) -> bool:
         def ready() -> bool:
             found = self._turns.get(turn)
-            if found is None or found.state not in ACTIVE:
+            if found is None or found.state is not TurnState.ACTIVE:
                 return True
             return any(e.position > after for e in self._events.get(turn, ()))
 

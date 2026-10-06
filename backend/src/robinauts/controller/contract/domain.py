@@ -317,17 +317,39 @@ class SessionPage:
 
 
 class TurnState(StrEnum):
-    QUEUED = "queued"
-    """Stored, and waiting for a worker to claim it."""
-    RUNNING = "running"
+    ACTIVE = "active"
+    """Not ended yet: queued or running, which its task says. A session has at most one."""
     FINISHED = "finished"
     FAILED = "failed"
     CANCELLED = "cancelled"
     INTERRUPTED = "interrupted"
 
 
-ACTIVE = frozenset({TurnState.QUEUED, TurnState.RUNNING})
-"""The states of a turn that has not ended: a session has at most one turn in them."""
+class TaskState(StrEnum):
+    QUEUED = "queued"
+    """Stored, and waiting for a worker to claim it."""
+    RUNNING = "running"
+    """Claimed by a worker, which holds its lease."""
+    DONE = "done"
+    """Needs no worker any more, however it ended."""
+
+
+RUN_TURN = "run_turn"
+"""The one kind of task: run a turn, named in the payload as ``turn_id``."""
+
+
+@dataclass(frozen=True, slots=True)
+class Task:
+    """Work for a worker: what to do, and the lease of whoever does it."""
+
+    id: uuid.UUID
+    name: str
+    payload: Mapping[str, Any]
+    state: TaskState
+    created_at: datetime
+    lease_until: datetime
+    """While queued, how long the task may wait; once claimed, the worker's lease."""
+    claimed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -340,14 +362,13 @@ class Turn:
     model: str
     state: TurnState
     started_at: datetime
-    lease_until: datetime
+    task_id: uuid.UUID
+    """The task that runs the turn, which holds its lease."""
     ended_at: datetime | None = None
     error: str | None = None
     """For the operator, on a turn that ended badly; never sent to a browser."""
-    retries: uuid.UUID | None = None
+    retries_message_id: uuid.UUID | None = None
     """The failed answer this turn tries again, which the model is told about."""
-    claimed_at: datetime | None = None
-    """When a worker claimed the turn; its deadline counts from then."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -134,10 +134,10 @@ async def run_turn(
     prompt: str,
     agent_config: AgentConfig,
     checkpoint_id: str | None,
+    claimed_at: datetime,
     max_turn_seconds: float,
 ) -> None:
     # From the claim, not the start: a turn may wait queued for hours.
-    claimed_at = turn.claimed_at or turn.started_at
     deadline = claimed_at + timedelta(seconds=max_turn_seconds)
     remaining = (deadline - datetime.now(UTC)).total_seconds()
     if remaining <= 0:
