@@ -69,6 +69,10 @@ EVENT_WAIT_TIMEOUT = 15.0
 """How long a watcher waits for an event before it reads the store again, and checks whether
 the turn's lease has passed."""
 
+MAX_QUEUED_TIME = timedelta(hours=48)
+"""How long a turn may wait queued, written as its lease until a worker claims it: long enough
+to outlast an outage of the workers."""
+
 ENDED_BADLY = frozenset({TurnState.FAILED, TurnState.CANCELLED, TurnState.INTERRUPTED})
 """How a turn may end that opening its session says so."""
 
@@ -378,7 +382,7 @@ class RobinautsController(Controller):
             model=model,
             state=TurnState.QUEUED,
             started_at=now,
-            lease_until=now + timedelta(seconds=self._config.work.lease_seconds),
+            lease_until=now + MAX_QUEUED_TIME,
             retries=retries,
         )
         stored = stored_message(question) if new_question else None

@@ -272,8 +272,8 @@ Notes on what is and is not there:
   its conversation ends it, or a sweep every `sweep_seconds` does.
   `heartbeat_seconds` must be at most half of `lease_seconds`. A server runs
   at most `max_running_tasks_per_worker` turns at once, and the others wait
-  queued. A queued turn whose lease passes before a server takes it is ended
-  as well.
+  queued. A turn queued for 48 hours is ended. A turn's `max_turn_seconds`
+  counts from when a server takes it.
 - A file with no `[agents]` table is a deployment with no agents: it
   starts, the picker is empty, and the log says so.
 

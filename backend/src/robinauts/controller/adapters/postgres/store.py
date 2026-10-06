@@ -62,7 +62,8 @@ USER_EXISTS = "users_provider_subject_key"
 
 _SESSION_COLUMNS = "id, owner_id, agent, engine, title, created_at, updated_at"
 _TURN_COLUMNS = (
-    "id, session_id, follows, model, state, started_at, ended_at, error, lease_until, retries"
+    "id, session_id, follows, model, state, started_at, ended_at, error, lease_until, retries,"
+    " claimed_at"
 )
 
 _VISIBLE = "SELECT 1 FROM sessions WHERE id = $1 AND owner_id = $2 AND deleted_at IS NULL"
@@ -86,7 +87,8 @@ _T_COLUMNS = ", ".join("t." + c for c in _TURN_COLUMNS.split(", "))
 
 _END_EXPIRED = f"""
 UPDATE turns AS t
-SET state = 'interrupted', ended_at = $3, error = 'lease expired'
+SET state = 'interrupted', ended_at = $3,
+  error = CASE WHEN t.state = 'queued' THEN 'queued too long' ELSE 'lease expired' END
 FROM sessions AS s
 WHERE s.id = t.session_id AND s.id = $2 AND s.owner_id = $1 AND s.deleted_at IS NULL
   AND t.id = $4 AND t.state IN ('queued', 'running') AND t.lease_until < $3
@@ -95,7 +97,7 @@ RETURNING {_T_COLUMNS}
 
 _CLAIM = f"""
 UPDATE turns AS t
-SET state = 'running', lease_until = $2
+SET state = 'running', lease_until = $2, claimed_at = $1
 FROM sessions AS s
 WHERE s.id = t.session_id AND t.state = 'queued' AND t.id IN (
   SELECT q.id FROM turns AS q
@@ -138,6 +140,7 @@ def _turn(row: asyncpg.Record) -> Turn:
         row["ended_at"],
         row["error"],
         row["retries"],
+        row["claimed_at"],
     )
 
 
@@ -313,7 +316,7 @@ class PostgresStore(Store):
                     await self._insert_message(connection, question)
                 await connection.execute(
                     f"INSERT INTO turns ({_TURN_COLUMNS})"
-                    " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                    " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
                     turn.id,
                     turn.session_id,
                     turn.follows,
@@ -324,6 +327,7 @@ class PostgresStore(Store):
                     turn.error,
                     turn.lease_until,
                     turn.retries,
+                    turn.claimed_at,
                 )
                 if turn.state is TurnState.QUEUED:
                     await connection.execute(

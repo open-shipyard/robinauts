@@ -222,9 +222,8 @@ class MemoryStore(Store):
         active = self._active(session)
         if active is None or active.id != turn or active.lease_until >= now:
             return None
-        ended = dataclasses.replace(
-            active, state=TurnState.INTERRUPTED, ended_at=now, error="lease expired"
-        )
+        error = "queued too long" if active.state is TurnState.QUEUED else "lease expired"
+        ended = dataclasses.replace(active, state=TurnState.INTERRUPTED, ended_at=now, error=error)
         self._turns[active.id] = ended
         if answer is not None:
             self._messages[session].append(answer)
@@ -247,7 +246,9 @@ class MemoryStore(Store):
     ) -> list[tuple[uuid.UUID, Turn]]:
         claimed = []
         for found in self._claimable(now)[:limit]:
-            running = dataclasses.replace(found, state=TurnState.RUNNING, lease_until=until)
+            running = dataclasses.replace(
+                found, state=TurnState.RUNNING, lease_until=until, claimed_at=now
+            )
             self._turns[found.id] = running
             claimed.append((self._sessions[found.session_id].owner_id, running))
         return claimed

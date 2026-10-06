@@ -21,7 +21,7 @@ agent to another engine, and what its sessions then do, is stage two.
 | user | `id` | `provider` and `subject` (unique together), `name`, `email`, `created_at` | no |
 | session | `id` | `owner_id`, `agent`, `engine`, `title`, `created_at`, `updated_at`, `deleted_at` | no |
 | message | `id` | `session_id`, `parent_id`, `role`, `created_at` | **yes** |
-| turn | `id` | `session_id`, `follows`, `model`, `state`, `started_at`, `ended_at`, `error`, `lease_until`, `cancel_requested_at`, `retries` | no |
+| turn | `id` | `session_id`, `follows`, `model`, `state`, `started_at`, `ended_at`, `error`, `lease_until`, `claimed_at`, `cancel_requested_at`, `retries` | no |
 | turn event | `(turn_id, position)` | `expires_at` | **yes** |
 | user session | `id` | `user_id`, `secret_hash` (unique), `created_at`, `expires_at` | no |
 | pending login | `state_hash` | `provider`, `nonce`, `verifier`, `return_to`, `created_at`, `expires_at` | no |
@@ -108,9 +108,10 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   events but a late watcher. Until they expire, they are the only copy of a turn's
   reasoning, and of what a cancelled turn streamed.
 - **A turn holds a lease.** `lease_until` is written with the turn, as its start plus
-  `lease_seconds`, and again by the claim. The process that runs the turn renews it every `heartbeat_seconds`,
-  in one write for all its turns. The runner's deadline is apart: the turn's start
-  plus `max_turn_seconds`. A queued or running turn whose lease has passed is ended as
+  48 hours: how long a turn may wait queued. The claim sets it to `lease_seconds` from
+  then, and sets `claimed_at`. The process that runs the turn renews it every
+  `heartbeat_seconds`, in one write for all its turns. The runner's deadline is apart:
+  the turn's claim plus `max_turn_seconds`. A queued or running turn whose lease has passed is ended as
   `interrupted` by the next reader to find it (`open_session`, `start_turn`,
   `watch_turn`, `cancel_turn`, `delete_session`), or by the sweep every
   `sweep_seconds`. Both go through `end_expired_turn`: one conditional write that only

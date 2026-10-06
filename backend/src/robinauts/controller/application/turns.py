@@ -5,7 +5,7 @@
 
 The runner numbers its turn's events from 1 and is their only writer. Its first append is
 its claim on the turn: refused, it has lost the turn to another runner and runs no engine.
-Its deadline is the turn's start plus ``max_turn_seconds``; the process renews the lease. On
+Its deadline is the turn's claim plus ``max_turn_seconds``; the process renews the lease. On
 ``TurnLostError`` from any write it closes the engine's stream and writes nothing more: the
 turn is another runner's, a reader ended it, or its lease has passed.
 """
@@ -136,7 +136,9 @@ async def run_turn(
     checkpoint_id: str | None,
     max_turn_seconds: float,
 ) -> None:
-    deadline = turn.started_at + timedelta(seconds=max_turn_seconds)
+    # From the claim, not the start: a turn may wait queued for hours.
+    claimed_at = turn.claimed_at or turn.started_at
+    deadline = claimed_at + timedelta(seconds=max_turn_seconds)
     remaining = (deadline - datetime.now(UTC)).total_seconds()
     if remaining <= 0:
         return

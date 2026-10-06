@@ -346,6 +346,8 @@ class Turn:
     """For the operator, on a turn that ended badly; never sent to a browser."""
     retries: uuid.UUID | None = None
     """The failed answer this turn tries again, which the model is told about."""
+    claimed_at: datetime | None = None
+    """When a worker claimed the turn; its deadline counts from then."""
 
 
 @dataclass(frozen=True, slots=True)

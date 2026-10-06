@@ -235,17 +235,18 @@ CREATE INDEX IF NOT EXISTS messages_session_id_parent_id_idx
 -- asked with, but a regeneration answers the same question on another model,
 -- so the turn records its own.
 --
--- A turn is stored `queued`. A worker claims it by making it `running`, and
--- dispatches it. A cancel ends a queued turn at once.
+-- A turn is stored `queued`. A worker claims it by making it `running`,
+-- setting `claimed_at`, and dispatches it. A cancel ends a queued turn at once.
 --
--- `lease_until` is written with the turn, as its start plus `lease_seconds`,
--- set again by the claim, and renewed by the process that runs it. Every write
--- of the runner's is refused past it. A queued turn whose lease has passed was
--- claimed by no worker in time, and a running one was left by a runner that
+-- `lease_until` means two things. On a queued turn it is how long the turn may
+-- wait: its start plus 48 hours. The claim sets it to `lease_seconds` from
+-- then, the runner's lease, which the process that runs the turn renews.
+-- Every write of the runner's is refused past it. A queued turn whose lease
+-- has passed waited too long, and a running one was left by a runner that
 -- went away: the next reader to find it, or the sweep, ends it as
 -- `interrupted`, with no event. `cancel_requested_at` is set by a cancel
--- from any process, and read back with each renewal of the lease. Both are set
--- by the application's clock.
+-- from any process, and read back with each renewal of the lease. All three
+-- are set by the application's clock.
 CREATE TABLE IF NOT EXISTS turns (
     id uuid
         CONSTRAINT turns_pkey PRIMARY KEY,
@@ -266,6 +267,7 @@ CREATE TABLE IF NOT EXISTS turns (
     -- sentence (docs/specs/wire.md).
     error text,
     lease_until timestamptz NOT NULL,
+    claimed_at timestamptz,
     cancel_requested_at timestamptz,
     -- The failed answer a retry tries again: the model is told about it
     -- (docs/specs/ui.md). Null on every other turn.
