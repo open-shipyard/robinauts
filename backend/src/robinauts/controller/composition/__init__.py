@@ -2,8 +2,8 @@
 # Copyright The Robinauts Authors
 
 """Loads a configuration file, and builds a controller: the store for the storage asked, the
-dispatcher that runs its turns, the application over them, and the worker that claims its
-turns, with the credentials sign-in keeps on the same storage. The file holds web's tables
+application over it, and the worker that claims and runs its turns, with the credentials
+sign-in keeps on the same storage. The file holds web's tables
 beside the controller's, so web is handed the tables of one reading and parses its own. Also
 what `robinauts db init` does, since it is the one other thing that names the store and the
 engines together."""
@@ -19,7 +19,6 @@ from robinauts.agent_engines.contract.ports import EngineFactory, installed
 from robinauts.agent_engines.contract.ports import StorageConfig as EngineStorage
 from robinauts.agent_engines.contract.ports import StorageKind as EngineStorageKind
 from robinauts.controller.adapters.config_file import read_config
-from robinauts.controller.adapters.dispatch import InProcessDispatcher
 from robinauts.controller.adapters.memory.credentials import MemoryCredentials
 from robinauts.controller.adapters.memory.store import MemoryStore
 from robinauts.controller.adapters.postgres.credentials import PostgresCredentials
@@ -88,13 +87,8 @@ def compose(
         store, credentials = memory, MemoryCredentials(memory)
     else:
         raise NotImplementedError(f"{storage.kind} storage")
-    dispatcher = InProcessDispatcher()
     controller = RobinautsController(config, store=store)
-    worker = Worker(
-        store, dispatcher, config, storage=storage, secret_for=secret_for, engines=engines
-    )
-    # Handed over here, so that no adapter imports the application.
-    dispatcher.run = worker.run_task
+    worker = Worker(store, config, storage=storage, secret_for=secret_for, engines=engines)
     return Composed(controller, credentials, worker)
 
 

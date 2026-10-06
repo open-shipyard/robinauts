@@ -3,10 +3,10 @@
 
 """The worker: everything about the tasks this process runs.
 
-It builds the engines, claims queued tasks from the store and hands them to the dispatcher,
-which runs each with ``run_task``. It renews the leases of the tasks the dispatcher runs, and
-stops a task asked to stop, from any process. Every process runs one. A task is claimed by
-one worker, whichever process stored it.
+It builds the engines, claims queued tasks from the store and runs each as an asyncio task
+with ``run_task``. It renews the leases of the tasks it runs, and stops a task asked to stop,
+from any process. Every process runs one. A task is claimed by one worker, whichever process
+stored it.
 """
 
 from __future__ import annotations
@@ -20,7 +20,12 @@ from datetime import UTC, datetime, timedelta
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
 from robinauts.controller.application.engines import build_engines
 from robinauts.controller.application.intervals import run_at_intervals
-from robinauts.controller.application.turns import end_if_running, load_messages, run_turn
+from robinauts.controller.application.turns import (
+    CLOSE,
+    end_if_running,
+    load_messages,
+    run_turn,
+)
 from robinauts.controller.contract.domain import (
     RUN_TURN,
     Config,
@@ -39,7 +44,6 @@ from robinauts.controller.core.engine_settings import (
     engine_storage,
 )
 from robinauts.controller.core.failures import prompt_after_failures
-from robinauts.controller.ports.dispatcher import CLOSE, TaskDispatcher
 from robinauts.controller.ports.store import Store
 
 _log = logging.getLogger(__name__)
@@ -63,7 +67,6 @@ class Worker:
     def __init__(
         self,
         store: Store,
-        dispatcher: TaskDispatcher,
         config: Config,
         *,
         storage: StorageConfig,
@@ -75,7 +78,6 @@ class Worker:
     ) -> None:
         """``engines`` are the factories by engine name; the installed ones when not given."""
         self._store = store
-        self._dispatcher = dispatcher
         self._config = config
         self._work = config.work
         self._storage = storage
@@ -90,6 +92,9 @@ class Worker:
         self._claiming: asyncio.Task[None] | None = None
         self._heartbeat: asyncio.Task[None] | None = None
         self._cancelling: set[asyncio.Task[None]] = set()
+        self._running: dict[uuid.UUID, asyncio.Task[None]] = {}
+        """The tasks this process runs, by task id: whose leases it renews."""
+        self._stopped: set[uuid.UUID] = set()
 
     def _sets_up_engines(self) -> bool:
         """On PostgreSQL `robinauts db init` set the engines up; the server never does."""
@@ -119,7 +124,7 @@ class Worker:
         rest. The leases are renewed until the last turn has ended."""
         await _cancel_and_wait(self._claiming)
         self._claiming = None
-        await self._dispatcher.close(self._close_timeout)
+        await self._drain()
         await asyncio.gather(*self._cancelling, return_exceptions=True)
         await _cancel_and_wait(self._heartbeat)
         self._heartbeat = None
@@ -129,7 +134,7 @@ class Worker:
         """Claim the queued tasks and dispatch each, until none is left or this process runs
         ``max_running_tasks_per_worker`` tasks: true in the second case."""
         while True:
-            room = self._work.max_running_tasks_per_worker - len(self._dispatcher.running())
+            room = self._work.max_running_tasks_per_worker - len(self._running)
             if room <= 0:
                 return True
             now = self._now()
@@ -137,14 +142,14 @@ class Worker:
             limit = min(CLAIM_LIMIT, room)
             claimed = await self._store.claim_tasks(now, until, limit)
             for task in claimed:
-                await self._dispatcher.dispatch(task)
+                self._dispatch(task)
             if len(claimed) < limit:
                 return False
 
     async def renew_leases(self) -> None:
-        """Renew the lease of every task the dispatcher runs, and stop those asked to stop
+        """Renew the lease of every task this process runs, and stop those asked to stop
         whose announcement was missed."""
-        if tasks := self._dispatcher.running():
+        if tasks := list(self._running):
             now = self._now()
             until = now + timedelta(seconds=self._work.lease_seconds)
             for task in await self._store.renew_leases(tasks, now, until):
@@ -152,7 +157,7 @@ class Worker:
 
     def _cancel_requested(self, task: uuid.UUID) -> None:
         """A task asked to stop, from any process: if this process runs it, stop it."""
-        if task not in self._dispatcher.running():
+        if task not in self._running:
             return
         cancelling = asyncio.create_task(self._cancel(task), name=f"cancel {task}")
         self._cancelling.add(cancelling)
@@ -161,8 +166,11 @@ class Worker:
     async def _cancel(self, task: uuid.UUID) -> None:
         """Stop the task and wait for it, then end its turn as ``cancelled``: a runner stopped
         before it got going wrote nothing, and one that ran has ended it already."""
-        if not await self._dispatcher.cancel(task):
+        running = self._running.get(task)
+        if running is None:
             return
+        self._stop(task)
+        await asyncio.wait({running})
         stopped = await self._store.get_task(task)
         if stopped is None or stopped.name != RUN_TURN:
             return
@@ -174,7 +182,7 @@ class Worker:
             )
 
     async def run_task(self, task: Task) -> None:
-        """Run a claimed task, which names its turn: what the dispatcher runs."""
+        """Run a claimed task, which names its turn."""
         if task.name != RUN_TURN:
             raise ValueError(f"a task this build does not run: {task.name!r}")
         found = await self._store.find_turn(uuid.UUID(task.payload["turn_id"]))
@@ -248,6 +256,37 @@ class Worker:
             task.claimed_at or turn.started_at,
             self._work.max_turn_seconds,
         )
+
+    def _dispatch(self, task: Task) -> None:
+        """Run the claimed task as an asyncio task of this process, and return at once."""
+        running = asyncio.create_task(self.run_task(task), name=f"task {task.id}")
+        self._running[task.id] = running
+        running.add_done_callback(lambda done: self._forget_task(task.id, done))
+
+    def _forget_task(self, task: uuid.UUID, running: asyncio.Task[None]) -> None:
+        self._running.pop(task, None)
+        self._stopped.discard(task)
+        if not running.cancelled() and (error := running.exception()) is not None:
+            _log.error("task %s ended on an error", task, exc_info=error)
+
+    def _stop(self, task: uuid.UUID) -> None:
+        """Cancel the task if this process runs it, once however often it is asked."""
+        running = self._running.get(task)
+        if running is not None and task not in self._stopped:
+            self._stopped.add(task)
+            running.cancel()
+
+    async def _drain(self) -> None:
+        """Wait up to ``close_timeout`` for the tasks this process runs, then cancel the rest
+        naming ``CLOSE``, so that their turns end as interrupted, and wait for those too."""
+        running = set(self._running.values())
+        if not running:
+            return
+        _, pending = await asyncio.wait(running, timeout=self._close_timeout)
+        for task in pending:
+            task.cancel(CLOSE)
+        if pending:
+            await asyncio.wait(pending)
 
     async def _claim_loop(self) -> None:
         while True:

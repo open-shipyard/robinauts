@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""The runner and the dispatcher: the claim, the lease, the parts, cancels, deletes, the close."""
+"""The runner and the worker: the claim, the lease, the parts, cancels, deletes, the close."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from echo_controller import CONFIG, start_echo_controller, wait_for_turn_end
 from robinauts.agent_engines.contract.domain import Event
 from robinauts.agent_engines.contract.ports import AgentEngine
 from robinauts.agent_engines.echo_engine.engine import EchoEngine
-from robinauts.controller.adapters.dispatch import InProcessDispatcher
 from robinauts.controller.adapters.memory.credentials import MemoryCredentials
 from robinauts.controller.adapters.memory.store import MemoryStore
 from robinauts.controller.application.controller import RobinautsController
@@ -71,18 +70,15 @@ async def over(
     **options: Any,
 ) -> Lifecycle:
     """A controller over that store, wired as the composition wires one, and started."""
-    dispatcher = InProcessDispatcher()
     controller = RobinautsController(CONFIG, store=store, **options)
     worker = Worker(
         store,
-        dispatcher,
         CONFIG,
         storage=StorageConfig(StorageKind.IN_MEMORY),
         secret_for={}.get,
         engines=engines,
         close_timeout=close_timeout,
     )
-    dispatcher.run = worker.run_task
     composed = Composed(controller, MemoryCredentials(store), worker)
     lifecycle = Lifecycle(composed)
     await lifecycle.start()
@@ -134,7 +130,7 @@ async def test_a_runner_refused_mid_stream_writes_nothing_more() -> None:
     lifecycle, controller, engine, gate, user, started = await gated_turn()
     sid = started.session_id
     turn = await controller._store.get_turn(user.id, sid, started.turn_id)
-    task = lifecycle.composed.worker._dispatcher._tasks[turn.task_id]
+    task = lifecycle.composed.worker._running[turn.task_id]
     controller._now = shift_clock(FIVE_MINUTES)
     assert (await controller.open_session(user, sid)).active is None
     gate.set()

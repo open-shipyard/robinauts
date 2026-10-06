@@ -59,8 +59,11 @@ from robinauts.controller.core.documents import (
     stored_message,
 )
 from robinauts.controller.core.partial import failed_answer, with_text
-from robinauts.controller.ports.dispatcher import CLOSE
 from robinauts.controller.ports.store import Store, StoredEvent
+
+CLOSE = "close"
+"""The reason a closing worker cancels a task with. The runner ends such a turn as
+``interrupted``, the deployment having stopped with the turn in it, not ``cancelled``."""
 
 RETENTION = timedelta(hours=24)
 """How long a turn's events are kept after they are written, a constant for now."""

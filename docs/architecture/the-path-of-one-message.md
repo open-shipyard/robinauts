@@ -85,13 +85,13 @@ first by `add_message`, and `start_turn(session, follows)` has no turn id.
 
 ### 5. The turn is dispatched
 
-The task dispatcher port is given the claimed task, whose payload names the turn.
+A worker claims the task, whose payload names the turn, and runs it.
 
 - **PostgreSQL:** every uvicorn process runs a worker that hears `robinauts_queued`.
   The worker claims queued tasks with one `UPDATE … FOR UPDATE SKIP LOCKED`, which
-  makes them `running` with a new lease. It hands each to the in-process dispatcher,
-  which calls `asyncio.create_task(run_task(…))`. With several processes, the worker
-  that claims the task first runs it, whichever process took the request.
+  makes them `running` with a new lease. It runs each as
+  `asyncio.create_task(run_task(…))` in its own process. With several processes, the
+  worker that claims the task first runs it, whichever process took the request.
 - **AWS:** `lambda:Invoke` with `InvocationType=Event` on the worker Lambda, with
   retries set to zero and the event's age bounded below the lease. It returns in
   milliseconds. A cold worker spends a few seconds importing the frameworks and the
@@ -281,7 +281,8 @@ the client sees the terminal event and stops.
   next write refused, by the lease or by the end, and stops.
 - **A second runner is dispatched for the turn**, which an async invocation allows.
   Its `MessageStarted` is refused at position 1 and it returns without running the
-  engine. On PostgreSQL the dispatcher is in-process, and it does not happen.
+  engine. On PostgreSQL the worker that claims the task runs it, and it does not
+  happen.
 - **The session is deleted during the turn.** `delete_session` ends a turn whose
   lease has passed, asks a running turn to stop, and hides the session. A runner in
   another process finds its next write refused, and stops.
