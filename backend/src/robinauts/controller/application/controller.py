@@ -211,17 +211,9 @@ class RobinautsController(Controller):
         running = await self._store.active_turn(user.id, session_id)
         if running is not None:
             await self._cancel(user, running)
+        # A soft delete: the records and the engine's memory stay. A turn another process
+        # runs stops at its next write.
         await self._store.hide_session(user.id, session_id, self._now())
-        # A turn another process runs stops at its next write, and the sweep purges after.
-        if any(s.id == session_id for s in await self._store.hidden_sessions(self._now())):
-            await self._purge(session)
-
-    async def _purge(self, session: Session) -> None:
-        """Forget, then purge, a hidden session that no turn runs in with a live lease: none
-        can start any more, so none runs under the `forget`. A failed `forget` leaves the
-        session to the next sweep."""
-        await (await self._engine(session.engine)).forget(session.id)
-        await self._store.purge_session(session.owner_id, session.id, self._now())
 
     async def fork_session(
         self, user: User, session_id: uuid.UUID, *, at_message: uuid.UUID
@@ -485,11 +477,6 @@ class RobinautsController(Controller):
                 await self._end_expired(await self._store.get_session(owner, turn.session_id), turn)
             except Exception:
                 _log.exception("could not end turn %s, whose lease has passed", turn.id)
-        for session in await self._store.hidden_sessions(self._now()):
-            try:
-                await self._purge(session)
-            except Exception:
-                _log.exception("could not purge deleted session %s", session.id)
 
     async def _end_expired(self, session: Session, turn: Turn | None = None) -> None:
         """End the session's queued or running turn if its lease has passed, as

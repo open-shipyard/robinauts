@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -232,21 +231,4 @@ async def test_a_session_can_be_deleted_during_a_turn() -> None:
     await controller.delete_session(user, sid)
     with pytest.raises(SessionNotFoundError):
         await controller.open_session(user, sid)
-    await lifecycle.stop()
-
-
-@asyncio_test
-async def test_a_session_whose_engine_the_configuration_no_longer_names_is_deleted() -> None:
-    lifecycle = await start_echo_controller()
-    controller: Any = lifecycle.composed.controller
-    user = await controller.ensure_user(Identity("local", "me"))
-    started = await controller.start_session(user, agent="echo", model="echo", text="one")
-    await wait_for_turn_end(controller, user, started)
-    moved = dataclasses.replace(CONFIG.agents["echo"], engine="pydantic-ai")
-    controller._config = dataclasses.replace(CONFIG, agents={"echo": moved})
-    built_at_open = controller._engines.pop("echo")
-    await controller.delete_session(user, started.session_id)
-    assert controller._engines["echo"] is not built_at_open
-    with pytest.raises(SessionNotFoundError):
-        await controller.open_session(user, started.session_id)
     await lifecycle.stop()

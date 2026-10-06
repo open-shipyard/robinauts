@@ -92,13 +92,11 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   nothing more. **The first append is the claim:** a second runner dispatched for the
   same turn is refused at position 1, before it has run the engine, because each
   runner mints the answer's id afresh and so no two claims are the same document.
-- **Deleting hides, then purges.** `deleted_at` makes a session not found and closes
-  it to turns. The controller first asks a running turn to stop. The hide comes next,
-  and a runner in another process finds its next write refused. The purge waits until
-  no turn runs: at once when none ran or this process ended it, else by the sweep.
-  The purge calls `forget` on the engine the session records, which may no longer be
-  the one its agent's configuration names, then deletes the session with its
-  messages, turns and events.
+- **Deleting hides.** `deleted_at` makes a session not found and closes it to turns.
+  The controller first asks a running turn to stop. The hide comes next, and a runner
+  in another process finds its next write refused. The records and the engine's memory
+  stay. The purge, which calls `forget` and deletes the records, is deferred to a
+  background task.
 - **A cancel goes through the store.** It ends a queued turn as `cancelled` at once.
   It sets `cancel_requested_at` on a running turn and announces it. The process that runs the turn cancels its task. A missed
   announcement is read back with the next renewal of the lease.

@@ -257,10 +257,9 @@ async def test_everyday_use(agent: str) -> None:
 
         # --- Managing conversations ---------------------------------------------------------
 
-        # 10. Delete B: it leaves the list, and the engine forgets it.
+        # 10. Delete B: it leaves the list.
         assert (await http.delete(f"/api/conversations/{b}")).status_code == 204
         assert await api.history() == ["alpha one"]
-        engine.forget.assert_awaited_once_with(uuid.UUID(b))
 
         # 11. Rename A: the title is its first line, trimmed.
         renamed = await http.patch(

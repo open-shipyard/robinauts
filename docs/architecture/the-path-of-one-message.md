@@ -281,8 +281,7 @@ the client sees the terminal event and stops.
   engine. On PostgreSQL the dispatcher is in-process, and it does not happen.
 - **The session is deleted during the turn.** `delete_session` ends a turn whose
   lease has passed, asks a running turn to stop, and hides the session. A runner in
-  another process finds its next write refused, and stops. The purge waits until no
-  turn runs, so `forget` is the last word.
+  another process finds its next write refused, and stops.
 - **A tool returns a NUL**, or half a character. The encoder drops the one and
   replaces the other before the event is written, on both stores alike.
 - **A stream reaches a limit**, such as Lambda's 15 minutes or a proxy's timeout. The

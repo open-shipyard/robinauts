@@ -41,7 +41,8 @@ controller. The shell starts it after `open` and stops it before `close`
 - `list_sessions`: most recently updated first, a page at a time.
 - `open_session`: one moment of a session, its messages and its active turn if any.
 - `rename_session`
-- `delete_session`: the records, and the engine's memory with them, after stopping a running turn.
+- `delete_session`: hide the session, after stopping a running turn. A soft delete: the records
+  and the engine's memory stay.
 - `fork_session`: a new session from a message of another, independent from then on.
 
 ## Turns
@@ -58,4 +59,4 @@ controller. The shell starts it after `open` and stops it before `close`
 
 Run by the process that holds the controller, on a schedule of its own, never by a shell.
 
-- `sweep`: delete what has expired, and forget its memory.
+- `sweep`: end the turns whose lease has passed.
