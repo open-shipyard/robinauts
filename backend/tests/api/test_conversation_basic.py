@@ -6,31 +6,15 @@
 from __future__ import annotations
 
 import json
-import threading
 from typing import Any
 
 import httpx
 import pytest
 
 from util.controller_db import requires_postgres
-from util.fake_openai import EchoModel, FakeModel
-from util.fake_openai.echo_model import last_question
+from util.fake_openai import FakeModel, HoldingEchoModel
 
 pytestmark = requires_postgres
-
-
-class HoldingEchoModel(EchoModel):
-    """An echo that holds the question ``hold`` until ``release`` is set."""
-
-    def __init__(self) -> None:
-        self.asked = threading.Event()
-        self.release = threading.Event()
-
-    def reply(self, messages: list[dict[str, Any]]) -> str:
-        if last_question(messages) == "hold":
-            self.asked.set()
-            self.release.wait(30)
-        return super().reply(messages)
 
 
 @pytest.fixture

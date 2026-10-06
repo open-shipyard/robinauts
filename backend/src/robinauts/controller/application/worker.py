@@ -71,16 +71,21 @@ class Worker:
         await _cancel_and_wait(self._heartbeat)
         self._heartbeat = None
 
-    async def dispatch_queued(self) -> None:
-        """Claim the queued turns and dispatch each, until none is left."""
+    async def dispatch_queued(self) -> bool:
+        """Claim the queued turns and dispatch each, until none is left or this process runs
+        ``max_running_tasks_per_worker`` turns: true in the second case."""
         while True:
+            room = self._work.max_running_tasks_per_worker - len(self._dispatcher.running())
+            if room <= 0:
+                return True
             now = self._now()
             until = now + timedelta(seconds=self._work.lease_seconds)
-            claimed = await self._store.claim_turns(now, until, CLAIM_LIMIT)
+            limit = min(CLAIM_LIMIT, room)
+            claimed = await self._store.claim_turns(now, until, limit)
             for owner, turn in claimed:
                 await self._dispatcher.dispatch(owner, turn.session_id, turn.id)
-            if len(claimed) < CLAIM_LIMIT:
-                return
+            if len(claimed) < limit:
+                return False
 
     async def renew_leases(self) -> None:
         """Renew the lease of every turn the dispatcher runs, and stop those asked to stop
@@ -94,8 +99,11 @@ class Worker:
     async def _claim_loop(self) -> None:
         while True:
             try:
-                await self.dispatch_queued()
-                await self._store.wait_for_queued(self._now(), self._wait_timeout)
+                # Full, it sleeps: queued turns would end the store's wait at once.
+                if await self.dispatch_queued():
+                    await asyncio.sleep(self._wait_timeout)
+                else:
+                    await self._store.wait_for_queued(self._now(), self._wait_timeout)
             except Exception:
                 _log.exception("the worker could not claim turns")
                 await asyncio.sleep(self._wait_timeout)

@@ -130,12 +130,14 @@ class AgentConfig:
 
 @dataclass(frozen=True, slots=True)
 class WorkConfig:
-    """``[work]``: how long a turn may run, and how a turn's lease is kept, in seconds."""
+    """``[work]``: how long a turn may run, and how a turn's lease is kept, in seconds; and
+    how many turns a worker runs at once."""
 
     max_turn_seconds: float = 1200.0
     lease_seconds: float = 90.0
     heartbeat_seconds: float = 30.0
     sweep_seconds: float = 300.0
+    max_running_tasks_per_worker: int = 100
 
 
 @dataclass(frozen=True, slots=True)
