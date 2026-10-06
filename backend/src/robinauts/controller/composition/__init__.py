@@ -59,8 +59,8 @@ def storage_from(environ: Mapping[str, str]) -> StorageConfig:
 class Composed:
     """The controller, the credentials on its storage, and the worker. The credentials open
     nothing: on PostgreSQL they use the store's pool, which `controller.open` opens and `close`
-    closes. The worker claims on that pool too: it starts after `open` and stops before
-    `close`, by the shell's hand."""
+    closes. The worker has a store of its own, which it opens at its start and closes at its
+    stop; it starts after `open` and stops before `close`, by the shell's hand."""
 
     controller: Controller
     credentials: Credentials
@@ -76,19 +76,24 @@ def compose(
 ) -> Composed:
     """`engines` are the factories by engine name; the installed ones when not given."""
     store: Store
+    worker_store: Store
     credentials: Credentials
     if storage.kind is StorageKind.POSTGRES:
         if not storage.url:
             raise ConfigError(f"{DATABASE_URL_VARIABLE} is not set")
         postgres = PostgresStore(dsn=storage.url)
         store, credentials = postgres, PostgresCredentials(postgres)
+        # Its own pool and listener: it meets the controller in the database alone.
+        worker_store = PostgresStore(dsn=storage.url)
     elif storage.kind is StorageKind.IN_MEMORY:
         memory = MemoryStore()
         store, credentials = memory, MemoryCredentials(memory)
+        # The memory is the data: another instance would hold no turn.
+        worker_store = memory
     else:
         raise NotImplementedError(f"{storage.kind} storage")
     controller = RobinautsController(config, store=store)
-    worker = Worker(store, config, storage=storage, secret_for=secret_for, engines=engines)
+    worker = Worker(worker_store, config, storage=storage, secret_for=secret_for, engines=engines)
     return Composed(controller, credentials, worker)
 
 

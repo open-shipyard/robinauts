@@ -101,9 +101,8 @@ class Worker:
         return self._storage.kind is not StorageKind.POSTGRES
 
     async def start(self) -> None:
-        """Build the engines, listen for cancels, then start renewing leases and claiming
-        tasks, on the store the controller opened."""
-        # Opened already: the store hands back the same handle, the engines' storage.
+        """Open the store, build the engines on it, listen for cancels, then start renewing
+        leases and claiming tasks."""
         self._handle = await self._store.open()
         self._factories = dict(installed() if self._given_engines is None else self._given_engines)
         self._engines = await build_engines(
@@ -121,7 +120,7 @@ class Worker:
 
     async def stop(self) -> None:
         """Stop claiming, wait for the turns this process runs, bounded, and interrupt the
-        rest. The leases are renewed until the last turn has ended."""
+        rest, then close the store. The leases are renewed until the last turn has ended."""
         await _cancel_and_wait(self._claiming)
         self._claiming = None
         await self._drain()
@@ -129,6 +128,7 @@ class Worker:
         await _cancel_and_wait(self._heartbeat)
         self._heartbeat = None
         self._engines = {}
+        await self._store.close()
 
     async def dispatch_queued(self) -> bool:
         """Claim the queued tasks and dispatch each, until none is left or this process runs

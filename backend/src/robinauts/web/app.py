@@ -370,10 +370,12 @@ def create_app(
     sign_in: SignInConfig | None,
     secret_for: SecretLookup,
     ui_dir: Path | None = None,
+    spawn_worker_in_subprocess: bool = False,
 ) -> FastAPI:
-    """``sign_in`` is ``None`` in the local development mode."""
+    """``sign_in`` is ``None`` in the local development mode. ``spawn_worker_in_subprocess``
+    runs the worker in a process of its own."""
     controller, credentials = composed.controller, composed.credentials
-    lifecycle = Lifecycle(composed)
+    lifecycle = Lifecycle(composed, spawn_worker_in_subprocess=spawn_worker_in_subprocess)
     exchange: Exchange | None = None
     flow: SignIn | None = None
     if sign_in is not None:
