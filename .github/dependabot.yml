@@ -30,6 +30,11 @@ updates:
     cooldown:
       default-days: 10
     open-pull-requests-limit: 5
+    # TypeScript 7.0 ships without a compiler API, which typescript-eslint
+    # needs; 7.1 is expected to bring one. Lift this once 7.1 is proposed.
+    ignore:
+      - dependency-name: "typescript"
+        versions: ["7.0.x"]
     commit-message:
       prefix: "frontend"
 
