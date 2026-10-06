@@ -5,7 +5,8 @@
 
 It reads the configuration and the environment ``robinauts start`` read, composes as the
 server does, and runs only the worker, until SIGTERM or SIGINT. It then stops the worker,
-which waits for its tasks. On Linux it also ends with its parent, killed or not.
+which waits for its tasks. It writes a line to its parent once the worker has started. On
+Linux it also ends with its parent, killed or not.
 """
 
 from __future__ import annotations
@@ -22,6 +23,9 @@ from robinauts.controller.composition import compose, load, storage_from
 
 PARENT_VARIABLE = "ROBINAUTS_WORKER_PARENT"
 """The id of the process that spawned this one, which it ends with."""
+
+READY_VARIABLE = "ROBINAUTS_WORKER_READY_FD"
+"""The pipe this process writes a line to once its worker has started."""
 
 _PR_SET_PDEATHSIG = 1
 
@@ -45,6 +49,8 @@ async def _run() -> None:
     for signum in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(signum, stopping.set)
     await worker.start()
+    with os.fdopen(int(os.environ[READY_VARIABLE]), "w") as ready:
+        ready.write("ready\n")
     try:
         await stopping.wait()
     finally:

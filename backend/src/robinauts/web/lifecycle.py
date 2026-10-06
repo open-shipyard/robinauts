@@ -12,13 +12,18 @@ import logging
 import os
 import signal
 import sys
+from typing import BinaryIO
 
 from robinauts.controller.composition import Composed
-from robinauts.web.worker_process import PARENT_VARIABLE
+from robinauts.web.worker_process import PARENT_VARIABLE, READY_VARIABLE
 
 _log = logging.getLogger(__name__)
 
 WORKER_MODULE = "robinauts.web.worker_process"
+
+WORKER_START_SECONDS = 60.0
+"""How long `start` waits for the worker's process to say its worker has started, before it
+kills it and fails."""
 
 WORKER_STOP_SECONDS = 15.0
 """How long `stop` waits for the worker's process after its SIGTERM before it kills it: more
@@ -35,16 +40,46 @@ class Lifecycle:
         self._watching: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
-        """Open the controller, then start the worker, which opens a store of its own."""
+        """Open the controller, then start the worker, which opens a store of its own. Return
+        once the worker has started, so that a server which says it is up runs turns."""
         await self.composed.controller.open()
         if not self._spawn_worker_in_subprocess:
             await self.composed.worker.start()
             return
-        environment = {**os.environ, PARENT_VARIABLE: str(os.getpid())}
-        self._process = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", WORKER_MODULE, env=environment
-        )
+        read_end, write_end = os.pipe()
+        environment = {
+            **os.environ,
+            PARENT_VARIABLE: str(os.getpid()),
+            READY_VARIABLE: str(write_end),
+        }
+        try:
+            self._process = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", WORKER_MODULE, env=environment, pass_fds=(write_end,)
+            )
+        finally:
+            os.close(write_end)
+        with os.fdopen(read_end, "rb") as ready:
+            await self._wait_until_ready(self._process, ready)
         self._watching = asyncio.create_task(self._watch(self._process), name="worker process")
+
+    async def _wait_until_ready(self, process: asyncio.subprocess.Process, ready: BinaryIO) -> None:
+        """Wait for the worker's line, or stop its process and fail: it ended first, or it
+        took longer than ``WORKER_START_SECONDS``."""
+        reader = asyncio.StreamReader()
+        transport, _ = await asyncio.get_running_loop().connect_read_pipe(
+            lambda: asyncio.StreamReaderProtocol(reader), ready
+        )
+        try:
+            line = await asyncio.wait_for(reader.readline(), WORKER_START_SECONDS)
+        except TimeoutError:
+            line = b""
+        finally:
+            transport.close()
+        if line != b"ready\n":
+            await self._stop_process(process)
+            raise RuntimeError(
+                f"the worker process did not start within {WORKER_START_SECONDS:g} s"
+            )
 
     async def stop(self) -> None:
         """Stop the worker, which waits for the turns it runs, then close the controller."""

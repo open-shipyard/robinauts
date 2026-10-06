@@ -25,7 +25,7 @@ first turn says so, and the worker creates the engine's session before it runs. 
 the tasks' leases every `heartbeat_seconds` and stops a task that any process asks to stop.
 Its stop waits for those tasks, bounded, and interrupts the rest. The worker is not an
 operation of the controller. The shell starts it after `open` and stops it before `close`
-(`web/lifecycle.py`).
+(`web/lifecycle.py`). A server finishes its start-up once its worker has started.
 
 ## Users
 
