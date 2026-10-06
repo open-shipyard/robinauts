@@ -14,7 +14,7 @@ from collections.abc import AsyncGenerator, Callable
 from datetime import UTC, datetime, timedelta
 
 from robinauts.controller.application.intervals import run_at_intervals
-from robinauts.controller.application.turns import end_if_running, load_messages
+from robinauts.controller.application.turns import load_messages
 from robinauts.controller.contract.domain import (
     RUN_TURN,
     ActiveTurn,
@@ -48,7 +48,6 @@ from robinauts.controller.core.documents import (
 )
 from robinauts.controller.core.partial import failed_answer, partial_answer
 from robinauts.controller.core.titles import title_from_text
-from robinauts.controller.ports.dispatcher import TaskDispatcher
 from robinauts.controller.ports.store import Cursor, Store
 
 _log = logging.getLogger(__name__)
@@ -71,13 +70,11 @@ class RobinautsController(Controller):
         config: Config,
         *,
         store: Store,
-        dispatcher: TaskDispatcher,
         event_wait_timeout: float = EVENT_WAIT_TIMEOUT,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._config = config
         self._store = store
-        self._dispatcher = dispatcher
         self._event_wait_timeout = event_wait_timeout
         self._now = now or (lambda: datetime.now(UTC))
         self._sweeping: asyncio.Task[None] | None = None
@@ -283,14 +280,9 @@ class RobinautsController(Controller):
         await self._cancel(user, running)
 
     async def _cancel(self, user: User, turn: Turn) -> None:
-        """Ask the turn to stop, wherever it runs, and wait for it if this process runs it. The
-        store ends a turn whose task is queued itself."""
+        """Ask the turn to stop, wherever it runs: the store ends a turn whose task is queued,
+        and announces a running one to the worker that runs it."""
         await self._store.request_cancel(user.id, turn.session_id, turn.id, self._now())
-        if await self._dispatcher.cancel(turn.task_id):
-            # A runner that never claimed the turn wrote nothing: the turn is ended here.
-            await end_if_running(
-                self._store, user.id, turn.session_id, turn.id, TurnState.CANCELLED, self._now()
-            )
 
     async def _queue_turn(
         self,

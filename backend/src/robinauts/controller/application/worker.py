@@ -89,6 +89,7 @@ class Worker:
         self._handle: object | None = None
         self._claiming: asyncio.Task[None] | None = None
         self._heartbeat: asyncio.Task[None] | None = None
+        self._cancelling: set[asyncio.Task[None]] = set()
 
     def _sets_up_engines(self) -> bool:
         """On PostgreSQL `robinauts db init` set the engines up; the server never does."""
@@ -107,7 +108,7 @@ class Worker:
             self._factories,
             setup=self._sets_up_engines(),
         )
-        await self._store.listen_for_cancels(self._dispatcher.stop)
+        await self._store.listen_for_cancels(self._cancel_requested)
         self._heartbeat = asyncio.create_task(
             run_at_intervals(self._work.heartbeat_seconds, self.renew_leases), name="heartbeat"
         )
@@ -119,6 +120,7 @@ class Worker:
         await _cancel_and_wait(self._claiming)
         self._claiming = None
         await self._dispatcher.close(self._close_timeout)
+        await asyncio.gather(*self._cancelling, return_exceptions=True)
         await _cancel_and_wait(self._heartbeat)
         self._heartbeat = None
         self._engines = {}
@@ -146,7 +148,30 @@ class Worker:
             now = self._now()
             until = now + timedelta(seconds=self._work.lease_seconds)
             for task in await self._store.renew_leases(tasks, now, until):
-                self._dispatcher.stop(task)
+                self._cancel_requested(task)
+
+    def _cancel_requested(self, task: uuid.UUID) -> None:
+        """A task asked to stop, from any process: if this process runs it, stop it."""
+        if task not in self._dispatcher.running():
+            return
+        cancelling = asyncio.create_task(self._cancel(task), name=f"cancel {task}")
+        self._cancelling.add(cancelling)
+        cancelling.add_done_callback(self._cancelling.discard)
+
+    async def _cancel(self, task: uuid.UUID) -> None:
+        """Stop the task and wait for it, then end its turn as ``cancelled``: a runner stopped
+        before it got going wrote nothing, and one that ran has ended it already."""
+        if not await self._dispatcher.cancel(task):
+            return
+        stopped = await self._store.get_task(task)
+        if stopped is None or stopped.name != RUN_TURN:
+            return
+        found = await self._store.find_turn(uuid.UUID(stopped.payload["turn_id"]))
+        if found is not None:
+            owner, turn = found
+            await end_if_running(
+                self._store, owner, turn.session_id, turn.id, TurnState.CANCELLED, self._now()
+            )
 
     async def run_task(self, task: Task) -> None:
         """Run a claimed task, which names its turn: what the dispatcher runs."""

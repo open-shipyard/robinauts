@@ -72,7 +72,7 @@ async def over(
 ) -> Lifecycle:
     """A controller over that store, wired as the composition wires one, and started."""
     dispatcher = InProcessDispatcher()
-    controller = RobinautsController(CONFIG, store=store, dispatcher=dispatcher, **options)
+    controller = RobinautsController(CONFIG, store=store, **options)
     worker = Worker(
         store,
         dispatcher,
@@ -134,7 +134,7 @@ async def test_a_runner_refused_mid_stream_writes_nothing_more() -> None:
     lifecycle, controller, engine, gate, user, started = await gated_turn()
     sid = started.session_id
     turn = await controller._store.get_turn(user.id, sid, started.turn_id)
-    task = controller._dispatcher._tasks[turn.task_id]
+    task = lifecycle.composed.worker._dispatcher._tasks[turn.task_id]
     controller._now = shift_clock(FIVE_MINUTES)
     assert (await controller.open_session(user, sid)).active is None
     gate.set()

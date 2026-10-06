@@ -89,7 +89,7 @@ def compose(
     else:
         raise NotImplementedError(f"{storage.kind} storage")
     dispatcher = InProcessDispatcher()
-    controller = RobinautsController(config, store=store, dispatcher=dispatcher)
+    controller = RobinautsController(config, store=store)
     worker = Worker(
         store, dispatcher, config, storage=storage, secret_for=secret_for, engines=engines
     )
