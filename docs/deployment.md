@@ -206,6 +206,8 @@ title = "Assistant"
 model = "sonnet"
 engine = "langgraph"
 system_prompt = "Play fair."
+# Optional: how long one of its turns may run. Left out, max_turn_seconds.
+turn_timeout_seconds = 3600
 
 # Optional, here with its defaults.
 [work]
@@ -265,15 +267,16 @@ Notes on what is and is not there:
   only. Removing a model that conversations are using refuses their next
   turn, saying the conversation's model is no longer offered, rather than
   answering with another model; the log names the model.
-- **`[work]`.** A turn may run for `max_turn_seconds`. A model's
+- **`[work]`.** A turn may run for `max_turn_seconds`. An agent's
+  `turn_timeout_seconds` replaces it for that agent's turns. A model's
   `timeout_seconds` bounds each call to that model. A server renews the lease
   of each turn it runs every `heartbeat_seconds`. A turn whose server died is
   ended once its lease of `lease_seconds` has passed. The next request about
   its conversation ends it, or a sweep every `sweep_seconds` does.
   `heartbeat_seconds` must be at most half of `lease_seconds`. A server runs
   at most `max_running_tasks_per_worker` turns at once, and the others wait
-  queued. A turn queued for 48 hours is ended. A turn's `max_turn_seconds`
-  counts from when a server takes it.
+  queued. A turn queued for 48 hours is ended. A turn's time limit counts
+  from when a server takes it.
 - A file with no `[agents]` table is a deployment with no agents: it
   starts, the picker is empty, and the log says so.
 

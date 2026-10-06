@@ -254,7 +254,7 @@ class Worker:
             agent_config,
             checkpoint_id,
             task.claimed_at or turn.started_at,
-            self._work.max_turn_seconds,
+            agent_config.turn_timeout_seconds or self._work.max_turn_seconds,
         )
 
     def _dispatch(self, task: Task) -> None:
