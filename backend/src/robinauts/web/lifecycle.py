@@ -12,10 +12,9 @@ import logging
 import os
 import signal
 import sys
-from typing import BinaryIO
 
 from robinauts.controller.composition import Composed
-from robinauts.web.worker_process import PARENT_VARIABLE, READY_VARIABLE
+from robinauts.web.worker_process import PARENT_VARIABLE, READY_LINE, READY_VARIABLE
 
 _log = logging.getLogger(__name__)
 
@@ -53,29 +52,33 @@ class Lifecycle:
             READY_VARIABLE: str(write_end),
         }
         try:
-            self._process = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", WORKER_MODULE, env=environment, pass_fds=(write_end,)
-            )
+            try:
+                self._process = await asyncio.create_subprocess_exec(
+                    sys.executable, "-m", WORKER_MODULE, env=environment, pass_fds=(write_end,)
+                )
+            finally:
+                os.close(write_end)
+            await self._wait_until_ready(self._process, read_end)
         finally:
-            os.close(write_end)
-        with os.fdopen(read_end, "rb") as ready:
-            await self._wait_until_ready(self._process, ready)
+            os.close(read_end)
         self._watching = asyncio.create_task(self._watch(self._process), name="worker process")
 
-    async def _wait_until_ready(self, process: asyncio.subprocess.Process, ready: BinaryIO) -> None:
-        """Wait for the worker's line, or stop its process and fail: it ended first, or it
-        took longer than ``WORKER_START_SECONDS``."""
-        reader = asyncio.StreamReader()
-        transport, _ = await asyncio.get_running_loop().connect_read_pipe(
-            lambda: asyncio.StreamReaderProtocol(reader), ready
-        )
+    async def _wait_until_ready(self, process: asyncio.subprocess.Process, ready: int) -> None:
+        """Wait for the worker's line on the pipe ``ready``, or stop its process and fail: it
+        ended first, or it took longer than ``WORKER_START_SECONDS``."""
+        loop = asyncio.get_running_loop()
+        readable = loop.create_future()
+        # Called again for as long as the pipe stays readable, until it is removed.
+        loop.add_reader(ready, lambda: readable.done() or readable.set_result(None))
         try:
-            line = await asyncio.wait_for(reader.readline(), WORKER_START_SECONDS)
+            await asyncio.wait_for(readable, WORKER_START_SECONDS)
+            # The line is one write, shorter than a pipe's atomic size; at an end, b"".
+            line = os.read(ready, len(READY_LINE))
         except TimeoutError:
             line = b""
         finally:
-            transport.close()
-        if line != b"ready\n":
+            loop.remove_reader(ready)
+        if line != READY_LINE:
             await self._stop_process(process)
             raise RuntimeError(
                 f"the worker process did not start within {WORKER_START_SECONDS:g} s"

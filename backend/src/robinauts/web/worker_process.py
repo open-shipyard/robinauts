@@ -25,7 +25,9 @@ PARENT_VARIABLE = "ROBINAUTS_WORKER_PARENT"
 """The id of the process that spawned this one, which it ends with."""
 
 READY_VARIABLE = "ROBINAUTS_WORKER_READY_FD"
-"""The pipe this process writes a line to once its worker has started."""
+"""The pipe this process writes ``READY_LINE`` to once its worker has started."""
+
+READY_LINE = b"ready\n"
 
 _PR_SET_PDEATHSIG = 1
 
@@ -49,8 +51,9 @@ async def _run() -> None:
     for signum in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(signum, stopping.set)
     await worker.start()
-    with os.fdopen(int(os.environ[READY_VARIABLE]), "w") as ready:
-        ready.write("ready\n")
+    ready = int(os.environ[READY_VARIABLE])
+    os.write(ready, READY_LINE)
+    os.close(ready)
     try:
         await stopping.wait()
     finally:
