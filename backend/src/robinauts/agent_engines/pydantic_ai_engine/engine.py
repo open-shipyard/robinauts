@@ -10,6 +10,7 @@ nothing here knows which storage that was.
 from __future__ import annotations
 
 import asyncio
+import math
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from contextlib import aclosing
@@ -30,7 +31,6 @@ from pydantic_ai.messages import (
 )
 
 from robinauts.agent_engines.contract.domain import (
-    MODEL_CALLS_PER_TURN,
     AgentDefinition,
     CheckpointNotFoundError,
     Done,
@@ -46,6 +46,10 @@ from robinauts.agent_engines.contract.ports import AgentEngine, EngineSettings
 from robinauts.agent_engines.pydantic_ai_engine.clients import chat_model, force_tracing_off
 from robinauts.agent_engines.pydantic_ai_engine.memory import Memory
 from robinauts.agent_engines.pydantic_ai_engine.tools import toolsets_for
+
+FASTEST_MODEL_CALL = 1.0
+"""Seconds: a turn may make one model call per second of its timeout. Real rounds are slower;
+a loop faster than that is runaway, and this bounds what it costs."""
 
 
 class PydanticAIEngine(AgentEngine):
@@ -94,7 +98,8 @@ class PydanticAIEngine(AgentEngine):
         )
         # The deadline bounds the run, not the caller's handling of what is yielded.
         deadline = asyncio.get_running_loop().time() + timeout_seconds
-        async with aclosing(run_of(runner, prompt, history)) as items:
+        calls = math.ceil(timeout_seconds / FASTEST_MODEL_CALL)
+        async with aclosing(run_of(runner, prompt, history, calls)) as items:
             while True:
                 async with asyncio.timeout_at(deadline):
                     item = await anext(items, None)
@@ -116,9 +121,9 @@ class PydanticAIEngine(AgentEngine):
 
 
 async def run_of(
-    runner: Agent[None, str], prompt: str, history: list[ModelMessage] | None
+    runner: Agent[None, str], prompt: str, history: list[ModelMessage] | None, calls: int
 ) -> AsyncIterator[AgentStreamEvent | AgentRunResult[str]]:
-    limits = UsageLimits(request_limit=MODEL_CALLS_PER_TURN)
+    limits = UsageLimits(request_limit=calls)
     async with runner.iter(prompt, message_history=history, usage_limits=limits) as run:
         async for node in run:
             if Agent.is_model_request_node(node) or Agent.is_call_tools_node(node):

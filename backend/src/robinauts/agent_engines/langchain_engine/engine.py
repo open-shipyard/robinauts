@@ -10,6 +10,7 @@ nothing here knows which storage that was.
 from __future__ import annotations
 
 import asyncio
+import math
 import uuid
 from collections.abc import AsyncGenerator, Iterator
 from contextlib import aclosing
@@ -28,7 +29,6 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from robinauts.agent_engines.contract.domain import (
-    MODEL_CALLS_PER_TURN,
     AgentDefinition,
     CheckpointNotFoundError,
     Done,
@@ -44,6 +44,10 @@ from robinauts.agent_engines.contract.ports import AgentEngine, EngineSettings
 from robinauts.agent_engines.langchain_engine.clients import chat_model, force_tracing_off
 from robinauts.agent_engines.langchain_engine.memory import Memory
 from robinauts.agent_engines.langchain_engine.tools import tools_for
+
+FASTEST_MODEL_CALL = 1.0
+"""Seconds: a turn may make one model call per second of its timeout. Real rounds are slower;
+a loop faster than that is runaway, and this bounds what it costs."""
 
 
 class LangChainEngine(AgentEngine):
@@ -94,7 +98,8 @@ class LangChainEngine(AgentEngine):
             checkpointer=self._memory.saver,
         )
         # A model call and its tool round are two steps of the graph.
-        limited: RunnableConfig = {**start, "recursion_limit": 2 * MODEL_CALLS_PER_TURN + 1}
+        calls = math.ceil(timeout_seconds / FASTEST_MODEL_CALL)
+        limited: RunnableConfig = {**start, "recursion_limit": 2 * calls + 1}
         stream = graph.astream(
             {"messages": [*fresh, HumanMessage(prompt)]},
             limited,
