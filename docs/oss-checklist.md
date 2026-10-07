@@ -35,19 +35,18 @@ them from the start.
 - [x] `docs/legal/ip-clearance.md`, `docs/legal/third-party.md`,
       `docs/legal/name-search.md`, `docs/legal/assets.md`; a `LICENSES/`
       directory (the name `reuse` expects). `ip-clearance` entries: the
-      sign-in code derived from neorc, and the vendored assistant-ui
-      components.
+      sign-in code, the frontend tooling and the design tokens derived from
+      neorc, and the vendored assistant-ui components.
 - [x] `REUSE.toml` for files that cannot carry a header; `reuse lint`
       passing. **(neorc gap: no header check; no header on any TypeScript
       or CSS file)**
 - [ ] `SECURITY.md` (private reporting, acknowledgement within 3 days,
-      disclosure within 90), `CODE_OF_CONDUCT.md` (Contributor Covenant
+      disclosure within 90) is done. Still missing: `CODE_OF_CONDUCT.md` (Contributor Covenant
       2.1), `GOVERNANCE.md`, `MAINTAINERS.md`, `CHANGELOG.md` (Keep a
       Changelog), `CODEOWNERS`, a pull request template with a
       "machine-generated?" field. **(neorc gap: none of these exist)**
-- [ ] Name search recorded: run `name_search.py robinauts`, do the manual
-      trademark searches it lists (USPTO, EUIPO, WIPO, ASF and CNCF project
-      lists), and write the result down. The name is decided; the record is
+- [ ] Name search recorded: do the manual trademark searches (USPTO,
+      EUIPO, WIPO, ASF and CNCF project lists), and write the result down. The name is decided; the record is
       what a foundation asks for.
 
 ## CI, all blocking
@@ -62,23 +61,21 @@ them from the start.
       which the `frontend` job runs, plus `frontend/scripts/check-licences.mjs`
       — the licence policy over the whole installed tree, not the bundle
       alone, with the development exceptions named in `DEPENDENCIES.md`. The
-      size budget is provisional until a bundle with the chat in it exists.
+      size budget is set.
 - [x] `reuse lint`; a DCO check over the commits of the pull request
       **(neorc gap)**. Making them required statuses is branch protection,
       below.
-- [ ] CSS-reached packages in the bundle record. `bundled-packages.txt` is
-      written from rollup's module graph, so a package reached only through a
-      stylesheet (`@import "pkg"`, `url(pkg/x)`) is in the bundle and not in
-      the record. It is still held to the allowed list by the installed-tree
-      gate; what is missing is the record, and a reviewer reads CSS
-      `@import`/`url()` targets by hand
-      ([DEPENDENCIES.md](../DEPENDENCIES.md)).
+- [x] CSS-reached packages in the bundle record. `bundled-packages.txt` is
+      written from rollup's module graph, which misses a package reached only
+      through a stylesheet. `CSS_PACKAGES` in `frontend/vite.config.ts` is a
+      hand-kept list of them, written into the record. A name nobody adds
+      to it is still missing ([DEPENDENCIES.md](../DEPENDENCIES.md)).
 - [ ] `gitleaks`. The ESLint import rule that confines assistant-ui
       (ADR 0001) is done: `frontend/eslint.config.js`, with
       `frontend/src/test/seam-rule.test.ts` proving it still fires.
 - [x] Workflows: `permissions: contents: read`, `persist-credentials:
       false`, actions pinned to commit SHAs **(neorc gap: pinned by tag)**.
-- [x] Dependabot for pip, npm and github-actions, 10-day cooldown
+- [x] Dependabot for uv, npm and github-actions, 10-day cooldown
       **(neorc gap: npm only)**. `uv` (the ecosystem that reads `uv.lock`),
       `github-actions`, and npm for `/frontend`.
 - [ ] Branch protection on `main`: pull requests only, linear history, no

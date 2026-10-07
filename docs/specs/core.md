@@ -79,8 +79,9 @@ topic documents listed under [Documents](#documents).
   agent framework, the HTTP layer — is reached through a port and
   implemented by an adapter.
 - A port is a Python abstract base class (`abc.ABC`).
-- The layers and their dependency rules are in [layout.md](../layout.md),
-  and are enforced mechanically.
+- The layers and their dependency rules are in
+  [architecture/rules.md](../architecture/rules.md), and are enforced
+  mechanically.
 
 ### Components are swappable, and the seams are explicit
 
@@ -93,7 +94,8 @@ topic documents listed under [Documents](#documents).
     [ADR 0001](../adr/0001-chat-ui-assistant-ui-with-tailwind.md),
     [frontend.md](frontend.md);
   - the agent frameworks (LangGraph, Pydantic AI) —
-    [agent-engines.md](agent-engines.md), [layout.md](../layout.md);
+    [agent-engines.md](agent-engines.md),
+    [architecture/rules.md](../architecture/rules.md);
   - the wire between UI and backend, which is a published standard —
     [wire.md](wire.md).
 
@@ -101,7 +103,7 @@ topic documents listed under [Documents](#documents).
 
 - The controller — the main application flow — is independent of any agent
   framework. It knows only the agent port: hand the adapter a question and
-  the conversation's memory, and write down what it streams. The tool
+  a checkpoint of the conversation's memory, and write down what it streams. The tool
   loop, the context and the memory are the framework's, behind the port
   ([ADR 0005](../adr/0005-the-framework-owns-the-loop-and-the-memory.md)).
 - There are two implementations: one on LangChain (or LangGraph; open
@@ -118,12 +120,10 @@ topic documents listed under [Documents](#documents).
   the **transcript**: what the people reading the conversation see, what
   the exports carry, what analytics reads.
 - The model's **memory** — the framework's own history of the conversation,
-  in the framework's own format, with whatever it kept in it — is stored by
-  the platform, on the run that produced it, as opaque data the platform
-  never reads, and handed back to the same framework at the next turn.
-- A framework's own persistence is never used: no checkpointer, no tables
-  of a framework's in the deployment's schema.
-  [ADR 0002](../adr/0002-conversation-persistence.md),
+  in the framework's own format, with whatever it kept in it — is kept by
+  the engine, in tables of its own beside the platform's, as opaque data
+  the platform never reads. The platform keeps only the checkpoint each
+  answer names, and hands it back to the same engine at the next turn.
   [ADR 0005](../adr/0005-the-framework-owns-the-loop-and-the-memory.md).
 
 ### Dependency scanning from day zero
@@ -166,13 +166,13 @@ topic documents listed under [Documents](#documents).
   the platform writes each call and result into the transcript as it
   happens. [agent-engines.md](agent-engines.md),
   [the-path-of-one-message.md](../architecture/the-path-of-one-message.md).
-- **A turn.** The UI posts a message, which starts a **run**: the
-  controller finds the conversation's memory, hands the agent port the
-  question and that memory, publishes what the adapter streams as AG-UI
-  events, appends each new message as it completes, and stores the memory
-  the adapter hands back. The run executes in the background and is
-  persisted: if the request drops, the agent keeps working, and the UI
-  re-attaches. One active run per conversation.
+- **A turn.** The UI posts a message, which queues a **turn**. A worker
+  hands the agent port the question and the checkpoint of the nearest
+  answer above it, publishes what the adapter streams as AG-UI events,
+  appends each new message as it completes, and keeps the checkpoint the
+  adapter hands back. The turn runs in the background and is persisted:
+  if the request drops, the agent keeps working, and the UI re-attaches.
+  One active turn per conversation.
   [the-path-of-one-message.md](../architecture/the-path-of-one-message.md),
   [agent-engines.md](agent-engines.md), [wire.md](wire.md).
 - **Channels.** One API for every delivery channel. The web UI is the
@@ -218,6 +218,6 @@ hard, the decision is taken with them in mind.
 | [open-source.md](open-source.md) | licence, contributions, dependency policy, checks |
 | [../architecture/data-model.md](../architecture/data-model.md) | the stored records, the message tree, how a message is written |
 | [../architecture/the-path-of-one-message.md](../architecture/the-path-of-one-message.md) | one turn from the UI to the model and back: background execution, re-attaching |
-| [../layout.md](../layout.md) | backend layers and their enforced dependency rules |
+| [../layout.md](../layout.md) | the package tree; the layer rules are in [../architecture/rules.md](../architecture/rules.md) |
 | [../oss-checklist.md](../oss-checklist.md) | the open source to-do list |
 | [../adr/](../adr/README.md) | decisions that needed a discussion, and why they went the way they did |

@@ -33,7 +33,7 @@
  * this serves, so the states after them can be looked at too. Nothing is
  * written to disk: a restart is a fresh set of fixtures.
  *
- * **The three scenes with a stream in them** answer the streaming routes of
+ * **The four scenes with a stream in them** answer the streaming routes of
  * `docs/specs/wire.md` for real -- server-sent events, a position on the last
  * wire event derived from each of the run's own, and the two headers -- so
  * that the chat can be looked at doing what it is for:
@@ -43,6 +43,8 @@
  * - `reattach`: conversation `…002` has a run going, so opening it attaches
  *   to that run at the `resume.after` the conversation answered with, and the
  *   rest of the answer arrives;
+ * - `drop`: the connection goes in the middle of the answer, and the run
+ *   does not;
  * - `error`: the same turn, ending in `RUN_ERROR`.
  *
  * A turn really writes its messages into the conversation, so the reread that

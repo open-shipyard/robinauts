@@ -30,7 +30,7 @@ composition -> contract, ports, core, adapters, application; imported by web alo
 ## Third-party libraries, where each may be imported
 
 langchain, langchain_core, langchain_*, langgraph, langchain_mcp_adapters, langsmith -> langchain_engine
-pydantic_ai, pydantic_graph, fastmcp, logfire, opentelemetry -> pydantic_ai_engine
+pydantic_ai, pydantic_graph, fastmcp, logfire, logfire_api, opentelemetry -> pydantic_ai_engine
 anthropic, openai, mcp -> langchain_engine, pydantic_ai_engine
 asyncpg, sqlite3, aiosqlite -> langchain_engine, pydantic_ai_engine, controller.adapters
 httpx -> web, langchain_engine, pydantic_ai_engine

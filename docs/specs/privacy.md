@@ -40,7 +40,12 @@ on the company's servers; this document says who, inside them, sees what.
 
 ## Retention and purge
 
-- Deletion by the author is soft, with a fixed 30 days in the trash.
+- Deletion by the author hides the conversation at once, and purges it
+  once no turn runs in it. A 30-day trash before the purge is planned.
+- **The engines' memory holds conversation content too**, in tables of
+  each engine's own. A conversation's purge removes it. A failed or
+  interrupted turn may leave a partial checkpoint there, which Resume
+  reads.
 - **Edited-away and regenerated-away messages are retained** with their
   conversation, shown to no user, and readable by analytics alone. They
   leave with the conversation: deleting it, purging its owner and the
@@ -77,10 +82,9 @@ Someone who can no longer sign in, or who was purged:
 
 ## Where it is enforced
 
-Authorization here is mostly ownership and membership, not roles. It is
-decided in the application layer and proven with in-memory fakes
-([layout.md](../layout.md)); routes only declare the permission they need
-([sign-in.md](sign-in.md)).
+Authorization here is mostly ownership and membership, not roles. The
+controller decides it, and its tests prove it on the in-memory store and on
+PostgreSQL. Roles are deferred ([sign-in.md](sign-in.md)).
 
 ## Open
 

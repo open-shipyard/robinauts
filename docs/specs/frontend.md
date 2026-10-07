@@ -7,8 +7,8 @@
 - **The panel is ours**, not the chat library's
   ([ADR 0001](../adr/0001-chat-ui-assistant-ui-with-tailwind.md)). Top to
   bottom: the collapse button and the brand; "new chat"; the conversation
-  history; projects; and, pinned to the bottom, the profile block with
-  sign-out. Collapsed, it becomes an icon rail. The state is remembered
+  history; projects, once they exist; and, pinned to the bottom, the
+  profile block with sign-out. Collapsed, it becomes an icon rail. The state is remembered
   per browser.
 - The application opens on an empty chat, ready for a first message, with
   the agent to talk to and the model selectable side by side. The model

@@ -22,11 +22,11 @@ its own.
 
     backend/     the Python backend (the `robinauts` package)
     frontend/    the web UI (Vite, React, TypeScript)
-    docs/        specs, decisions, legal records, working notes
+    docs/        specs, decisions, architecture, legal records
     scripts/     the checks, one script per gate, which CI runs as they are
 
 The backend is split into layers with enforced dependency rules. Read
-[docs/layout.md](docs/layout.md) before adding a module: where code goes is
+[docs/architecture/rules.md](docs/architecture/rules.md) before adding a module: where code goes is
 not a matter of taste here, and the test suite fails on an import that
 crosses a layer the wrong way.
 
@@ -50,7 +50,7 @@ repository:
 
 or one at a time:
 
-    scripts/check-lint.sh       ruff and black, over backend/ and scripts/
+    scripts/check-lint.sh       ruff and black, over backend/, scripts/ and demo/
     scripts/check-tests.sh      pytest, with the architecture contracts
     scripts/check-licences.sh   the dependency licence gate of DEPENDENCIES.md
     scripts/check-audit.sh      pip-audit over the whole locked set
@@ -75,7 +75,9 @@ pass their arguments on to the tool they wrap, so
 `scripts/check-tests.sh -k licence` does what you would expect.
 `check-dco.sh` takes a commit range and defaults to what this branch adds to
 `main`; CI runs it over the commits of the pull request, since the first
-commits of this repository predate the sign-off rule. `check-lint.sh`, `check-audit.sh`, `check-frontend.sh` and
+commits of this repository predate the sign-off rule. `check-wheel.sh` takes
+one optional directory to keep the wheel in, which CI's `wheel` job uses.
+`check-lint.sh`, `check-audit.sh`, `check-frontend.sh` and
 `check-all.sh` take no arguments and say so rather than ignoring them —
 `check-audit.sh` reads pip-audit's JSON to make sure every pinned package was
 really looked at, and `check-frontend.sh` is the frontend's whole CI job in
@@ -149,7 +151,7 @@ run the tests as usual.
 
 Any PostgreSQL 14 or later will do, on your machine or anywhere you can
 reach it, as long as the account may create and drop schemas in that
-database: each test makes a schema of its own, named after a fresh UUID, sets
+database: each test, or each test server, makes a schema of its own, named after a fresh UUID, sets
 the connection's `search_path` to it, and drops it when it ends. That is also
 how a deployment is expected to be set up — the schema the tables live in is
 the first entry on the path — and `check_schema` refuses to start when it is
@@ -205,10 +207,10 @@ hashed with `\n` line endings, which
 [.gitattributes](.gitattributes) keeps it checked out with everywhere.
 
 Constraint names in that file are part of its interface: the store turns a
-violation of `sessions_secret_hash_key` or `sessions_user_id_fkey` into an
-answer for its caller and lets every other one through as the bug it is, and
-it tells them apart by name. Renaming one without changing the store fails a
-test.
+violation of `turns_one_active_per_session`, `turn_events_pkey`,
+`messages_pkey` or `users_provider_subject_key` into an answer for its caller
+and lets every other one through as the bug it is, and it tells them apart by
+name. Renaming one means changing the store too.
 
 ## Licence header
 
