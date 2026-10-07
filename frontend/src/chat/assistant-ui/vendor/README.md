@@ -16,17 +16,9 @@ merge rather than a fork; our own code goes in the directory above this one.
 Every copy and every re-sync is also an entry in
 [`docs/legal/ip-clearance.md`](../../../../../docs/legal/ip-clearance.md).
 
-Nothing imports these files yet. Step 21 of
-[the POC plan](../../../../../docs/working-notes/poc-scope.md) wires them up
-behind `src/chat/index.ts`; until then they are here, type-checked and linted
-like every other file under `src/`, and out of the bundle — out of the
-JavaScript because rollup follows imports and nothing imports them, and out of
-the CSS because `src/styles.css` says
-`@source not "./chat/assistant-ui/vendor"`. **Tailwind's scan is not a module
-graph**: without that line it reads these files as it reads any other and
-compiles every class name in them, which took the built stylesheet from
-18.0 kB to 58.2 kB (4.6 kB to 11.0 kB gzipped) — 40 kB of utilities for markup
-no page renders. Step 21 deletes the line.
+`../Chat.tsx` imports `Thread` from here, behind `src/chat/index.ts`. These
+files are in the bundle, and Tailwind scans them like every other file under
+`src/`. They are type-checked and linted like the rest.
 
 ## Where it came from
 
@@ -98,10 +90,8 @@ Authors for `lib/utils.ts` and this file.
 
 **No attachments.** `@assistant-ui/attachment` and
 `@assistant-ui/use-attachment-src`, which `thread` also asks for, were not
-copied: the POC has no attachments and no images
-([`docs/working-notes/poc-scope.md`](../../../../../docs/working-notes/poc-scope.md),
-"Out"), and a composer offering to attach a file the backend will not take is
-worse than one that does not. Skipping them also leaves out shadcn's `avatar`
+copied: the POC has no attachments and no images, and a composer offering to
+attach a file the backend will not take is worse than one that does not. Skipping them also leaves out shadcn's `avatar`
 and `dialog`. It saves no package: `zustand`, which
 `@assistant-ui/use-attachment-src` would have used, is a dependency of
 `@assistant-ui/react` and is installed either way. `file` and `image` are not
@@ -111,16 +101,15 @@ directly.
 
 The tool and reasoning components (`tool-fallback`, `tool-group`, `reasoning`,
 `elements-reasoning`, and shadcn's `collapsible` and `textarea` under them)
-are copied although the POC has neither tools nor reasoning content. They are
-what `thread` imports, and cutting them out would mean rewriting the part of
-`thread.aui.tsx` that dispatches on a message part's type — a fork of the one
-file this whole directory exists for, paid for again at every re-sync. They
-cost one package (`tw-shimmer`) and no bundle: nothing imports them yet, and
-when step 21 does, a tool call that never arrives renders nothing.
+were copied before the POC had tools or reasoning content, because `thread`
+imports them. Cutting them out would have meant rewriting the part of
+`thread.aui.tsx` that dispatches on a message part's type: a fork of the one
+file this whole directory exists for. They cost one package (`tw-shimmer`).
+Tools and reasoning have since landed, and these components draw them.
 
 ## Local modifications
 
-Six, and no others.
+Seven, and no others.
 
 1. **`@/` path aliases rewritten to relative paths**, in every file that had
    one. A shadcn-style project resolves `@/components/...` and `@/lib/utils`
@@ -168,6 +157,11 @@ Six, and no others.
    `react-hooks/refs` is off (`markdown-text.tsx` memoises a component table
    through a ref during render, deliberately). Every other rule, the seam's
    hygiene rules included, still applies here.
+7. **An `ActionBarExtra` slot in `thread.aui.tsx`**: one more entry in
+   `ThreadComponents`, drawn after Refresh in the assistant's action bar.
+   Three lines. It is how the Resume button gets in (`docs/specs/ui.md`).
+   Files here may import nothing of ours, so the button comes in through the
+   slot rather than an import.
 
 Nothing else was touched: no renaming, no restyling, no change to a class
 name, a token or a piece of behaviour.

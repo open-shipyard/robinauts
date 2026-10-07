@@ -253,5 +253,36 @@ Entries are never edited after the fact; a correction is a new entry.
   lives ninety days and is sent as a bearer.
 - Attribution added to: none needed. Nothing was taken from another project.
 
+### 2026-10-07, moved files: a correction to the sign-in entries
+
+- Corrects: the "Landed as" paths of four entries of 2026-09-21. The
+  controller refactor moved the sign-in code, and no content changed origin.
+  - "sign-in rules (domain and core)": `core/allow.py`, `claims.py`,
+    `urls.py`, `sign_in_config.py`, `hashing.py` and `domain/` are now
+    `backend/src/robinauts/web/sign_in.py`, `backend/src/robinauts/web/oidc.py`
+    and `backend/src/robinauts/controller/contract/domain.py`.
+  - "sign-in flow (ports and application)": `ports/`,
+    `application/sign_in.py`, `tests/fakes/` and
+    `tests/contracts/credential_store.py` are now
+    `backend/src/robinauts/controller/contract/ports.py`,
+    `backend/src/robinauts/web/sign_in.py`,
+    `backend/src/robinauts/controller/adapters/memory/credentials.py`,
+    `backend/src/robinauts/controller/adapters/postgres/credentials.py` and
+    `backend/tests/util/contracts/credentials.py`.
+  - "OIDC HTTP adapter and the stand-in provider":
+    `adapters/identity_provider.py` and `tests/standin/` are now
+    `backend/src/robinauts/web/oidc.py` and `backend/tests/util/standin/`.
+  - "the auth API": `api/` and `app.py` are now
+    `backend/src/robinauts/web/app.py` and `backend/src/robinauts/web/cookies.py`.
+- Also corrects: the 2026-10-02 entry cites
+  `docs/working-notes/oct-refactor/auth-plan.md`. This project's working
+  notes left the tree in commit `2da7ead` (2026-10-03). The note is in the
+  history before that commit.
+- Source: this project.
+- Their licence: Apache-2.0, this project's.
+- Landed as: this entry.
+- Modifications: none to any code. Only the record of where it lives changes.
+- Attribution added to: none needed.
+
 <!-- Entries go above this line. -->
 <!-- REUSE-IgnoreEnd -->

@@ -137,9 +137,8 @@ documented here, which is what "documented with the API" means for them.
   sentence** — never the turn's stored error, which is written for an
   operator.
 
-**Not yet served.** The wire is the happy path today
-([working-notes/echo-e2e-plan.md](../working-notes/echo-e2e-plan.md)); these
-hold as the rule and are not enforced yet:
+**Not yet served.** The wire is the happy path today. These hold as the rule
+and are not enforced yet:
 
 - A body that is neither shape of a turn, or both at once, is refused (422);
   so is a field the body does not know. An agent the deployment has not got
