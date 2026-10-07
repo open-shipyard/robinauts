@@ -162,7 +162,8 @@ caller adds those.
   session, question and checkpoint and asks to resume, the engine continues
   from whatever partial work it kept, without repeating tool calls already
   made. If it kept nothing, the turn simply runs again from the checkpoint.
-  Asking to resume with a different question is an error.
+  A turn that had finished gives its answer again. Asking to resume with a
+  different question is an error.
 
 ### Refusals
 

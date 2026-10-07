@@ -21,6 +21,9 @@ from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     ModelMessage,
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    ModelResponse,
     PartDeltaEvent,
     PartStartEvent,
     RetryPromptPart,
@@ -28,6 +31,7 @@ from pydantic_ai.messages import (
     TextPartDelta,
     ThinkingPart,
     ThinkingPartDelta,
+    UserPromptPart,
 )
 
 from robinauts.agent_engines.contract.domain import (
@@ -37,6 +41,7 @@ from robinauts.agent_engines.contract.domain import (
     Event,
     ProviderKind,
     ReasoningDelta,
+    ResumeMismatchError,
     SessionNotFoundError,
     TextDelta,
     ToolCall,
@@ -101,11 +106,20 @@ class PydanticAIEngine(AgentEngine):
         calls = math.ceil(timeout_seconds / FASTEST_MODEL_CALL)
         # One checkpoint per turn: saved after every tool round, and last with the answer.
         checkpoint = str(uuid.uuid4())
+        asked: str | None = prompt
+        if resume and (partial := await self._partial_turn(session_id, history, prompt)):
+            checkpoint, history = partial
+            if isinstance(history[-1], ModelResponse):
+                # It had finished: its caller never stored the answer.
+                yield Done(text=history[-1].text or "", checkpoint_id=checkpoint)
+                return
+            # It goes on from the tool results it saved, without asking again.
+            asked = None
 
         async def save(messages: list[ModelMessage]) -> None:
             await self._memory.save(session_id, checkpoint, messages)
 
-        async with aclosing(run_of(runner, prompt, history, calls, save)) as items:
+        async with aclosing(run_of(runner, asked, history, calls, save)) as items:
             while True:
                 async with asyncio.timeout_at(deadline):
                     item = await anext(items, None)
@@ -118,6 +132,28 @@ class PydanticAIEngine(AgentEngine):
                     for event in events_of(item):
                         yield event
 
+    async def _partial_turn(
+        self, session_id: uuid.UUID, history: list[ModelMessage] | None, prompt: str
+    ) -> tuple[str, list[ModelMessage]] | None:
+        """The checkpoint saved last and its history, if it is a turn begun from ``history``,
+        finished or not; ``ResumeMismatchError`` if that turn asked another question."""
+        latest = await self._memory.latest(session_id)
+        if latest is None:
+            return None
+        before = history or []
+        after = latest[1]
+        if len(after) <= len(before) or _rendered(after[: len(before)]) != _rendered(before):
+            return None
+        asked = after[len(before)]
+        if not isinstance(asked, ModelRequest):
+            return None
+        questions = [part.content for part in asked.parts if isinstance(part, UserPromptPart)]
+        if not questions:
+            return None
+        if questions != [prompt]:
+            raise ResumeMismatchError("the turn to resume asked another question")
+        return latest
+
     async def fork(self, source_id: uuid.UUID, target_id: uuid.UUID, *, checkpoint_id: str) -> None:
         raise NotImplementedError("fork")
 
@@ -125,9 +161,13 @@ class PydanticAIEngine(AgentEngine):
         await self._memory.forget(session_id)
 
 
+def _rendered(messages: list[ModelMessage]) -> object:
+    return ModelMessagesTypeAdapter.dump_python(messages, mode="json")
+
+
 async def run_of(
     runner: Agent[None, str],
-    prompt: str,
+    prompt: str | None,
     history: list[ModelMessage] | None,
     calls: int,
     save: Callable[[list[ModelMessage]], Awaitable[None]],

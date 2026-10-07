@@ -28,6 +28,8 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import StateSnapshot
 from mcp.shared.exceptions import McpError
 
 from robinauts.agent_engines.contract.domain import (
@@ -37,6 +39,7 @@ from robinauts.agent_engines.contract.domain import (
     Event,
     ProviderKind,
     ReasoningDelta,
+    ResumeMismatchError,
     SessionNotFoundError,
     TextDelta,
     ToolCall,
@@ -100,14 +103,20 @@ class LangChainEngine(AgentEngine):
             checkpointer=self._memory.saver,
             middleware=[ToolErrorMiddleware(tool_failed)],
         )
+        given: dict[str, Any] | None = {"messages": [*fresh, HumanMessage(prompt)]}
+        if resume:
+            partial = await partial_turn(graph, thread, start, checkpoint_id, prompt)
+            if partial is not None and not partial.next:
+                # It had finished: its caller never stored the answer.
+                yield done_of(partial)
+                return
+            if partial is not None:
+                # LangGraph runs again what the latest checkpoint has left to run.
+                given, start = None, thread
         # A model call and its tool round are two steps of the graph.
         calls = math.ceil(timeout_seconds / FASTEST_MODEL_CALL)
         limited: RunnableConfig = {**start, "recursion_limit": 2 * calls + 1}
-        stream = graph.astream(
-            {"messages": [*fresh, HumanMessage(prompt)]},
-            limited,
-            stream_mode=["messages", "updates"],
-        )
+        stream = graph.astream(given, limited, stream_mode=["messages", "updates"])
         # The deadline bounds the run, not the caller's handling of what is yielded.
         deadline = asyncio.get_running_loop().time() + timeout_seconds
         async with aclosing(stream):
@@ -118,17 +127,42 @@ class LangChainEngine(AgentEngine):
                     break
                 for event in events_of(*item):
                     yield event
-        state = await graph.aget_state(thread)
-        yield Done(
-            text=str(state.values["messages"][-1].text),
-            checkpoint_id=state.config["configurable"]["checkpoint_id"],
-        )
+        yield done_of(await graph.aget_state(thread))
 
     async def fork(self, source_id: uuid.UUID, target_id: uuid.UUID, *, checkpoint_id: str) -> None:
         raise NotImplementedError("fork")
 
     async def forget(self, session_id: uuid.UUID) -> None:
         await self._memory.forget(session_id)
+
+
+async def partial_turn(
+    graph: CompiledStateGraph[Any, Any, Any, Any],
+    thread: RunnableConfig,
+    start: RunnableConfig,
+    checkpoint_id: str | None,
+    prompt: str,
+) -> StateSnapshot | None:
+    """The thread's latest state if it is a turn begun from the checkpoint, finished or not;
+    ``ResumeMismatchError`` if that turn asked another question."""
+    latest = await graph.aget_state(thread)
+    before = [] if checkpoint_id is None else (await graph.aget_state(start)).values["messages"]
+    after = latest.values.get("messages", [])
+    if len(after) <= len(before) or [m.id for m in after[: len(before)]] != [m.id for m in before]:
+        return None
+    asked = after[len(before)]
+    if not isinstance(asked, HumanMessage):
+        return None
+    if asked.text != prompt:
+        raise ResumeMismatchError("the turn to resume asked another question")
+    return latest
+
+
+def done_of(state: StateSnapshot) -> Done:
+    return Done(
+        text=str(state.values["messages"][-1].text),
+        checkpoint_id=state.config["configurable"]["checkpoint_id"],
+    )
 
 
 def tool_failed(error: Exception, _request: ToolCallRequest) -> str:
