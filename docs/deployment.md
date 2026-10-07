@@ -215,6 +215,7 @@ max_turn_seconds = 1200
 lease_seconds = 90
 heartbeat_seconds = 30
 sweep_seconds = 300
+stalled_after_seconds = 900
 max_running_tasks_per_worker = 100
 ```
 
@@ -273,7 +274,10 @@ Notes on what is and is not there:
   of each turn it runs every `heartbeat_seconds`. A turn whose server died is
   ended once its lease of `lease_seconds` has passed. The next request about
   its conversation ends it, or a sweep every `sweep_seconds` does.
-  `heartbeat_seconds` must be at most half of `lease_seconds`. A server runs
+  `heartbeat_seconds` must be at most half of `lease_seconds`. A turn whose
+  agent sends nothing for `stalled_after_seconds` is stopped as failed: no
+  text, no tool call and no tool result. A single model call or tool call
+  longer than that needs a larger value. A server runs
   at most `max_running_tasks_per_worker` turns at once, and the others wait
   queued. A turn queued for 48 hours is ended. A turn's time limit counts
   from when a server takes it.

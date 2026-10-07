@@ -139,6 +139,7 @@ class WorkConfig:
     lease_seconds: float = 90.0
     heartbeat_seconds: float = 30.0
     sweep_seconds: float = 300.0
+    stalled_after_seconds: float = 900.0
     max_running_tasks_per_worker: int = 100
 
 

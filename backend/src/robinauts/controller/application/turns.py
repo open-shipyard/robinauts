@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import aclosing
 from datetime import UTC, datetime, timedelta
 
@@ -65,6 +65,12 @@ from robinauts.controller.ports.store import Store, StoredEvent
 CLOSE = "close"
 """The reason a closing worker cancels a task with. The runner ends such a turn as
 ``interrupted``, the deployment having stopped with the turn in it, not ``cancelled``."""
+
+STALLED = "stalled"
+"""The reason a worker cancels a task whose engine has said nothing for too long. The runner
+ends such a turn as ``failed``, with ``STALLED_ERROR``."""
+
+STALLED_ERROR = "the agent made no progress for too long"
 
 RETENTION = timedelta(hours=24)
 """How long a turn's events are kept after they are written, a constant for now."""
@@ -165,7 +171,10 @@ async def run_turn(
     max_turn_seconds: float,
     *,
     resume: bool = False,
+    progress: Callable[[], None] = lambda: None,
 ) -> None:
+    """``progress`` is called at each event of the engine's: what tells a worker it is not
+    stalled."""
     # From the claim, not the start: a turn may wait queued for hours.
     deadline = claimed_at + timedelta(seconds=max_turn_seconds)
     remaining = (deadline - datetime.now(UTC)).total_seconds()
@@ -192,6 +201,7 @@ async def run_turn(
         )
         async with aclosing(stream) as events:
             async for event in events:
+                progress()
                 if isinstance(event, TextDelta):
                     await writer.append(TextPiece(answer_id, event.text))
                     with_text(parts, event.text)
@@ -243,6 +253,9 @@ async def run_turn(
             # Like a crash: what it streamed is kept, as an answer marked failed.
             failed = failed_answer(answer_id, session, turn, parts, datetime.now(UTC))
             await _end(writer, TurnState.INTERRUPTED, None, failed)
+        elif STALLED in exc.args:
+            failed = failed_answer(answer_id, session, turn, parts, datetime.now(UTC))
+            await _end(writer, TurnState.FAILED, STALLED_ERROR, failed)
         else:
             await _end(writer, TurnState.CANCELLED, None)
         raise
