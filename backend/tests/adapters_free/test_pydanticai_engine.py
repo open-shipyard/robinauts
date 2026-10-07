@@ -47,7 +47,11 @@ from robinauts.agent_engines.pydantic_ai_engine import init_pydantic_ai
 from robinauts.agent_engines.pydantic_ai_engine.clients import chat_model
 from robinauts.agent_engines.pydantic_ai_engine.engine import PydanticAIEngine
 from robinauts.agent_engines.pydantic_ai_engine.memory import InProcessMemory
-from robinauts.agent_engines.pydantic_ai_engine.tools import toolset_for, toolsets_for
+from robinauts.agent_engines.pydantic_ai_engine.tools import (
+    FailuresToModel,
+    toolset_for,
+    toolsets_for,
+)
 from util.contracts.engine import (
     ANSWER,
     ARGUMENTS,
@@ -79,7 +83,13 @@ def test_an_anthropic_model_is_built_from_the_settings(
     assert client.api_key == "key-of-p"
     assert str(client.base_url).rstrip("/") == endpoint
     assert (client.max_retries, client.timeout) == (MODEL_RETRIES, 7.0)
-    assert model_settings == {"timeout": 7.0, "max_tokens": 321}
+    assert model_settings == {
+        "timeout": 7.0,
+        "max_tokens": 321,
+        "anthropic_cache_instructions": True,
+        "anthropic_cache_tool_definitions": True,
+        "anthropic_cache_messages": True,
+    }
 
 
 @pytest.mark.parametrize(
@@ -130,7 +140,7 @@ def tool_settings(secrets: ToolSecretLookup, *servers: ToolServerConfig) -> Engi
 def test_a_bearer_server_is_reached_with_its_secret_as_a_bearer_token() -> None:
     secrets = FixedSecret()
     server = ToolServerConfig(id="gh", url="https://mcp.example/gh", timeout_seconds=9.0)
-    client = toolset_for(server, tool_settings(secrets)).client
+    client = toolset_for(server, tool_settings(secrets)).wrapped.client
     assert client.transport.url == "https://mcp.example/gh"
     assert client.transport.headers == {"Authorization": "Bearer s3cret"}
     assert client._init_timeout == 9.0
@@ -143,7 +153,7 @@ def test_a_basic_server_is_reached_with_its_user_and_secret() -> None:
     server = ToolServerConfig(
         id="wiki", url="https://mcp.example/wiki", auth=ToolServerAuth.BASIC, user="ana"
     )
-    transport = toolset_for(server, tool_settings(secrets)).client.transport
+    transport = toolset_for(server, tool_settings(secrets)).wrapped.client.transport
     pair = base64.b64encode(b"ana:s3cret").decode("ascii")
     assert transport.headers == {"Authorization": f"Basic {pair}"}
     assert secrets.asked == ["wiki"]
@@ -157,14 +167,14 @@ def test_a_header_server_is_reached_with_its_secret_in_the_header_it_names() -> 
         auth=ToolServerAuth.HEADER,
         header="x-api-key",
     )
-    transport = toolset_for(server, tool_settings(secrets)).client.transport
+    transport = toolset_for(server, tool_settings(secrets)).wrapped.client.transport
     assert transport.headers == {"x-api-key": "s3cret"}
     assert secrets.asked == ["composio"]
 
 
 def test_a_public_server_carries_no_credential_and_asks_for_none() -> None:
     server = ToolServerConfig(id="docs", url="https://mcp.example/docs", auth=ToolServerAuth.NONE)
-    assert toolset_for(server, tool_settings(NoSecrets())).client.transport.headers == {}
+    assert toolset_for(server, tool_settings(NoSecrets())).wrapped.client.transport.headers == {}
 
 
 def test_an_agent_without_tools_has_none() -> None:
@@ -176,8 +186,10 @@ def test_an_agent_has_a_toolset_per_server_it_names() -> None:
     other = ToolServerConfig(id="gh", url="https://mcp.example/gh")
     settings = tool_settings(NoSecrets(), server, other)
     [toolset] = toolsets_for(AgentDefinition("be brief", tools=("docs",)), settings)
-    assert isinstance(toolset, MCPToolset)
-    assert toolset.client.transport.url == "https://mcp.example/docs"
+    assert isinstance(toolset, FailuresToModel)
+    assert isinstance(toolset.wrapped, MCPToolset)
+    assert toolset.wrapped.tool_error_behavior == "failed"
+    assert toolset.wrapped.client.transport.url == "https://mcp.example/docs"
 
 
 def test_the_engine_answers_the_four_kinds_and_turns_tracing_off(

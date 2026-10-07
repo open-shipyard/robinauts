@@ -55,7 +55,12 @@ class Memory(ABC):
     @abstractmethod
     async def save(
         self, session_id: uuid.UUID, checkpoint_id: str, messages: list[ModelMessage]
-    ) -> None: ...
+    ) -> None:
+        """Keep the history under that checkpoint, in place of what it held."""
+
+    @abstractmethod
+    async def latest(self, session_id: uuid.UUID) -> tuple[str, list[ModelMessage]] | None:
+        """The checkpoint saved last, and its history; ``None`` for a session with none."""
 
     @abstractmethod
     async def forget(self, session_id: uuid.UUID) -> None:
@@ -86,7 +91,12 @@ class InProcessMemory(Memory):
     async def save(
         self, session_id: uuid.UUID, checkpoint_id: str, messages: list[ModelMessage]
     ) -> None:
+        # Moved to the end, which is where `latest` looks.
+        self._sessions[session_id].pop(checkpoint_id, None)
         self._sessions[session_id][checkpoint_id] = messages
+
+    async def latest(self, session_id: uuid.UUID) -> tuple[str, list[ModelMessage]] | None:
+        return next(reversed(self._sessions[session_id].items()), None)
 
     async def forget(self, session_id: uuid.UUID) -> None:
         self._sessions.pop(session_id, None)
@@ -129,12 +139,23 @@ class PostgresMemory(Memory):
     ) -> None:
         await self._pool.execute(
             "INSERT INTO pydantic_ai_checkpoints (session_id, checkpoint_id, history, created_at)"
-            " VALUES ($1, $2, $3, $4)",
+            " VALUES ($1, $2, $3, $4) ON CONFLICT (session_id, checkpoint_id)"
+            " DO UPDATE SET history = excluded.history, created_at = excluded.created_at",
             session_id,
             checkpoint_id,
             ModelMessagesTypeAdapter.dump_python(messages, mode="json"),
             datetime.now(UTC),
         )
+
+    async def latest(self, session_id: uuid.UUID) -> tuple[str, list[ModelMessage]] | None:
+        row = await self._pool.fetchrow(
+            "SELECT checkpoint_id, history FROM pydantic_ai_checkpoints WHERE session_id = $1"
+            " ORDER BY created_at DESC LIMIT 1",
+            session_id,
+        )
+        if row is None:
+            return None
+        return row["checkpoint_id"], ModelMessagesTypeAdapter.validate_python(row["history"])
 
     async def forget(self, session_id: uuid.UUID) -> None:
         await self._pool.execute(

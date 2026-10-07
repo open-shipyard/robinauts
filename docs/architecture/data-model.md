@@ -112,8 +112,8 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   plus 48 hours: how long a task may wait queued. The claim sets it to `lease_seconds`
   from then, and sets `claimed_at`. The process that runs the task renews it every
   `heartbeat_seconds`, in one write for all its tasks. The runner's deadline is apart:
-  the task's claim plus `max_turn_seconds`. An active turn whose task's lease has
-  passed is ended as `interrupted`, and its task as `done`, by the next reader to find
+  the task's claim plus the agent's `turn_timeout_seconds`, or else `max_turn_seconds`.
+  An active turn whose task's lease has passed is ended as `interrupted`, and its task as `done`, by the next reader to find
   it (`open_session`, `queue_turn`, `watch_turn`, `cancel_turn`, `delete_session`), or
   by the sweep every `sweep_seconds`. Both go through `end_expired_turn`: one
   conditional write that only such a turn takes, on the record, its task, the marker a

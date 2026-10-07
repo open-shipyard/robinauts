@@ -42,8 +42,9 @@ contract.
   any of them and a fork can be taken at any of them.
 - **Manage the context.** Keep the history within the model's window by the
   framework's own means, summarising or trimming older exchanges, and place
-  the vendor's prompt cache so that long conversations stay affordable. The
-  caller never trims anything.
+  the vendor's prompt cache so that long conversations stay affordable. A
+  tool result longer than a fifth of the window is cut. The caller never
+  trims anything.
 - **Reach the model providers.** Build the vendor's client for the model the
   caller names, with the key the engine asks for, and say which provider
   kinds it can reach so that a configuration naming another is refused
@@ -139,7 +140,8 @@ anything else.
 - A tool call: the call's id, the tool's name, its arguments, once the
   arguments are complete.
 - A tool result: the call's id, the tool's name, the output as the model
-  will see it, and whether the tool reported an error.
+  will see it, and whether the tool reported an error. A call that fails or
+  times out has a result too: the failure, as an error. The turn goes on.
 - Done: the final answer's text and the id of the new checkpoint. Always
   last, always once, and only after every tool call it reported has its
   result.
@@ -157,11 +159,15 @@ caller adds those.
 - **By cancellation**: the caller cancels the turn, the engine lets the
   cancellation through and releases what it held, and the next turn does not
   remember what this one said.
-- **Resumed**: when the caller runs an interrupted turn again with the same
-  session, question and checkpoint and asks to resume, the engine continues
-  from whatever partial work it kept, without repeating tool calls already
-  made. If it kept nothing, the turn simply runs again from the checkpoint.
-  Asking to resume with a different question is an error.
+- **Resumed**: when the caller asks to resume from a checkpoint, the engine
+  continues the session's latest turn, if that turn began from the
+  checkpoint. It goes on from the rounds it saved, without repeating their
+  tool calls. Which turn that is, is the caller's to know: the engine does
+  not compare the questions. If it kept nothing, the turn runs again from the
+  checkpoint. A turn that had finished gives its answer again.
+  A tool call that started after the last round the engine saved runs again.
+  Tools are called at least once, so a tool with side effects must tolerate a
+  repeat.
 
 ### Refusals
 

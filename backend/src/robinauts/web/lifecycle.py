@@ -12,9 +12,17 @@ import logging
 import os
 import signal
 import sys
+import tempfile
+import time
+from pathlib import Path
 
 from robinauts.controller.composition import Composed
-from robinauts.web.worker_process import PARENT_VARIABLE, READY_LINE, READY_VARIABLE
+from robinauts.web.worker_process import (
+    ACTIVITY_VARIABLE,
+    PARENT_VARIABLE,
+    READY_LINE,
+    READY_VARIABLE,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -23,6 +31,9 @@ WORKER_MODULE = "robinauts.web.worker_process"
 WORKER_START_SECONDS = 60.0
 """How long `start` waits for the worker's process to say its worker has started, before it
 kills it and fails."""
+
+HEALTHY_WITHIN = 300.0
+"""Seconds: a worker that has not touched its activity file for longer is unhealthy."""
 
 WORKER_STOP_SECONDS = 15.0
 """How long `stop` waits for the worker's process after its SIGTERM before it kills it: more
@@ -37,12 +48,15 @@ class Lifecycle:
         self._spawn_worker_in_subprocess = spawn_worker_in_subprocess
         self._process: asyncio.subprocess.Process | None = None
         self._watching: asyncio.Task[None] | None = None
+        self.activity_file = Path(tempfile.gettempdir()) / f"robinauts-worker-{os.getpid()}.alive"
+        """What this node's worker touches at every heartbeat, in this process or its own."""
 
     async def start(self) -> None:
         """Open the controller, then start the worker, which opens a store of its own. Return
         once the worker has started, so that a server which says it is up runs turns."""
         await self.composed.controller.open()
         if not self._spawn_worker_in_subprocess:
+            self.composed.worker.activity_file = self.activity_file
             await self.composed.worker.start()
             return
         read_end, write_end = os.pipe()
@@ -50,6 +64,7 @@ class Lifecycle:
             **os.environ,
             PARENT_VARIABLE: str(os.getpid()),
             READY_VARIABLE: str(write_end),
+            ACTIVITY_VARIABLE: str(self.activity_file),
         }
         try:
             try:
@@ -84,12 +99,21 @@ class Lifecycle:
                 f"the worker process did not start within {WORKER_START_SECONDS:g} s"
             )
 
+    def healthy(self) -> bool:
+        """Whether this node's worker has touched its activity file within ``HEALTHY_WITHIN``."""
+        try:
+            touched = self.activity_file.stat().st_mtime
+        except FileNotFoundError:
+            return False
+        return time.time() - touched <= HEALTHY_WITHIN
+
     async def stop(self) -> None:
         """Stop the worker, which waits for the turns it runs, then close the controller."""
         if self._process is None:
             await self.composed.worker.stop()
         else:
             await self._stop_process(self._process)
+        self.activity_file.unlink(missing_ok=True)
         await self.composed.controller.close()
 
     async def _stop_process(self, process: asyncio.subprocess.Process) -> None:

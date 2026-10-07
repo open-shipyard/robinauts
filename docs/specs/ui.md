@@ -98,3 +98,16 @@ User Message 1: What is the capital of France?
 Some tool calling if any from the failed turn
 App Error:  There was a problem processing your request, please retry or write a new message.
 Some app message: User pressed the Refresh button.
+
+
+### Resume
+
+The last answer, when it failed, also has a Resume button, beside Refresh.
+
+Resume continues the answer's turn from the tool rounds the agent's engine saved. The LLM is
+told nothing about the failure. Tool calls already saved do not run again, and a call that was
+cut short runs again. When the engine saved nothing, the question runs again from the start.
+
+Resume is for a long turn that failed or was interrupted, such as by a crash or a deploy.
+Nothing resumes on its own. The conversation waits until the user, or another system through
+the API, picks Refresh or Resume.

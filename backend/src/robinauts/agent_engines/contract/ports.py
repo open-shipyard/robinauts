@@ -89,10 +89,12 @@ class AgentEngine(ABC):
     ) -> AsyncGenerator[Event, None]:
         """Not a coroutine: everything, the refusals included, happens inside the generator.
 
+        With ``resume``, the engine continues the session's latest turn, the one it saved last,
+        if that turn began from the checkpoint; else it runs ``prompt`` from the checkpoint.
         Past ``timeout_seconds`` the engine ends the turn by raising ``TimeoutError``.
         Raised where iterated: ``SessionNotFoundError`` for a session not created,
         ``CheckpointNotFoundError`` for a checkpoint not held for it, ``UnknownModelError`` for
-        a model the settings do not have, ``ResumeMismatchError`` for a resume of another prompt.
+        a model the settings do not have.
         """
         raise NotImplementedError
 

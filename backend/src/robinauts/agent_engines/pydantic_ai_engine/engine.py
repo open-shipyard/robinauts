@@ -10,16 +10,21 @@ nothing here knows which storage that was.
 from __future__ import annotations
 
 import asyncio
+import math
 import uuid
-from collections.abc import AsyncGenerator, AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import aclosing
 
 from pydantic_ai import Agent, AgentRunResult, UsageLimits
+from pydantic_ai.capabilities import ProcessHistory
 from pydantic_ai.messages import (
     AgentStreamEvent,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     ModelMessage,
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    ModelResponse,
     PartDeltaEvent,
     PartStartEvent,
     RetryPromptPart,
@@ -27,10 +32,11 @@ from pydantic_ai.messages import (
     TextPartDelta,
     ThinkingPart,
     ThinkingPartDelta,
+    UserPromptPart,
 )
 
 from robinauts.agent_engines.contract.domain import (
-    MODEL_CALLS_PER_TURN,
+    DEFAULT_CONTEXT_WINDOW,
     AgentDefinition,
     CheckpointNotFoundError,
     Done,
@@ -43,9 +49,18 @@ from robinauts.agent_engines.contract.domain import (
     ToolResult,
 )
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineSettings
-from robinauts.agent_engines.pydantic_ai_engine.clients import chat_model, force_tracing_off
+from robinauts.agent_engines.pydantic_ai_engine.clients import (
+    chat_model,
+    force_tracing_off,
+    release,
+)
+from robinauts.agent_engines.pydantic_ai_engine.context import within
 from robinauts.agent_engines.pydantic_ai_engine.memory import Memory
 from robinauts.agent_engines.pydantic_ai_engine.tools import toolsets_for
+
+FASTEST_MODEL_CALL = 1.0
+"""Seconds: a turn may make one model call per second of its timeout. Real rounds are slower;
+a loop faster than that is runaway, and this bounds what it costs."""
 
 
 class PydanticAIEngine(AgentEngine):
@@ -85,28 +100,69 @@ class PydanticAIEngine(AgentEngine):
             if history is None:
                 raise CheckpointNotFoundError(checkpoint_id)
 
+        # One checkpoint per turn: saved after every tool round, and last with the answer.
+        checkpoint = str(uuid.uuid4())
+        asked: str | None = prompt
+        if resume and (partial := await self._partial_turn(session_id, history)):
+            checkpoint, history = partial
+            if isinstance(history[-1], ModelResponse):
+                # It had finished: its caller never stored the answer.
+                yield Done(text=history[-1].text or "", checkpoint_id=checkpoint)
+                return
+            # It goes on from the tool results it saved, without asking again.
+            asked = None
+
+        async def save(messages: list[ModelMessage]) -> None:
+            await self._memory.save(session_id, checkpoint, messages)
+
         client, model_settings = chat_model(model, self._settings)
-        runner = Agent(
-            client,
-            instructions=agent.system_prompt,
-            model_settings=model_settings,
-            toolsets=toolsets_for(agent, self._settings),
-        )
-        # The deadline bounds the run, not the caller's handling of what is yielded.
-        deadline = asyncio.get_running_loop().time() + timeout_seconds
-        async with aclosing(run_of(runner, prompt, history)) as items:
-            while True:
-                async with asyncio.timeout_at(deadline):
-                    item = await anext(items, None)
-                if item is None:
-                    break
-                if isinstance(item, AgentRunResult):
-                    new = str(uuid.uuid4())
-                    await self._memory.save(session_id, new, item.all_messages())
-                    yield Done(text=item.output, checkpoint_id=new)
-                else:
-                    for event in events_of(item):
-                        yield event
+        try:
+            configured = self._settings.models.models[model].context_window
+            window = configured or client.context_window or DEFAULT_CONTEXT_WINDOW
+            runner = Agent(
+                client,
+                instructions=agent.system_prompt,
+                model_settings=model_settings,
+                toolsets=toolsets_for(agent, self._settings),
+                capabilities=[ProcessHistory(within(window))],
+            )
+            # The deadline bounds the run, not the caller's handling of what is yielded.
+            deadline = asyncio.get_running_loop().time() + timeout_seconds
+            calls = math.ceil(timeout_seconds / FASTEST_MODEL_CALL)
+            async with aclosing(run_of(runner, asked, history, calls, save)) as items:
+                while True:
+                    async with asyncio.timeout_at(deadline):
+                        item = await anext(items, None)
+                    if item is None:
+                        break
+                    if isinstance(item, AgentRunResult):
+                        await save(item.all_messages())
+                        yield Done(text=item.output, checkpoint_id=checkpoint)
+                    else:
+                        for event in events_of(item):
+                            yield event
+        finally:
+            # The vendor's client is the turn's: its connections go with it.
+            await release(client)
+
+    async def _partial_turn(
+        self, session_id: uuid.UUID, history: list[ModelMessage] | None
+    ) -> tuple[str, list[ModelMessage]] | None:
+        """The checkpoint saved last and its history, if it is a turn begun from ``history``,
+        finished or not. Which question it asked is the caller's to know."""
+        latest = await self._memory.latest(session_id)
+        if latest is None:
+            return None
+        before = history or []
+        after = latest[1]
+        if len(after) <= len(before) or _rendered(after[: len(before)]) != _rendered(before):
+            return None
+        asked = after[len(before)]
+        if not isinstance(asked, ModelRequest):
+            return None
+        if not any(isinstance(part, UserPromptPart) for part in asked.parts):
+            return None
+        return latest
 
     async def fork(self, source_id: uuid.UUID, target_id: uuid.UUID, *, checkpoint_id: str) -> None:
         raise NotImplementedError("fork")
@@ -115,12 +171,24 @@ class PydanticAIEngine(AgentEngine):
         await self._memory.forget(session_id)
 
 
+def _rendered(messages: list[ModelMessage]) -> object:
+    return ModelMessagesTypeAdapter.dump_python(messages, mode="json")
+
+
 async def run_of(
-    runner: Agent[None, str], prompt: str, history: list[ModelMessage] | None
+    runner: Agent[None, str],
+    prompt: str | None,
+    history: list[ModelMessage] | None,
+    calls: int,
+    save: Callable[[list[ModelMessage]], Awaitable[None]],
 ) -> AsyncIterator[AgentStreamEvent | AgentRunResult[str]]:
-    limits = UsageLimits(request_limit=MODEL_CALLS_PER_TURN)
+    limits = UsageLimits(request_limit=calls)
     async with runner.iter(prompt, message_history=history, usage_limits=limits) as run:
         async for node in run:
+            # A request after the first carries a finished round's tool results, which the
+            # history takes only once the request is sent: save them now.
+            if Agent.is_model_request_node(node) and run.new_messages():
+                await save([*run.all_messages(), node.request])
             if Agent.is_model_request_node(node) or Agent.is_call_tools_node(node):
                 async with node.stream(run.ctx) as events:
                     async for event in events:

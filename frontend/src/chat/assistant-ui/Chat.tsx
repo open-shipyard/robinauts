@@ -31,6 +31,7 @@ import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { createContext, useContext, type ReactNode } from "react";
 
 import type { ChatProps } from "../index";
+import { ResumeAnswer, ResumeButton } from "./Resume";
 import { useChat } from "./runtime";
 import { ToolCall } from "./ToolCall";
 import { Thread } from "./vendor/components/assistant-ui/elements/thread.aui";
@@ -49,10 +50,14 @@ function Welcome() {
  * that is remounted loses the focus: at a keystroke in the box beside it, or
  * at every step of a keyboard arrowing through the picker itself.
  */
-const COMPONENTS = { Welcome, ToolFallback: ToolCall };
+const COMPONENTS = {
+  Welcome,
+  ToolFallback: ToolCall,
+  ActionBarExtra: ResumeButton,
+};
 
 export function Chat(props: Readonly<ChatProps>) {
-  const { state, runtime } = useChat(props);
+  const { state, runtime, onResume } = useChat(props);
   // Only on the empty chat: a conversation with nothing in it yet is still a
   // conversation, and its agent is no longer a choice (`../index.ts`).
   const welcome = props.conversationId === null ? props.welcome : undefined;
@@ -77,7 +82,9 @@ export function Chat(props: Readonly<ChatProps>) {
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1">
           <WelcomeSlot.Provider value={welcome}>
-            <Thread components={COMPONENTS} />
+            <ResumeAnswer.Provider value={onResume}>
+              <Thread components={COMPONENTS} />
+            </ResumeAnswer.Provider>
           </WelcomeSlot.Provider>
         </div>
         {state.ended !== null && (

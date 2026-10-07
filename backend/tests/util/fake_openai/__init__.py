@@ -14,7 +14,13 @@ from util.fake_openai.echo_model import (
     PoisonEchoModel,
     ToolEchoModel,
 )
-from util.fake_openai.server import CallTool, FakeLocalGPTServer, FakeModel, Overloaded
+from util.fake_openai.server import (
+    CallTool,
+    FakeLocalGPTServer,
+    FakeModel,
+    Overloaded,
+    RateLimited,
+)
 
 __all__ = [
     "CallTool",
@@ -24,5 +30,6 @@ __all__ = [
     "HoldingEchoModel",
     "Overloaded",
     "PoisonEchoModel",
+    "RateLimited",
     "ToolEchoModel",
 ]

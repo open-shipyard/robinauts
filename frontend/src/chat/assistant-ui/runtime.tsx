@@ -168,6 +168,8 @@ function forItsModel(failure: unknown): boolean {
 export interface Chatting {
   state: ChatState;
   runtime: AssistantRuntime;
+  /** Resume a failed answer: what the Resume button beside it does. */
+  onResume: (answerId: string) => Promise<void>;
 }
 
 export function useChat(props: ChatProps): Chatting {
@@ -288,7 +290,7 @@ export function useChat(props: ChatProps): Chatting {
     if (box.getState().text === "") box.setText(wanted.text);
   });
 
-  return { state, runtime };
+  return { state, runtime, onResume: turns.onResume };
 }
 
 /**
@@ -726,6 +728,25 @@ function turnsOf(dispatch: (action: ChatAction) => void, first: ChatProps) {
     );
   }
 
+  /**
+   * **Resume** a failed answer (`docs/specs/ui.md`): its turn goes on from the
+   * rounds the engine saved, and the model is told nothing. Like a retry, it
+   * takes the failed answer off the screen.
+   */
+  async function onResume(answerId: string): Promise<void> {
+    const conversationId = state.conversationId;
+    if (conversationId === null) return;
+    if (busy()) {
+      dispatch({ kind: "told", detail: ONE_AT_A_TIME_ANSWER });
+      return;
+    }
+    dispatch({ kind: "again", after: turnStart(state, answerId) });
+    const modelId = props.modelId;
+    await follow((signal) =>
+      startTurn(conversationId, { resume: answerId, modelId }, { signal }),
+    );
+  }
+
   async function onCancel(): Promise<void> {
     const { conversationId, runId } = state;
     // Nothing to stop. The Thread offers stopping only while `isRunning`,
@@ -758,6 +779,7 @@ function turnsOf(dispatch: (action: ChatAction) => void, first: ChatProps) {
     onNew,
     onEdit,
     onReload,
+    onResume,
     onCancel,
   };
 }

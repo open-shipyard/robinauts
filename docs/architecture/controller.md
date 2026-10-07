@@ -52,6 +52,8 @@ operation of the controller. The shell starts it after `open` and stops it befor
 - `send_message`: a message under a chosen parent, with the model. An edit is this under an
   earlier parent.
 - `regenerate_answer`: the answer to a question again, under the same question.
+- `resume_answer`: the turn of the session's latest answer, when it failed, continued from
+  what its engine saved.
 - `cancel_turn`: stop the turn named, whichever process runs it. It returns once the stop is
   asked; the turn's watchers see it end.
 - `watch_turn`: the events of the turn named, from a position, as they happen, ending with how

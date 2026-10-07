@@ -270,6 +270,28 @@ class RobinautsController(Controller):
         )
         return TurnStarted(session_id, turn.id, question)
 
+    async def resume_answer(
+        self, user: User, session_id: uuid.UUID, *, answer_id: uuid.UUID, model: str
+    ) -> TurnStarted:
+        session = await self._store.get_session(user.id, session_id)
+        await self._end_expired(session)
+        by_id = {m.id: m for m in await load_messages(self._store, user.id, session_id)}
+        failed = by_id.get(answer_id)
+        latest = await self._store.latest_turn(user.id, session_id)
+        if (
+            failed is None
+            or not failed.failed
+            or failed.parent_id is None
+            or latest is None
+            or failed.turn_id != latest.id
+        ):
+            raise MessageNotFoundError(str(answer_id))
+        question = by_id[failed.parent_id]
+        turn = await self._queue_turn(
+            user, session, question, model, new_question=False, resume=True
+        )
+        return TurnStarted(session_id, turn.id, question)
+
     async def cancel_turn(
         self, user: User, session_id: uuid.UUID, turn_id: uuid.UUID | None = None
     ) -> None:
@@ -294,6 +316,7 @@ class RobinautsController(Controller):
         new_question: bool,
         retries_message_id: uuid.UUID | None = None,
         create_session: bool = False,
+        resume: bool = False,
     ) -> Turn:
         model_config = self._config.models.get(model)
         if model_config is None:
@@ -301,10 +324,13 @@ class RobinautsController(Controller):
         await self._end_expired(session)
         now = self._now()
         turn_id = uuid.uuid4()
+        payload: dict[str, object] = {"turn_id": str(turn_id), "create_session": create_session}
+        if resume:
+            payload["resume"] = True
         task = Task(
             uuid.uuid4(),
             RUN_TURN,
-            {"turn_id": str(turn_id), "create_session": create_session},
+            payload,
             TaskState.QUEUED,
             created_at=now,
             lease_until=now + MAX_QUEUED_TIME,

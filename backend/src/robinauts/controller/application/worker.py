@@ -16,12 +16,14 @@ import logging
 import uuid
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
 from robinauts.controller.application.engines import build_engines
 from robinauts.controller.application.intervals import run_at_intervals
 from robinauts.controller.application.turns import (
     CLOSE,
+    STALLED,
     end_if_running,
     load_messages,
     run_turn,
@@ -94,6 +96,11 @@ class Worker:
         self._cancelling: set[asyncio.Task[None]] = set()
         self._running: dict[uuid.UUID, asyncio.Task[None]] = {}
         """The tasks this process runs, by task id: whose leases it renews."""
+        self.activity_file: Path | None = None
+        """A file whose modification time this worker sets at its start and at every heartbeat:
+        what a health check reads."""
+        self._progress: dict[uuid.UUID, datetime] = {}
+        """When each task's engine last said something, by task id."""
         self._stopped: set[uuid.UUID] = set()
 
     def _sets_up_engines(self) -> bool:
@@ -113,8 +120,9 @@ class Worker:
             setup=self._sets_up_engines(),
         )
         await self._store.listen_for_cancels(self._cancel_requested)
+        self._touch()
         self._heartbeat = asyncio.create_task(
-            run_at_intervals(self._work.heartbeat_seconds, self.renew_leases), name="heartbeat"
+            run_at_intervals(self._work.heartbeat_seconds, self._beat), name="heartbeat"
         )
         self._claiming = asyncio.create_task(self._claim_loop(), name="worker")
 
@@ -146,11 +154,24 @@ class Worker:
             if len(claimed) < limit:
                 return False
 
+    async def _beat(self) -> None:
+        await self.renew_leases()
+        self._touch()
+
+    def _touch(self) -> None:
+        if self.activity_file is not None:
+            self.activity_file.touch()
+
     async def renew_leases(self) -> None:
         """Renew the lease of every task this process runs, and stop those asked to stop
-        whose announcement was missed."""
+        whose announcement was missed. Stop, as stalled, those whose engine has said nothing
+        for ``stalled_after_seconds``."""
         if tasks := list(self._running):
             now = self._now()
+            quiet = timedelta(seconds=self._work.stalled_after_seconds)
+            for task in tasks:
+                if now - self._progress.get(task, now) > quiet:
+                    self._stop(task, STALLED)
             until = now + timedelta(seconds=self._work.lease_seconds)
             for task in await self._store.renew_leases(tasks, now, until):
                 self._cancel_requested(task)
@@ -194,7 +215,11 @@ class Worker:
         except asyncio.CancelledError as exc:
             # Cancelled before the runner's claim, the turn is ended here; after it, the
             # runner has ended it already.
-            state = TurnState.INTERRUPTED if CLOSE in exc.args else TurnState.CANCELLED
+            state = TurnState.CANCELLED
+            if CLOSE in exc.args:
+                state = TurnState.INTERRUPTED
+            elif STALLED in exc.args:
+                state = TurnState.FAILED
             await end_if_running(self._store, owner, turn.session_id, turn.id, state, self._now())
             raise
 
@@ -242,6 +267,8 @@ class Worker:
             earlier.insert(0, (_text(asked), failed))
             above = asked.parent_id
         retried = None if turn.retries_message_id is None else by_id[turn.retries_message_id]
+        # On a resume the engine goes on from what it saved, and needs the prompt only if it
+        # saved nothing.
         prompt = prompt_after_failures(_text(question), earlier, retried)
         await run_turn(
             self._store,
@@ -254,27 +281,32 @@ class Worker:
             agent_config,
             checkpoint_id,
             task.claimed_at or turn.started_at,
-            self._work.max_turn_seconds,
+            agent_config.turn_timeout_seconds or self._work.max_turn_seconds,
+            resume=bool(task.payload.get("resume")),
+            progress=lambda: self._progress.__setitem__(task.id, self._now()),
         )
 
     def _dispatch(self, task: Task) -> None:
         """Run the claimed task as an asyncio task of this process, and return at once."""
         running = asyncio.create_task(self.run_task(task), name=f"task {task.id}")
         self._running[task.id] = running
+        self._progress[task.id] = self._now()
         running.add_done_callback(lambda done: self._forget_task(task.id, done))
 
     def _forget_task(self, task: uuid.UUID, running: asyncio.Task[None]) -> None:
         self._running.pop(task, None)
+        self._progress.pop(task, None)
         self._stopped.discard(task)
         if not running.cancelled() and (error := running.exception()) is not None:
             _log.error("task %s ended on an error", task, exc_info=error)
 
-    def _stop(self, task: uuid.UUID) -> None:
-        """Cancel the task if this process runs it, once however often it is asked."""
+    def _stop(self, task: uuid.UUID, reason: str | None = None) -> None:
+        """Cancel the task if this process runs it, once however often it is asked, with
+        ``reason`` as the cancellation's message."""
         running = self._running.get(task)
         if running is not None and task not in self._stopped:
             self._stopped.add(task)
-            running.cancel()
+            running.cancel(reason)
 
     async def _drain(self) -> None:
         """Wait up to ``close_timeout`` for the tasks this process runs, then cancel the rest

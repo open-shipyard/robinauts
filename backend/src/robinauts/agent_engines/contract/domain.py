@@ -10,12 +10,15 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-MODEL_RETRIES = 2
-"""How many times a vendor's client retries a model call that failed with a 429, a 5xx or a lost
-connection."""
+MODEL_RETRIES = 20
+"""How many times a vendor's client retries a model call that failed with a 429, a 5xx, a timeout
+or a lost connection. The clients back off from half a second to 8 s, or as long as the vendor's
+``retry-after`` asks, up to a minute: about two minutes of retries at least. The turn's deadline
+ends them first."""
 
-MODEL_CALLS_PER_TURN = 200
-"""How many model calls one turn may make, so how many tool rounds it may take."""
+DEFAULT_CONTEXT_WINDOW = 128_000
+"""Tokens: the window of a model whose ``context_window`` is not configured and that its framework
+knows nothing of."""
 
 
 class EngineError(Exception):
@@ -35,10 +38,6 @@ class CheckpointNotFoundError(EngineError):
 
 
 class UnknownModelError(EngineError):
-    pass
-
-
-class ResumeMismatchError(EngineError):
     pass
 
 

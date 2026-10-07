@@ -86,7 +86,8 @@ All optional, all set by the operator:
 - requests per minute per user;
 - a maximum attachment size;
 - timeouts for a model call, a tool call and a whole turn (`[work]`
-  `max_turn_seconds`, 20 minutes by default);
+  `max_turn_seconds`, 20 minutes by default, or an agent's
+  `turn_timeout_seconds`);
 - a model's `context_window`, in tokens, which is what the frameworks keep
   a conversation's history within
   ([ADR 0005](../adr/0005-the-framework-owns-the-loop-and-the-memory.md)):
@@ -96,9 +97,11 @@ All optional, all set by the operator:
   and is shown to the user. It depends on usage recording and arrives with
   it.
 
-Two bounds are fixed and are not settings. A turn may make 200 model calls,
-one per tool round. A model call that fails with a 429, a 5xx, a timeout or
-a lost connection is retried twice before the turn fails.
+Two bounds are not settings. A turn may make one model call per second of
+its timeout, which stops a runaway tool loop. A model call that fails with a
+429, a 5xx, a timeout or a lost connection is retried with growing waits, or
+the waits the vendor asks for. The retries last about two minutes before the
+turn fails, and the turn's deadline ends them first.
 
 ## Retention
 

@@ -37,6 +37,8 @@ def connection_for(server: ToolServerConfig, settings: EngineSettings) -> Stream
         "headers": headers,
         "timeout": timeout,
         "sse_read_timeout": timeout,
+        # The session's own: past the transport's alone, a call is never answered and waits on.
+        "session_kwargs": {"read_timeout_seconds": timeout},
     }
 
 

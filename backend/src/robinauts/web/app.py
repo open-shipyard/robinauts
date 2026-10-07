@@ -267,6 +267,7 @@ class TurnRequest(BaseModel):
     edit: uuid.UUID | None = None
     regenerate: uuid.UUID | None = None
     retry: uuid.UUID | None = None
+    resume: uuid.UUID | None = None
     model_id: str | None = None
 
 
@@ -678,6 +679,10 @@ def create_app(
             started = await controller.retry_answer(
                 user, conversation_id, answer_id=body.retry, model=model
             )
+        elif body.resume is not None:
+            started = await controller.resume_answer(
+                user, conversation_id, answer_id=body.resume, model=model
+            )
         elif body.edit is not None:
             started = await controller.edit_message(
                 user, conversation_id, message_id=body.edit, model=model, text=body.text
@@ -710,9 +715,11 @@ def create_app(
     # --- liveness --------------------------------------------------------------
 
     @app.get("/health", include_in_schema=False)
-    async def health() -> dict[str, str]:
-        # That this process answers, and nothing about the database or the providers.
-        return {"status": "ok"}
+    async def health() -> JSONResponse:
+        # This node's worker, heard from within five minutes. Nothing is queried.
+        if lifecycle.healthy():
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"status": "the worker is not running"}, status_code=503)
 
     # --- the interface ---------------------------------------------------------
 
