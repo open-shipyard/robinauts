@@ -163,6 +163,8 @@ async def run_turn(
     checkpoint_id: str | None,
     claimed_at: datetime,
     max_turn_seconds: float,
+    *,
+    resume: bool = False,
 ) -> None:
     # From the claim, not the start: a turn may wait queued for hours.
     deadline = claimed_at + timedelta(seconds=max_turn_seconds)
@@ -186,6 +188,7 @@ async def run_turn(
             model=turn.model,
             checkpoint_id=checkpoint_id,
             timeout_seconds=remaining,
+            resume=resume,
         )
         async with aclosing(stream) as events:
             async for event in events:

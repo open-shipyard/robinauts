@@ -140,6 +140,7 @@ export type Turn = (
   | { text: string; edit: string }
   | { regenerate: string }
   | { retry: string }
+  | { resume: string }
 ) & { modelId?: string | null };
 
 /**
@@ -173,6 +174,7 @@ export async function startTurn(
 function wireTurn(turn: Turn): Record<string, string> {
   if ("regenerate" in turn) return { regenerate: turn.regenerate };
   if ("retry" in turn) return { retry: turn.retry };
+  if ("resume" in turn) return { resume: turn.resume };
   if ("edit" in turn) return { text: turn.text, edit: turn.edit };
   return { text: turn.text, parent_id: turn.parentId };
 }

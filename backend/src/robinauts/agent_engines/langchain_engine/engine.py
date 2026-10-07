@@ -39,7 +39,6 @@ from robinauts.agent_engines.contract.domain import (
     Event,
     ProviderKind,
     ReasoningDelta,
-    ResumeMismatchError,
     SessionNotFoundError,
     TextDelta,
     ToolCall,
@@ -105,7 +104,7 @@ class LangChainEngine(AgentEngine):
         )
         given: dict[str, Any] | None = {"messages": [*fresh, HumanMessage(prompt)]}
         if resume:
-            partial = await partial_turn(graph, thread, start, checkpoint_id, prompt)
+            partial = await partial_turn(graph, thread, start, checkpoint_id)
             if partial is not None and not partial.next:
                 # It had finished: its caller never stored the answer.
                 yield done_of(partial)
@@ -141,20 +140,16 @@ async def partial_turn(
     thread: RunnableConfig,
     start: RunnableConfig,
     checkpoint_id: str | None,
-    prompt: str,
 ) -> StateSnapshot | None:
-    """The thread's latest state if it is a turn begun from the checkpoint, finished or not;
-    ``ResumeMismatchError`` if that turn asked another question."""
+    """The thread's latest state if it is a turn begun from the checkpoint, finished or not.
+    Which question it asked is the caller's to know."""
     latest = await graph.aget_state(thread)
     before = [] if checkpoint_id is None else (await graph.aget_state(start)).values["messages"]
     after = latest.values.get("messages", [])
     if len(after) <= len(before) or [m.id for m in after[: len(before)]] != [m.id for m in before]:
         return None
-    asked = after[len(before)]
-    if not isinstance(asked, HumanMessage):
+    if not isinstance(after[len(before)], HumanMessage):
         return None
-    if asked.text != prompt:
-        raise ResumeMismatchError("the turn to resume asked another question")
     return latest
 
 

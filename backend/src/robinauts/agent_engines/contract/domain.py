@@ -37,10 +37,6 @@ class UnknownModelError(EngineError):
     pass
 
 
-class ResumeMismatchError(EngineError):
-    pass
-
-
 class MissingSecretError(EngineError):
     pass
 

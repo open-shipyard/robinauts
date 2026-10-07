@@ -20,7 +20,6 @@ from robinauts.agent_engines.contract.domain import (
     ModelProviderConfig,
     ModelsConfig,
     ProviderKind,
-    ResumeMismatchError,
     ToolServerAuth,
     ToolServerConfig,
 )
@@ -146,9 +145,6 @@ async def test_a_resumed_turn_goes_on_from_the_rounds_it_saved(
         with pytest.raises(Exception, match="refused"):
             await run(engine, session, "go", first.checkpoint_id)
         assert counted == [0, 1]
-
-        with pytest.raises(ResumeMismatchError):
-            await run(engine, session, "go elsewhere", first.checkpoint_id, resume=True)
 
         model.failing = False
         sent = len(model_server.received)

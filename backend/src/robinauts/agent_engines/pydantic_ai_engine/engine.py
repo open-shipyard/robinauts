@@ -41,7 +41,6 @@ from robinauts.agent_engines.contract.domain import (
     Event,
     ProviderKind,
     ReasoningDelta,
-    ResumeMismatchError,
     SessionNotFoundError,
     TextDelta,
     ToolCall,
@@ -107,7 +106,7 @@ class PydanticAIEngine(AgentEngine):
         # One checkpoint per turn: saved after every tool round, and last with the answer.
         checkpoint = str(uuid.uuid4())
         asked: str | None = prompt
-        if resume and (partial := await self._partial_turn(session_id, history, prompt)):
+        if resume and (partial := await self._partial_turn(session_id, history)):
             checkpoint, history = partial
             if isinstance(history[-1], ModelResponse):
                 # It had finished: its caller never stored the answer.
@@ -133,10 +132,10 @@ class PydanticAIEngine(AgentEngine):
                         yield event
 
     async def _partial_turn(
-        self, session_id: uuid.UUID, history: list[ModelMessage] | None, prompt: str
+        self, session_id: uuid.UUID, history: list[ModelMessage] | None
     ) -> tuple[str, list[ModelMessage]] | None:
         """The checkpoint saved last and its history, if it is a turn begun from ``history``,
-        finished or not; ``ResumeMismatchError`` if that turn asked another question."""
+        finished or not. Which question it asked is the caller's to know."""
         latest = await self._memory.latest(session_id)
         if latest is None:
             return None
@@ -147,11 +146,8 @@ class PydanticAIEngine(AgentEngine):
         asked = after[len(before)]
         if not isinstance(asked, ModelRequest):
             return None
-        questions = [part.content for part in asked.parts if isinstance(part, UserPromptPart)]
-        if not questions:
+        if not any(isinstance(part, UserPromptPart) for part in asked.parts):
             return None
-        if questions != [prompt]:
-            raise ResumeMismatchError("the turn to resume asked another question")
         return latest
 
     async def fork(self, source_id: uuid.UUID, target_id: uuid.UUID, *, checkpoint_id: str) -> None:

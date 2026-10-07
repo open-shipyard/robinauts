@@ -242,6 +242,8 @@ class Worker:
             earlier.insert(0, (_text(asked), failed))
             above = asked.parent_id
         retried = None if turn.retries_message_id is None else by_id[turn.retries_message_id]
+        # On a resume the engine goes on from what it saved, and needs the prompt only if it
+        # saved nothing.
         prompt = prompt_after_failures(_text(question), earlier, retried)
         await run_turn(
             self._store,
@@ -255,6 +257,7 @@ class Worker:
             checkpoint_id,
             task.claimed_at or turn.started_at,
             agent_config.turn_timeout_seconds or self._work.max_turn_seconds,
+            resume=bool(task.payload.get("resume")),
         )
 
     def _dispatch(self, task: Task) -> None:

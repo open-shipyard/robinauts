@@ -158,12 +158,15 @@ caller adds those.
 - **By cancellation**: the caller cancels the turn, the engine lets the
   cancellation through and releases what it held, and the next turn does not
   remember what this one said.
-- **Resumed**: when the caller runs an interrupted turn again with the same
-  session, question and checkpoint and asks to resume, the engine continues
-  from whatever partial work it kept, without repeating tool calls already
-  made. If it kept nothing, the turn simply runs again from the checkpoint.
-  A turn that had finished gives its answer again. Asking to resume with a
-  different question is an error.
+- **Resumed**: when the caller asks to resume from a checkpoint, the engine
+  continues the session's latest turn, if that turn began from the
+  checkpoint. It goes on from the rounds it saved, without repeating their
+  tool calls. Which turn that is, is the caller's to know: the engine does
+  not compare the questions. If it kept nothing, the turn runs again from the
+  checkpoint. A turn that had finished gives its answer again.
+  A tool call that started after the last round the engine saved runs again.
+  Tools are called at least once, so a tool with side effects must tolerate a
+  repeat.
 
 ### Refusals
 

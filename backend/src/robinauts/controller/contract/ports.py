@@ -126,6 +126,19 @@ class Controller(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def resume_answer(
+        self, user: User, session_id: uuid.UUID, *, answer_id: uuid.UUID, model: str
+    ) -> TurnStarted:
+        """The turn of an answer that failed or was interrupted, continued from the rounds its
+        engine saved, without the model told anything (``docs/specs/ui.md``). The session's
+        latest turn alone: the engine continues the turn it saved last.
+
+        ``SessionNotFoundError``, ``MessageNotFoundError`` for a message that is not the failed
+        answer of the session's latest turn, ``UnknownModelError``, ``TurnActiveError`` while a
+        turn runs."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def regenerate_answer(
         self, user: User, session_id: uuid.UUID, *, question_id: uuid.UUID, model: str
     ) -> TurnStarted:

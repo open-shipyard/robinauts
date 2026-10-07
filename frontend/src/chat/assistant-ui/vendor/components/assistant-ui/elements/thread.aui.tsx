@@ -85,6 +85,8 @@ export type ThreadComponents = {
   ReasoningGroup?:
     ComponentType<PropsWithChildren<{ group: ThreadGroupPart }>> | undefined;
   TaskGroup?: ComponentType<{ group: ThreadGroupPart }> | undefined;
+  /** Robinauts: an action of the host's, drawn after Refresh. */
+  ActionBarExtra?: ComponentType | undefined;
 };
 
 const messageGroupBy = groupPartByType({
@@ -624,6 +626,7 @@ const AssistantMessage: FC = () => {
 };
 
 const AssistantActionBar: FC = () => {
+  const { ActionBarExtra } = useContext(ThreadComponentsContext);
   return (
     <ActionBarPrimitive.Root
       hideWhenRunning
@@ -663,6 +666,7 @@ const AssistantActionBar: FC = () => {
           <RefreshCwIcon />
         </TooltipIconButton>
       </ActionBarPrimitive.Reload>
+      {ActionBarExtra && <ActionBarExtra />}
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger asChild>
           <TooltipIconButton

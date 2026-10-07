@@ -27,5 +27,6 @@ The operations the web shell offers the frontend.
 - `start_session`: the first message, with the agent and the model; mints the session.
 - `send_message`: a message under a chosen parent, with the model. An edit is this under an earlier parent.
 - `regenerate_answer`: the answer to a question again, under the same question.
+- `resume_answer`: the turn of the session's latest answer, when it failed, continued from what its engine saved.
 - `cancel_turn`: stop the session's active turn.
 - `watch_turn`: the events of the session's active turn, from a position, as they happen.
