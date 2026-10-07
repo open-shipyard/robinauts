@@ -8,7 +8,8 @@ provider's ``base_url`` should be set to. Every request body is kept in
 ``received``, in order. A model answers with text, or with a ``CallTool`` that
 asks the client to run a tool and send its result back. A model that raises is
 answered ``400``, as the vendor refuses a call for good. A model that raises ``Overloaded`` is
-answered ``503``, a hiccup the client retries.
+answered ``503``, a hiccup the client retries. A model that raises ``RateLimited`` is answered
+``429``, with a ``retry-after-ms`` of 10 so that the client retries at once.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 import json
 import re
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import TracebackType
@@ -26,6 +28,10 @@ COMPLETION_ID = "chatcmpl-fake"
 
 class Overloaded(Exception):
     """Raised by a model to have the server answer ``503``, as an overloaded vendor."""
+
+
+class RateLimited(Exception):
+    """Raised by a model to have the server answer ``429``, as a vendor over its rate limit."""
 
 
 @dataclass(frozen=True)
@@ -118,6 +124,10 @@ def _handler_for(server: FakeLocalGPTServer) -> type[BaseHTTPRequestHandler]:
             except Overloaded as busy:
                 self._send_json(503, {"error": {"message": str(busy), "type": "server_error"}})
                 return
+            except RateLimited as limited:
+                error = {"error": {"message": str(limited), "type": "rate_limit_exceeded"}}
+                self._send_json(429, error, {"retry-after-ms": "10"})
+                return
             except Exception as refused:  # a model that raises is the vendor refusing the call
                 self._send_json(
                     400, {"error": {"message": str(refused), "type": "invalid_request_error"}}
@@ -173,11 +183,17 @@ def _handler_for(server: FakeLocalGPTServer) -> type[BaseHTTPRequestHandler]:
             body = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
             self._send(200, "text/event-stream", body.encode())
 
-        def _send_json(self, status: int, payload: dict[str, Any]) -> None:
-            self._send(status, "application/json", json.dumps(payload).encode())
+        def _send_json(
+            self, status: int, payload: dict[str, Any], headers: Mapping[str, str] = {}
+        ) -> None:
+            self._send(status, "application/json", json.dumps(payload).encode(), headers)
 
-        def _send(self, status: int, content_type: str, body: bytes) -> None:
+        def _send(
+            self, status: int, content_type: str, body: bytes, headers: Mapping[str, str] = {}
+        ) -> None:
             self.send_response(status)
+            for name, value in headers.items():
+                self.send_header(name, value)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()

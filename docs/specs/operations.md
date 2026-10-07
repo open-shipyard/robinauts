@@ -99,8 +99,9 @@ All optional, all set by the operator:
 
 Two bounds are not settings. A turn may make one model call per second of
 its timeout, which stops a runaway tool loop. A model call that fails with a
-429, a 5xx, a timeout or a lost connection is retried twice before the turn
-fails.
+429, a 5xx, a timeout or a lost connection is retried with growing waits, or
+the waits the vendor asks for. The retries last about two minutes before the
+turn fails, and the turn's deadline ends them first.
 
 ## Retention
 

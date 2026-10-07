@@ -139,7 +139,8 @@ anything else.
 - A tool call: the call's id, the tool's name, its arguments, once the
   arguments are complete.
 - A tool result: the call's id, the tool's name, the output as the model
-  will see it, and whether the tool reported an error.
+  will see it, and whether the tool reported an error. A call that fails or
+  times out has a result too: the failure, as an error. The turn goes on.
 - Done: the final answer's text and the id of the new checkpoint. Always
   last, always once, and only after every tool call it reported has its
   result.

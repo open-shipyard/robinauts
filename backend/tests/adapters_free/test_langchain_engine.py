@@ -148,6 +148,7 @@ def test_a_bearer_server_is_reached_with_its_secret_as_a_bearer_token() -> None:
         "headers": {"Authorization": "Bearer s3cret"},
         "timeout": timedelta(seconds=9),
         "sse_read_timeout": timedelta(seconds=9),
+        "session_kwargs": {"read_timeout_seconds": timedelta(seconds=9)},
     }
     assert secrets.asked == ["gh"]
 

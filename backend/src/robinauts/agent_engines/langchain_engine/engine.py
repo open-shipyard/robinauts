@@ -17,6 +17,7 @@ from contextlib import aclosing
 from typing import Any
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import ToolCallRequest, ToolErrorMiddleware
 from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
@@ -27,6 +28,7 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
+from mcp.shared.exceptions import McpError
 
 from robinauts.agent_engines.contract.domain import (
     AgentDefinition,
@@ -96,6 +98,7 @@ class LangChainEngine(AgentEngine):
             await tools_for(agent, self._settings),
             system_prompt=agent.system_prompt,
             checkpointer=self._memory.saver,
+            middleware=[ToolErrorMiddleware(tool_failed)],
         )
         # A model call and its tool round are two steps of the graph.
         calls = math.ceil(timeout_seconds / FASTEST_MODEL_CALL)
@@ -126,6 +129,15 @@ class LangChainEngine(AgentEngine):
 
     async def forget(self, session_id: uuid.UUID) -> None:
         await self._memory.forget(session_id)
+
+
+def tool_failed(error: Exception, _request: ToolCallRequest) -> str:
+    """What the model is told of a tool call that raised, so that the turn goes on: the MCP
+    session's own words, such as a timeout's, or else the kind of error alone. An ``isError``
+    result of the server's is already its own answer."""
+    if isinstance(error, McpError):
+        return str(error)
+    return f"The tool call failed: {type(error).__name__}."
 
 
 def events_of(mode: str, payload: Any) -> Iterator[Event]:

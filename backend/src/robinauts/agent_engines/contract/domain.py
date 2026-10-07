@@ -10,9 +10,11 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-MODEL_RETRIES = 2
-"""How many times a vendor's client retries a model call that failed with a 429, a 5xx or a lost
-connection."""
+MODEL_RETRIES = 20
+"""How many times a vendor's client retries a model call that failed with a 429, a 5xx, a timeout
+or a lost connection. The clients back off from half a second to 8 s, or as long as the vendor's
+``retry-after`` asks, up to a minute: about two minutes of retries at least. The turn's deadline
+ends them first."""
 
 
 class EngineError(Exception):

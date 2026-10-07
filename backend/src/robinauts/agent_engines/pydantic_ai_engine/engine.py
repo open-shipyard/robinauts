@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import math
 import uuid
-from collections.abc import AsyncGenerator, AsyncIterator, Iterator
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import aclosing
 
 from pydantic_ai import Agent, AgentRunResult, UsageLimits
@@ -99,16 +99,21 @@ class PydanticAIEngine(AgentEngine):
         # The deadline bounds the run, not the caller's handling of what is yielded.
         deadline = asyncio.get_running_loop().time() + timeout_seconds
         calls = math.ceil(timeout_seconds / FASTEST_MODEL_CALL)
-        async with aclosing(run_of(runner, prompt, history, calls)) as items:
+        # One checkpoint per turn: saved after every tool round, and last with the answer.
+        checkpoint = str(uuid.uuid4())
+
+        async def save(messages: list[ModelMessage]) -> None:
+            await self._memory.save(session_id, checkpoint, messages)
+
+        async with aclosing(run_of(runner, prompt, history, calls, save)) as items:
             while True:
                 async with asyncio.timeout_at(deadline):
                     item = await anext(items, None)
                 if item is None:
                     break
                 if isinstance(item, AgentRunResult):
-                    new = str(uuid.uuid4())
-                    await self._memory.save(session_id, new, item.all_messages())
-                    yield Done(text=item.output, checkpoint_id=new)
+                    await save(item.all_messages())
+                    yield Done(text=item.output, checkpoint_id=checkpoint)
                 else:
                     for event in events_of(item):
                         yield event
@@ -121,11 +126,19 @@ class PydanticAIEngine(AgentEngine):
 
 
 async def run_of(
-    runner: Agent[None, str], prompt: str, history: list[ModelMessage] | None, calls: int
+    runner: Agent[None, str],
+    prompt: str,
+    history: list[ModelMessage] | None,
+    calls: int,
+    save: Callable[[list[ModelMessage]], Awaitable[None]],
 ) -> AsyncIterator[AgentStreamEvent | AgentRunResult[str]]:
     limits = UsageLimits(request_limit=calls)
     async with runner.iter(prompt, message_history=history, usage_limits=limits) as run:
         async for node in run:
+            # A request after the first carries a finished round's tool results, which the
+            # history takes only once the request is sent: save them now.
+            if Agent.is_model_request_node(node) and run.new_messages():
+                await save([*run.all_messages(), node.request])
             if Agent.is_model_request_node(node) or Agent.is_call_tools_node(node):
                 async with node.stream(run.ctx) as events:
                     async for event in events:
