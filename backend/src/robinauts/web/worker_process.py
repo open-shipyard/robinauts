@@ -29,6 +29,10 @@ READY_VARIABLE = "ROBINAUTS_WORKER_READY_FD"
 
 READY_LINE = b"ready\n"
 
+ACTIVITY_VARIABLE = "ROBINAUTS_WORKER_ACTIVITY_FILE"
+"""The file this process's worker touches at every heartbeat, which its parent's health check
+reads."""
+
 _PR_SET_PDEATHSIG = 1
 
 
@@ -46,6 +50,7 @@ def _end_with_parent() -> None:
 async def _run() -> None:
     config, secret_for = load(Path(os.environ["ROBINAUTS_CONFIG"]), os.environ)
     worker = compose(config, storage=storage_from(os.environ), secret_for=secret_for).worker
+    worker.activity_file = Path(os.environ[ACTIVITY_VARIABLE])
     stopping = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGTERM, signal.SIGINT):

@@ -715,9 +715,11 @@ def create_app(
     # --- liveness --------------------------------------------------------------
 
     @app.get("/health", include_in_schema=False)
-    async def health() -> dict[str, str]:
-        # That this process answers, and nothing about the database or the providers.
-        return {"status": "ok"}
+    async def health() -> JSONResponse:
+        # This node's worker, heard from within five minutes. Nothing is queried.
+        if lifecycle.healthy():
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"status": "the worker is not running"}, status_code=503)
 
     # --- the interface ---------------------------------------------------------
 

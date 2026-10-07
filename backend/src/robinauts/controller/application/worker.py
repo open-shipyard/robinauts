@@ -16,6 +16,7 @@ import logging
 import uuid
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
 from robinauts.controller.application.engines import build_engines
@@ -95,6 +96,9 @@ class Worker:
         self._cancelling: set[asyncio.Task[None]] = set()
         self._running: dict[uuid.UUID, asyncio.Task[None]] = {}
         """The tasks this process runs, by task id: whose leases it renews."""
+        self.activity_file: Path | None = None
+        """A file whose modification time this worker sets at its start and at every heartbeat:
+        what a health check reads."""
         self._progress: dict[uuid.UUID, datetime] = {}
         """When each task's engine last said something, by task id."""
         self._stopped: set[uuid.UUID] = set()
@@ -116,8 +120,9 @@ class Worker:
             setup=self._sets_up_engines(),
         )
         await self._store.listen_for_cancels(self._cancel_requested)
+        self._touch()
         self._heartbeat = asyncio.create_task(
-            run_at_intervals(self._work.heartbeat_seconds, self.renew_leases), name="heartbeat"
+            run_at_intervals(self._work.heartbeat_seconds, self._beat), name="heartbeat"
         )
         self._claiming = asyncio.create_task(self._claim_loop(), name="worker")
 
@@ -148,6 +153,14 @@ class Worker:
                 self._dispatch(task)
             if len(claimed) < limit:
                 return False
+
+    async def _beat(self) -> None:
+        await self.renew_leases()
+        self._touch()
+
+    def _touch(self) -> None:
+        if self.activity_file is not None:
+            self.activity_file.touch()
 
     async def renew_leases(self) -> None:
         """Renew the lease of every task this process runs, and stop those asked to stop

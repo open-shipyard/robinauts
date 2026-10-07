@@ -589,7 +589,8 @@ command could not do what it was asked.
 ## 9. Verify
 
 1. `curl -fsS https://robinauts.example.com/health` → `{"status":"ok"}`.
-   It reads no database: it answers "this process is up and serving".
+   It reads no database. It answers 503 when this server's worker has not
+   been heard from for five minutes: recycle that server.
 2. Open `https://robinauts.example.com/` in a browser. It redirects to
    `/ui/` and shows the sign-in page with one button per provider.
 3. Sign in as somebody the allow list has, through Google. Then as
