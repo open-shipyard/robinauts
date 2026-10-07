@@ -17,6 +17,7 @@ from typing import Any
 import langsmith.utils
 import pytest
 from langchain_anthropic import ChatAnthropic
+from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessageChunk, BaseMessage, ToolMessage
@@ -44,7 +45,7 @@ from robinauts.agent_engines.contract.ports import (
 from robinauts.agent_engines.langchain_engine import engine as engine_module
 from robinauts.agent_engines.langchain_engine import init_langchain
 from robinauts.agent_engines.langchain_engine.clients import chat_model
-from robinauts.agent_engines.langchain_engine.engine import LangChainEngine
+from robinauts.agent_engines.langchain_engine.engine import LangChainEngine, middleware_for
 from robinauts.agent_engines.langchain_engine.memory import InProcessMemory
 from robinauts.agent_engines.langchain_engine.tools import connection_for, tools_for
 from util.aio import asyncio_test
@@ -248,3 +249,18 @@ class TestLangChainEngineTurn(EngineTurnContract):
         engine = LangChainEngine(settings_for(ProviderKind.ANTHROPIC), InProcessMemory())
         await engine.setup()
         return engine
+
+
+@pytest.mark.parametrize(
+    ("kind", "cached"),
+    [
+        (ProviderKind.ANTHROPIC, True),
+        (ProviderKind.ANTHROPIC_COMPATIBLE, True),
+        (ProviderKind.OPENAI, False),
+        (ProviderKind.OPENAI_COMPATIBLE, False),
+    ],
+)
+def test_the_prompt_is_cached_on_anthropics_protocol(kind: ProviderKind, cached: bool) -> None:
+    settings = settings_for(kind, "https://gw.example/v1")
+    middleware = middleware_for(chat_model("m", settings), "m", settings)
+    assert any(isinstance(m, AnthropicPromptCachingMiddleware) for m in middleware) == cached

@@ -16,6 +16,10 @@ or a lost connection. The clients back off from half a second to 8 s, or as long
 ``retry-after`` asks, up to a minute: about two minutes of retries at least. The turn's deadline
 ends them first."""
 
+DEFAULT_CONTEXT_WINDOW = 128_000
+"""Tokens: the window of a model whose ``context_window`` is not configured and that its framework
+knows nothing of."""
+
 
 class EngineError(Exception):
     pass

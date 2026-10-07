@@ -42,8 +42,9 @@ contract.
   any of them and a fork can be taken at any of them.
 - **Manage the context.** Keep the history within the model's window by the
   framework's own means, summarising or trimming older exchanges, and place
-  the vendor's prompt cache so that long conversations stay affordable. The
-  caller never trims anything.
+  the vendor's prompt cache so that long conversations stay affordable. A
+  tool result longer than a fifth of the window is cut. The caller never
+  trims anything.
 - **Reach the model providers.** Build the vendor's client for the model the
   caller names, with the key the engine asks for, and say which provider
   kinds it can reach so that a configuration naming another is refused

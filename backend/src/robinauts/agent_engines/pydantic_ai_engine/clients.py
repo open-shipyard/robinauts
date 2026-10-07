@@ -10,7 +10,7 @@ from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
-from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -48,6 +48,15 @@ def chat_model(model_id: str, settings: EngineSettings) -> tuple[Model, ModelSet
     if model.max_output_tokens is not None:
         model_settings["max_tokens"] = model.max_output_tokens
     if provider.kind in ANTHROPIC_KINDS:
+        # The prompt cached on Anthropic's protocol, in the form gateways take too: the
+        # instructions, the tools, and the history up to its last block. OpenAI's protocol
+        # caches by itself.
+        model_settings = AnthropicModelSettings(
+            **model_settings,
+            anthropic_cache_instructions=True,
+            anthropic_cache_tool_definitions=True,
+            anthropic_cache_messages=True,
+        )
         anthropic = AsyncAnthropic(
             api_key=key, base_url=endpoint, max_retries=MODEL_RETRIES, timeout=model.timeout_seconds
         )
@@ -62,3 +71,9 @@ def chat_model(model_id: str, settings: EngineSettings) -> tuple[Model, ModelSet
         OpenAIChatModel(model.name, provider=OpenAIProvider(openai_client=openai)),
         model_settings,
     )
+
+
+async def release(model: Model) -> None:
+    """Close the vendor's client that ``chat_model`` built for the model."""
+    if isinstance(model, AnthropicModel | OpenAIChatModel):
+        await model.client.close()

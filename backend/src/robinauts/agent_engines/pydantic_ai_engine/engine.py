@@ -16,6 +16,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, 
 from contextlib import aclosing
 
 from pydantic_ai import Agent, AgentRunResult, UsageLimits
+from pydantic_ai.capabilities import ProcessHistory
 from pydantic_ai.messages import (
     AgentStreamEvent,
     FunctionToolCallEvent,
@@ -35,6 +36,7 @@ from pydantic_ai.messages import (
 )
 
 from robinauts.agent_engines.contract.domain import (
+    DEFAULT_CONTEXT_WINDOW,
     AgentDefinition,
     CheckpointNotFoundError,
     Done,
@@ -47,7 +49,12 @@ from robinauts.agent_engines.contract.domain import (
     ToolResult,
 )
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineSettings
-from robinauts.agent_engines.pydantic_ai_engine.clients import chat_model, force_tracing_off
+from robinauts.agent_engines.pydantic_ai_engine.clients import (
+    chat_model,
+    force_tracing_off,
+    release,
+)
+from robinauts.agent_engines.pydantic_ai_engine.context import within
 from robinauts.agent_engines.pydantic_ai_engine.memory import Memory
 from robinauts.agent_engines.pydantic_ai_engine.tools import toolsets_for
 
@@ -93,16 +100,6 @@ class PydanticAIEngine(AgentEngine):
             if history is None:
                 raise CheckpointNotFoundError(checkpoint_id)
 
-        client, model_settings = chat_model(model, self._settings)
-        runner = Agent(
-            client,
-            instructions=agent.system_prompt,
-            model_settings=model_settings,
-            toolsets=toolsets_for(agent, self._settings),
-        )
-        # The deadline bounds the run, not the caller's handling of what is yielded.
-        deadline = asyncio.get_running_loop().time() + timeout_seconds
-        calls = math.ceil(timeout_seconds / FASTEST_MODEL_CALL)
         # One checkpoint per turn: saved after every tool round, and last with the answer.
         checkpoint = str(uuid.uuid4())
         asked: str | None = prompt
@@ -118,18 +115,35 @@ class PydanticAIEngine(AgentEngine):
         async def save(messages: list[ModelMessage]) -> None:
             await self._memory.save(session_id, checkpoint, messages)
 
-        async with aclosing(run_of(runner, asked, history, calls, save)) as items:
-            while True:
-                async with asyncio.timeout_at(deadline):
-                    item = await anext(items, None)
-                if item is None:
-                    break
-                if isinstance(item, AgentRunResult):
-                    await save(item.all_messages())
-                    yield Done(text=item.output, checkpoint_id=checkpoint)
-                else:
-                    for event in events_of(item):
-                        yield event
+        client, model_settings = chat_model(model, self._settings)
+        try:
+            configured = self._settings.models.models[model].context_window
+            window = configured or client.context_window or DEFAULT_CONTEXT_WINDOW
+            runner = Agent(
+                client,
+                instructions=agent.system_prompt,
+                model_settings=model_settings,
+                toolsets=toolsets_for(agent, self._settings),
+                capabilities=[ProcessHistory(within(window))],
+            )
+            # The deadline bounds the run, not the caller's handling of what is yielded.
+            deadline = asyncio.get_running_loop().time() + timeout_seconds
+            calls = math.ceil(timeout_seconds / FASTEST_MODEL_CALL)
+            async with aclosing(run_of(runner, asked, history, calls, save)) as items:
+                while True:
+                    async with asyncio.timeout_at(deadline):
+                        item = await anext(items, None)
+                    if item is None:
+                        break
+                    if isinstance(item, AgentRunResult):
+                        await save(item.all_messages())
+                        yield Done(text=item.output, checkpoint_id=checkpoint)
+                    else:
+                        for event in events_of(item):
+                            yield event
+        finally:
+            # The vendor's client is the turn's: its connections go with it.
+            await release(client)
 
     async def _partial_turn(
         self, session_id: uuid.UUID, history: list[ModelMessage] | None

@@ -83,7 +83,13 @@ def test_an_anthropic_model_is_built_from_the_settings(
     assert client.api_key == "key-of-p"
     assert str(client.base_url).rstrip("/") == endpoint
     assert (client.max_retries, client.timeout) == (MODEL_RETRIES, 7.0)
-    assert model_settings == {"timeout": 7.0, "max_tokens": 321}
+    assert model_settings == {
+        "timeout": 7.0,
+        "max_tokens": 321,
+        "anthropic_cache_instructions": True,
+        "anthropic_cache_tool_definitions": True,
+        "anthropic_cache_messages": True,
+    }
 
 
 @pytest.mark.parametrize(
