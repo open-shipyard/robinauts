@@ -28,8 +28,7 @@ browser's worth of behaviour:
   for the other's; a stream dropped and re-attached with ``Last-Event-ID``;
 - a grep of the log for every secret this process was given.
 
-What it cannot rehearse it says where it is skipped, and
-``docs/working-notes/deployment-rehearsal.md`` gathers those in one place.
+What it cannot rehearse, it says where it skips.
 """
 
 from __future__ import annotations
@@ -114,9 +113,8 @@ def note(what: str) -> None:
 ANSWERS: list[str] = []
 """Every answer this driver read, headers and body, for the grep at the end.
 
-"No response" is half of what goal 5 asks (``docs/working-notes/poc-scope.md``)
-and a log is the other half, so what crossed the wire is kept as it arrived
-rather than judged one route at a time.
+"No response" is half of what goal 5 asks, and a log is the other half, so what
+crossed the wire is kept as it arrived rather than judged one route at a time.
 """
 
 

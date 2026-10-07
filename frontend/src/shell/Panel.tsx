@@ -9,9 +9,9 @@
  * **The panel is ours**, not the chat library's (ADR 0001). Nothing here
  * knows about assistant-ui, and nothing here ever will.
  *
- * There is **no projects section**: projects are out of the POC
- * (`docs/working-notes/poc-scope.md`, "Out"). The spec's panel has one, and
- * it goes here, between the history and the profile block, when they exist.
+ * There is **no projects section**: projects are out of the POC. The spec's
+ * panel has one, and it goes here, between the history and the profile
+ * block, when they exist.
  *
  * The shape is neorc's, written again for this project; recorded in
  * `docs/legal/ip-clearance.md`.

@@ -7,9 +7,8 @@ Each step says how it is done on two stores:
 
 - **PostgreSQL** is the deployment of `docs/deployment.md`: uvicorn behind a reverse
   proxy, asyncpg, `LISTEN` and `NOTIFY`. This repository ships it (block 6, planned).
-- **AWS serverless** is the layout of
-  `docs/working-notes/oct-refactor/aws-serverless.md`: CloudFront, a web Lambda, a
-  worker Lambda, and DynamoDB. This repository does not ship it. It is an adapter
+- **AWS serverless** is a layout of CloudFront, a web Lambda, a worker Lambda, and
+  DynamoDB. This repository does not ship it. It is an adapter
   outside the repository, over the same ports, and it is described here to show that
   the ports allow it.
 

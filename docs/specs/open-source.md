@@ -36,8 +36,8 @@ The list of things to do is [oss-checklist.md](../oss-checklist.md).
 - Code that enters the tree other than through an ordinary signed-off pull
   request is recorded in `docs/legal/ip-clearance.md`: where it came from,
   at which commit, under what licence, where it landed, what was changed.
-  Known cases: the sign-in design from
-  neorc, the vendored assistant-ui components.
+  Known cases: the sign-in design and code, the frontend tooling and the
+  design tokens from neorc, and the vendored assistant-ui components.
 - Third-party assets and vendored code are listed in
   `docs/legal/third-party.md`. An upstream header is never stripped.
 - No squash-imports; `main` is never force-pushed.
@@ -47,7 +47,7 @@ The list of things to do is [oss-checklist.md](../oss-checklist.md).
 The ASF category model — the strictest in use. Written for contributors
 in `DEPENDENCIES.md`.
 
-- **Allowed:** Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, 0BSD, ISC,
+- **Allowed:** Apache-2.0, MIT, MIT-0, BSD-2-Clause, BSD-3-Clause, 0BSD, ISC,
   Zlib, PostgreSQL, PSF-2.0, CNRI-Python, CC0-1.0, Unlicense.
 - **Restricted:** MPL-2.0 (also EPL-2.0, CDDL), only as an unmodified,
   unbundled dependency, each one listed by name with its reason.
@@ -83,9 +83,10 @@ On GitHub Actions, all blocking, all present from day zero:
 - JavaScript: the build-time licence allowlist; the committed list of
   bundled packages compared with the build; `npm audit`;
   `npm audit signatures`.
-- `reuse lint`; a DCO check; secret scanning; the architecture contracts
-  ([layout.md](../layout.md)); the lint rule that confines assistant-ui.
-- Dependabot for pip, npm and GitHub Actions, with a 10-day cooldown.
+- `reuse lint`; a DCO check; the architecture contracts
+  ([architecture/rules.md](../architecture/rules.md)); the lint rule that
+  confines assistant-ui. Secret scanning is planned.
+- Dependabot for uv, npm and GitHub Actions, with a 10-day cooldown.
   Actions are pinned to commit SHAs.
 
 ## Releases
@@ -98,15 +99,17 @@ On GitHub Actions, all blocking, all present from day zero:
 
 ## Details likely to change
 
-- Tools: `pip-audit`; `pip-licenses` or an equivalent for the Python gate;
+- Tools: `pip-audit`; the project's own `scripts/licence_gate.py` for the
+  Python gate;
   `rollup-plugin-license` for the bundle; `gitleaks`; `syft` for the SBOM.
 - Known findings:
   - `psycopg` and `psycopg-pool` are LGPL-3.0-only: excluded; `asyncpg` is
     used. Consequently `langgraph-checkpoint-postgres` cannot be adopted
     as it is
     ([ADR 0002](../adr/0002-conversation-persistence.md)).
-  - `certifi` is MPL-2.0 and arrives with the HTTP client: the known
-    restricted case, unmodified and unbundled.
+  - `certifi` is MPL-2.0 and arrives with the HTTP client: a restricted
+    case, unmodified and unbundled, like `pathspec`, `orjson` and npm's
+    `lightningcss`.
   - `assistant-cloud` arrives with `@assistant-ui/react`: its licence
     passes, and it is never configured.
 - The two agent frameworks and their provider clients are the largest

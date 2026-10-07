@@ -11,14 +11,14 @@ development mode, the hash routing, the history in the panel with renaming
 and deleting, the agent and model pickers, and **the chat** -- the message
 box, the answer arriving a word at a time, re-attaching to a run that is
 already going, stopping one, editing a question, asking for an answer again,
-and the branch picker over the tree that makes.
+and retrying or resuming an answer that failed.
 
 The chat is behind `src/chat/index.ts` and nothing outside
 `src/chat/assistant-ui/` knows what draws it
 ([../docs/adr/0001-chat-ui-assistant-ui-with-tailwind.md](../docs/adr/0001-chat-ui-assistant-ui-with-tailwind.md)).
 Behind that seam: the vendored assistant-ui components, a runtime that hands
 them our own state, and **our own AG-UI client** --
-`src/chat/assistant-ui/agui/`, about two hundred lines over `fetch` and a
+`src/chat/assistant-ui/agui/`, about eight hundred lines over `fetch` and a
 `ReadableStream`, because assistant-ui's bridge to AG-UI is still pinned to a
 pre-1.0 protocol client ([../docs/specs/wire.md](../docs/specs/wire.md),
 "Details likely to change").
@@ -58,12 +58,13 @@ to register anything with, one fixed local user, loopback only, and the
 interface shows its permanent banner. From `../backend/`:
 
     export ROBINAUTS_DATABASE_URL=postgresql://127.0.0.1/robinauts
+    export ROBINAUTS_CONFIG=robinauts.toml   # every start reads one
     uv run robinauts db init          # once, on an empty database
     uv run robinauts start --dev-no-sign-in
 
 `--dev-no-sign-in` serves the loopback interface and refuses any other
-`--host`. With `ROBINAUTS_CONFIG` naming a file, only its model tables are
-read, and the agents and models it defines are the ones the pickers offer.
+`--host`. Only the model tables of `ROBINAUTS_CONFIG` are read, and the
+agents and models it defines are the ones the pickers offer.
 
 Signing in for real needs a `public_url`, a provider registration and the
 redirect URI — that is a deployment, not a laptop. To see the sign-in page
@@ -88,7 +89,7 @@ cancelling and changing a model really change what is served, for as long as
 the process runs. It is a development tool: it is in no check, no bundle and
 no wheel.
 
-Three more scenes **really stream**, over server-sent events, with a position
+Four more scenes **really stream**, over server-sent events, with a position
 on the last wire event derived from each of the run's own and the two headers
 a client re-attaches by ([../docs/specs/wire.md](../docs/specs/wire.md)):
 
@@ -162,7 +163,7 @@ Two of these are generated and thrown away; one is generated and committed.
   reason, so that a re-sync stays a small merge, and
   `src/test/vendor.test.ts` fails when the directory and that list disagree.
   Our own code goes outside it, and what imports it is
-  `src/chat/assistant-ui/Chat.tsx` and nothing else.
+  `src/chat/assistant-ui/`: `Chat.tsx`, `Resume.tsx` and `ToolCall.tsx`.
 - Styling: `src/tokens.css` holds the design tokens as CSS custom properties
   and is the source of truth for every colour and radius; `src/styles.css`
   imports Tailwind and maps its theme onto them, so a component is written in

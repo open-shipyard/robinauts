@@ -3,8 +3,7 @@
 What the controller stores, and how a message and a turn's event are written as
 data. The model is the same in every store. `controller/adapters/postgres/schema.sql`
 is its PostgreSQL rendering, and the in-memory store holds the same model. Another
-store, outside this repository, holds it by the rules of
-`docs/working-notes/oct-refactor/aws-serverless.md`.
+store, outside this repository, holds it on AWS serverless.
 
 Engines keep their memory apart, in storage of their own, and nothing here references
 it (`docs/specs/agent-engines.md`). The controller keeps only the checkpoint id an
@@ -289,5 +288,4 @@ it. That is the store's own business, invisible at the port.
 ## What this asks of the code
 
 Block 5 brought the contract, the store port, the memory store, the runner, web and the
-frontend in line with this model (`docs/working-notes/oct-refactor/data-model-progress.md`
-says what was verified). PostgreSQL is block 6 (`postgres-plan.md`).
+frontend in line with this model. PostgreSQL is block 6.

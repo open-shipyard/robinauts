@@ -16,8 +16,8 @@ They cover less frequent cases that deserve special attention and do not fit mas
 
 ## API tests
 
-They always use a real Postgres DB and the same fake HTTP server as of e2e.
-All API tests share one server and one database per run. Each test therefore uses only the conversations it creates.
+They use a real Postgres DB and the same fake HTTP server as of e2e. The start-up refusal tests need neither.
+Most API tests share one server and one database per run. A test that needs its own configuration starts its own. A test must use only data it creates.
 
 The only difference is that they skip the browser. They exercise API behavior that the UI cannot trigger or cannot show.
 
@@ -54,14 +54,12 @@ A behavior still gets its test in one of the other categories. Its fast test is 
 
 Fast tests aim for close to 80% coverage and the main assertions. Their size in lines of code stays contained.
 
+## Tooling
+
+They check the repository itself: the architecture contracts, the licence gate and the check scripts.
+
 ## Order of execution
 
-Builds run the categories from the cheapest to the most expensive. The fastest tests then fail first:
-
-1. Fast
-2. Unit tests
-3. Adapters free
-4. API tests
-5. E2E
+Builds run every category but E2E and adapters metered in one pytest run. E2E runs last, in a job of its own, once the backend tests and the frontend checks pass.
 
 Adapters metered never run in a build.

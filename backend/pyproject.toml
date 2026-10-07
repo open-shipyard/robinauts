@@ -333,6 +333,7 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.web"]
 forbidden_modules = [
+    "robinauts.controller.core",
     "robinauts.controller.ports",
     "robinauts.controller.adapters",
     "robinauts.controller.application",

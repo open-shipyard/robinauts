@@ -43,7 +43,7 @@ with no licence to renegotiate.
 - Assistants defined by the company: a name, instructions, a default
   model, and the tools it may use.
 - Sign-in with the company's Google or Okta account; an allow list decides
-  who gets in.
+  who gets in. API tokens for scripts and other tools.
 - Conversations are private to the person who started them.
 - A model picker: people choose from the models the company offers, and
   can change it at any point in a conversation.
@@ -51,8 +51,9 @@ with no licence to renegotiate.
 - Tools over MCP: assistants can call remote tool servers such as GitHub,
   Atlassian or Microsoft Learn. Each call is shown in the chat.
 - UI for managing conversation history. Message editing and replaying.
-- Two AI agent frameworks built in, LangGraph and Pydantic AI,
-  interchangeable by configuration without touching stored data.
+- Two AI agent frameworks built in, LangGraph and Pydantic AI, chosen per
+  assistant by configuration. A conversation stays with the framework it
+  started on.
 
 
 ![Robinauts chat, with the model picker and the history panel](docs/images/robinauts-chat.png)
@@ -131,7 +132,7 @@ OpenRouter key ([demo/README.md](demo/README.md)):
   export.
 - Retention periods, purge, and an audit log for the company's security
   tools.
-- API tokens, and more channels: Slack and mobile.
+- More channels: Slack and mobile.
 
 ## Licence
 

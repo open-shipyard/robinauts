@@ -59,6 +59,10 @@ With providers configured and no allow entry, start-up fails.
 
 ## Roles
 
+**Deferred.** Roles are not in this release. Everyone who may sign in is a
+user, and a configuration with an `admin` table is refused at start-up. When
+roles come, they work as follows.
+
 - Two roles: **user** and **admin**.
 - Admins are named in the configuration, with the same matchers as the
   allow list.
@@ -74,7 +78,8 @@ With providers configured and no allow entry, start-up fails.
 
 - A session is a row in the database. The cookie holds a random 256-bit
   secret; the database holds its SHA-256.
-- Cookie: `__Host-` prefix, `HttpOnly`, `SameSite=Lax`, `Secure`.
+- Cookie: `__Host-` prefix, `HttpOnly`, `SameSite=Lax`, `Secure`. On an
+  `http` loopback `public_url`, the prefix and `Secure` are left out.
 - Fixed lifetime, `session_hours`, 12 by default. No renewal. The
   provider's tokens are discarded after sign-in.
 - Sign-out deletes the row and clears the cookie.
@@ -99,20 +104,20 @@ With providers configured and no allow entry, start-up fails.
   a provider id — an id is a name, and `!local` is not one — so no
   configuration can name it, no identity can carry it, and nothing but this
   mode can reach that row. A session that names it is refused by
-  `resolve_session`, so a database kept from a run of the mode hands nobody
+  `SignIn.resolve`, so a database kept from a run of the mode hands nobody
   the account.
 - It is never the default. It is asked for explicitly when starting the
   server, and it cannot be combined with a sign-in configuration: asking
   for both is a start-up refusal. **No environment variable switches it
   on** — only the argument the starting command passes — so nothing a
   process inherits can turn sign-in off in a deployment.
-- It may still be given the **configuration file** (`ROBINAUTS_CONFIG`),
-  and then **only its model tables are read**: the chat is developed in
+- It reads the **configuration file** (`ROBINAUTS_CONFIG`), as every start
+  does, and **only its model tables are read**: the chat is developed in
   this mode ([frontend.md](frontend.md)) and a chat needs an agent. A file that also holds sign-in tables — `public_url`,
   `session_hours`, `providers`, `allow`, `admin` — is what "cannot be
   combined" refuses,
-  because the mode exists where there is nothing to sign in to. With no
-  file, the mode starts with no agents and the agent list is empty.
+  because the mode exists where there is nothing to sign in to. A file with
+  no agents gives an empty agent list.
 - It serves the loopback interface only, and refuses to start on any other
   address. Two rules hold that, and they are deliberately of different
   strictness. **What may be bound**: a literal loopback address, or exactly
@@ -191,10 +196,6 @@ hosted_domain = "example.com"
 [[allow]]
 provider = "okta"
 group = "robinauts-users"
-
-[[admin]]
-provider = "okta"
-group = "robinauts-admins"
 ```
 
 Routes:
