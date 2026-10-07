@@ -153,3 +153,34 @@ def test_a_worker_runs_at_most_max_running_tasks_per_worker(
     else:
         with pytest.raises(ConfigError, match=f"work: max_running_tasks_per_worker {problem}"):
             parse_config(raw)
+
+
+@pytest.mark.parametrize(
+    ("given", "parsed"),
+    [
+        (None, None),
+        (30, 30.0),
+        (7200, 7200.0),
+        (0.5, 0.5),
+        (0, "not a positive number of seconds: 0"),
+        (-10, "not a positive number of seconds: -10"),
+        (True, "not a positive number of seconds: True"),
+        ("60", "not a positive number of seconds: '60'"),
+    ],
+)
+def test_an_agent_may_set_its_turn_timeout(given: object, parsed: float | str | None) -> None:
+    agent = {**AGENT, "engine": "echo"}
+    if given is not None:
+        agent["turn_timeout_seconds"] = given
+    raw = {
+        "model_providers": {"p": {"kind": "anthropic", "api_key_env": "K"}},
+        "models": {"fast": {"provider": "p", "name": "fast-1"}},
+        "agents": {"a": agent},
+    }
+    if isinstance(parsed, str):
+        with pytest.raises(
+            ConfigError, match=re.escape(f"agents.a: turn_timeout_seconds is {parsed}")
+        ):
+            parse_config(raw)
+    else:
+        assert parse_config(raw).agents["a"].turn_timeout_seconds == parsed

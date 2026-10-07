@@ -40,6 +40,12 @@ def _positive(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool) and value > 0
 
 
+def _seconds(value: Any) -> float:
+    if not _positive(value):
+        raise ValueError(f"turn_timeout_seconds is not a positive number of seconds: {value!r}")
+    return float(value)
+
+
 def parse_config(raw: Mapping[str, Any]) -> Config:
     problems: list[str] = []
 
@@ -60,7 +66,7 @@ def parse_config(raw: Mapping[str, Any]) -> Config:
     providers = build("model_providers", ProviderConfig, kind=ProviderKind)
     models = build("models", ModelConfig)
     tool_servers = build("tool_servers", ToolServerConfig, auth=ToolServerAuth, exclude=_names)
-    agents = build("agents", AgentConfig, tools=tuple)
+    agents = build("agents", AgentConfig, tools=tuple, turn_timeout_seconds=_seconds)
 
     work = WorkConfig()
     given = dict(raw.get("work", {}))

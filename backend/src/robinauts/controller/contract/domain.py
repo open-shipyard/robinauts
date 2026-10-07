@@ -126,6 +126,8 @@ class AgentConfig:
     model: str
     engine: str
     tools: tuple[str, ...] = ()
+    # How long one of its turns may run; left out, ``[work]``'s ``max_turn_seconds``.
+    turn_timeout_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
