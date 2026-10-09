@@ -8,6 +8,8 @@ token (``Authorization: Bearer``) or a session cookie stands for, signed in thro
 provider by the ``/auth/`` routes, or the one user of the local development mode
 (``docs/specs/sign-in.md``); with nobody, it is 401. A write that carries the session cookie
 must carry ``Origin`` equal to ``public_url``, else 403; a write with a bearer alone need not.
+In the local development mode every request must name ``localhost`` or an IP address as its
+``Host``, and a write that carries ``Origin`` must name that ``Host``, else 403.
 A controller operation that is not implemented answers 501.
 The shapes are the ones the frontend reads (``docs/specs/wire.md``); a turn's stream is
 AG-UI over SSE, its run id is the turn's id, and its thread id the session's.
@@ -15,6 +17,7 @@ AG-UI over SSE, its run id is the turn's id, and its thread id the session's.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import uuid
 from collections.abc import AsyncIterator
@@ -22,6 +25,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -86,6 +90,8 @@ SIGN_IN_PAGE = "/ui/#/sign-in?error="
 TOKEN_LIFE = timedelta(days=90)
 NOT_SIGNED_IN = "nobody is signed in: sign in at /ui/"
 NOT_SAME_ORIGIN = "a write that carries the session cookie must carry Origin equal to public_url"
+NOT_LOCAL_HOST = "the local development mode answers a Host of localhost or an IP address only"
+NOT_LOCAL_ORIGIN = "a write in the local development mode must carry Origin equal to its Host"
 UNKNOWN_TOKEN = "the API token is unknown, revoked or expired"
 NO_SUCH_TOKEN = "you have no API token of that id"
 
@@ -94,6 +100,32 @@ LOCAL_IDENTITY = Identity(provider=LOCAL_PROVIDER, subject="developer", name="Lo
 (``sign_in.PROVIDER_ID_PATTERN``), so that no identity a provider vouches for can carry it."""
 
 log = logging.getLogger(__name__)
+
+
+def local_host(values: list[str]) -> str | None:
+    """The one ``Host`` header, when it names ``localhost`` or an IP address, else ``None``.
+
+    DNS rebinding needs a name: a page on the internet points its own name at this machine,
+    and the browser sends that name as ``Host``. An IP address cannot be rebound, so the
+    phone on the LAN that reaches the frontend's dev server at ``192.168.1.10:5173`` passes.
+    """
+    if len(values) != 1:
+        return None
+    host = values[0].lower()
+    if any(c in host for c in "/?#@\\"):
+        return None
+    try:
+        parts = urlsplit(f"//{host}")
+        _ = parts.port  # a port that is not a number raises
+    except ValueError:
+        return None
+    if parts.hostname == "localhost":
+        return host
+    try:
+        ipaddress.ip_address(parts.hostname or "")
+    except ValueError:
+        return None
+    return host
 
 
 class Refused(Exception):
@@ -399,9 +431,16 @@ def create_app(
     # --- who is asking -----------------------------------------------------------
 
     def same_origin(request: Request) -> None:
-        if (
-            sign_in is not None
-            and request.method not in SAFE_METHODS
+        if sign_in is None:
+            host = local_host(request.headers.getlist("host"))
+            if host is None:
+                raise Refused(403, "Forbidden", NOT_LOCAL_HOST)
+            origin = request.headers.get("origin")
+            same = (None, f"http://{host}", f"https://{host}")
+            if request.method not in SAFE_METHODS and origin not in same:
+                raise Refused(403, "Forbidden", NOT_LOCAL_ORIGIN)
+        elif (
+            request.method not in SAFE_METHODS
             and cookies.session in request.cookies
             and request.headers.get("origin") != sign_in.public_url
         ):
