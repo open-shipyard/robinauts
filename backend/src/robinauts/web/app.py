@@ -58,6 +58,7 @@ from robinauts.controller.contract.domain import (
 )
 from robinauts.web import agui
 from robinauts.web.cookies import Cookies
+from robinauts.web.headers import SecurityHeaders
 from robinauts.web.lifecycle import Lifecycle
 from robinauts.web.logs import loggable
 from robinauts.web.oidc import Exchange
@@ -481,6 +482,8 @@ def create_app(
         responses={"default": {"model": ErrorResponse, "description": "A refusal"}},
         dependencies=[Depends(same_origin)],
     )
+
+    app.add_middleware(SecurityHeaders)
 
     @app.exception_handler(Refused)
     async def not_let_in(request: Request, exc: Refused) -> JSONResponse:

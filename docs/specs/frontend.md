@@ -88,10 +88,9 @@ neorc's rules (`neorc/contributing/js-dependencies.md`):
   script and stylesheet are named relatively, so an injected `<base>` would
   re-point both, and no form here posts anywhere. Plus `nosniff`, and
   `X-Frame-Options: DENY` for a browser too old to read `frame-ancestors`.
-  On the interface's own answers only: an API response is JSON read by a
-  script and has no document to govern. A refusal at an interface path — a
-  file that is not there, a method these paths have not got — carries them
-  too, being an answer where a document could have been.
+  Every answer carries them, refusals and API answers included, with
+  `Referrer-Policy: same-origin`. The policy does nothing on JSON, and one
+  list is simpler than two.
 - The interface's paths are read: `GET` and `HEAD`, and a write to one is a
   `405` with `Allow: GET, HEAD`. Nothing under `/ui/` whose name begins with
   a dot is served or packaged: a directory a build writes into is one an
