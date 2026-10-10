@@ -8,6 +8,8 @@ token (``Authorization: Bearer``) or a session cookie stands for, signed in thro
 provider by the ``/auth/`` routes, or the one user of the local development mode
 (``docs/specs/sign-in.md``); with nobody, it is 401. A write that carries the session cookie
 must carry ``Origin`` equal to ``public_url``, else 403; a write with a bearer alone need not.
+In the local development mode every request must name ``localhost`` or an IP address as its
+``Host``, and a write that carries ``Origin`` must name that ``Host``, else 403.
 A controller operation that is not implemented answers 501.
 The shapes are the ones the frontend reads (``docs/specs/wire.md``); a turn's stream is
 AG-UI over SSE, its run id is the turn's id, and its thread id the session's.
@@ -15,18 +17,21 @@ AG-UI over SSE, its run id is the turn's id, and its thread id the session's.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, Header, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from robinauts.controller.composition import Composed, SecretLookup
 from robinauts.controller.contract.domain import (
@@ -54,6 +59,7 @@ from robinauts.controller.contract.domain import (
 )
 from robinauts.web import agui
 from robinauts.web.cookies import Cookies
+from robinauts.web.headers import SecurityHeaders
 from robinauts.web.lifecycle import Lifecycle
 from robinauts.web.logs import loggable
 from robinauts.web.oidc import Exchange
@@ -86,6 +92,8 @@ SIGN_IN_PAGE = "/ui/#/sign-in?error="
 TOKEN_LIFE = timedelta(days=90)
 NOT_SIGNED_IN = "nobody is signed in: sign in at /ui/"
 NOT_SAME_ORIGIN = "a write that carries the session cookie must carry Origin equal to public_url"
+NOT_LOCAL_HOST = "the local development mode answers a Host of localhost or an IP address only"
+NOT_LOCAL_ORIGIN = "a write in the local development mode must carry Origin equal to its Host"
 UNKNOWN_TOKEN = "the API token is unknown, revoked or expired"
 NO_SUCH_TOKEN = "you have no API token of that id"
 
@@ -96,6 +104,32 @@ LOCAL_IDENTITY = Identity(provider=LOCAL_PROVIDER, subject="developer", name="Lo
 log = logging.getLogger(__name__)
 
 
+def local_host(values: list[str]) -> str | None:
+    """The one ``Host`` header, when it names ``localhost`` or an IP address, else ``None``.
+
+    DNS rebinding needs a name: a page on the internet points its own name at this machine,
+    and the browser sends that name as ``Host``. An IP address cannot be rebound, so the
+    phone on the LAN that reaches the frontend's dev server at ``192.168.1.10:5173`` passes.
+    """
+    if len(values) != 1:
+        return None
+    host = values[0].lower()
+    if any(c in host for c in "/?#@\\"):
+        return None
+    try:
+        parts = urlsplit(f"//{host}")
+        _ = parts.port  # a port that is not a number raises
+    except ValueError:
+        return None
+    if parts.hostname == "localhost":
+        return host
+    try:
+        ipaddress.ip_address(parts.hostname or "")
+    except ValueError:
+        return None
+    return host
+
+
 class Refused(Exception):
     """A request answered with the wire's error body before it reaches the controller."""
 
@@ -104,6 +138,30 @@ class Refused(Exception):
         self.status = status
         self.error = error
         self.detail = detail
+
+    def answer(self) -> JSONResponse:
+        return JSONResponse({"error": self.error, "detail": self.detail}, status_code=self.status)
+
+
+class Guard:
+    """Run ``check`` on every HTTP request, and answer its ``Refused`` here.
+
+    Plain ASGI, so the check reaches the mounted interface too: FastAPI's app dependencies
+    reach routes only.
+    """
+
+    def __init__(self, app: ASGIApp, check: Callable[[Request], None]) -> None:
+        self.app = app
+        self.check = check
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            try:
+                self.check(Request(scope))
+            except Refused as refused:
+                await refused.answer()(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 # --- what the frontend reads ---------------------------------------------------
@@ -399,9 +457,16 @@ def create_app(
     # --- who is asking -----------------------------------------------------------
 
     def same_origin(request: Request) -> None:
-        if (
-            sign_in is not None
-            and request.method not in SAFE_METHODS
+        if sign_in is None:
+            host = local_host(request.headers.getlist("host"))
+            if host is None:
+                raise Refused(403, "Forbidden", NOT_LOCAL_HOST)
+            origin = request.headers.get("origin")
+            same = (None, f"http://{host}", f"https://{host}")
+            if request.method not in SAFE_METHODS and origin not in same:
+                raise Refused(403, "Forbidden", NOT_LOCAL_ORIGIN)
+        elif (
+            request.method not in SAFE_METHODS
             and cookies.session in request.cookies
             and request.headers.get("origin") != sign_in.public_url
         ):
@@ -440,12 +505,14 @@ def create_app(
         docs_url=None,
         redoc_url=None,
         responses={"default": {"model": ErrorResponse, "description": "A refusal"}},
-        dependencies=[Depends(same_origin)],
     )
+
+    app.add_middleware(Guard, check=same_origin)
+    app.add_middleware(SecurityHeaders)
 
     @app.exception_handler(Refused)
     async def not_let_in(request: Request, exc: Refused) -> JSONResponse:
-        return JSONResponse({"error": exc.error, "detail": exc.detail}, status_code=exc.status)
+        return exc.answer()
 
     @app.exception_handler(NotImplementedError)
     async def not_implemented(request: Request, exc: NotImplementedError) -> JSONResponse:

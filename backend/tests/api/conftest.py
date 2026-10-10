@@ -7,7 +7,8 @@ One model server, one ``robinauts`` server and one schema for the whole run, so 
 to conversations it opened itself: the listing holds every other test's too. ``fake_model``
 is what the model server answers each test with, and a test module overrides it; ``local_gpt``
 is the model server, holding only that test's requests. The ``<engine>_tools`` agents call
-``shout`` on a real MCP server.
+``shout`` on a real MCP server. The interface is a one-line page, so ``/ui/`` is served
+whether or not this checkout has built the frontend.
 """
 
 from __future__ import annotations
@@ -43,11 +44,16 @@ def tools_url() -> Iterator[str]:
 def server(
     model_server: FakeLocalGPTServer, tools_url: str, tmp_path_factory: pytest.TempPathFactory
 ) -> Iterator[str]:
-    config = tmp_path_factory.mktemp("api") / "robinauts.toml"
+    here = tmp_path_factory.mktemp("api")
+    config = here / "robinauts.toml"
     config.write_text(stack.config_for(model_server.base_url, tools_url))
+    ui = here / "ui"
+    ui.mkdir()
+    (ui / "index.html").write_text("<!doctype html><title>Robinauts</title>")
+    env = {**stack.API_KEY, "ROBINAUTS_UI_DIR": str(ui)}
     with (
         stack.database(config) as url,
-        stack.server(config, url, env=stack.API_KEY) as running,
+        stack.server(config, url, env=env) as running,
     ):
         yield running
 

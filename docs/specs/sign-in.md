@@ -125,23 +125,20 @@ roles come, they work as follows.
   when it is built, before a socket exists. A name such as
   `dev.localhost` is resolved by whatever this machine resolves names with,
   and a bind address is not a thing to leave to a resolver. **What may be
-  requested**: every request must be addressed to this machine — one `Host`
-  header naming any loopback host (any spelling, any port, `*.localhost`
-  included: a name that arrived here arrived over loopback), and an address
-  the server answered on that is loopback. A unix socket counts as one; a
-  scope that does not say where it answered is refused. The request rule is
-  what defeats DNS rebinding, where a name somebody else controls is pointed
-  at `127.0.0.1` and every same-origin rule holds for the page that did it.
+  requested**: every request carries one `Host` header, and it names
+  `localhost` or an IP address, with any port. This defeats DNS rebinding.
+  A page rebinds a name it controls to `127.0.0.1`, and the browser sends
+  that name as `Host`. An IP address cannot be rebound. So a phone on the
+  LAN can reach the frontend's dev server at `192.168.1.10:5173`, which
+  proxies to this server.
 - The server logs a warning at start-up, and the interface shows a
   permanent banner saying that sign-in is off. `GET /auth/session` answers
   `sign_in: false` with `local_development: true`, no providers, and the
   local user.
-- The checks on writes (JSON, same origin) stay on. There is no session
-  cookie here, so **every** write is judged as a credentialed one: `Origin`
-  equal to the loopback origin the request was addressed to, or
-  `Sec-Fetch-Site: same-origin` with no `Origin`. Every request in this
-  mode is authenticated, so there is no unauthenticated write to relax the
-  rule for.
+- There is no session cookie here, and every request is the local user.
+  A write that carries `Origin` must name the `Host` it was sent to, over
+  `http` or `https`. A write with no `Origin` passes: browsers send one on
+  every write, and scripts such as `curl` send none.
 - Tests still exercise the real sign-in flow, against a stand-in identity
   provider; this mode is not a substitute for that.
 

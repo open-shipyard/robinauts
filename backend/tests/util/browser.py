@@ -19,6 +19,8 @@ from util.stack import ROOT
 
 # What the interface says of an answer that failed (frontend/src/chat/assistant-ui/state.ts).
 DID_NOT_FINISH = "This answer did not finish: something went wrong while it was being produced."
+# What Chromium's console says of what the Content-Security-Policy blocked.
+CSP = "Content Security Policy"
 
 
 @contextmanager
@@ -28,7 +30,12 @@ def browser_page() -> Iterator[Page]:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         try:
-            yield browser.new_page()
+            page = browser.new_page()
+            # The Content-Security-Policy may block what no step looks at: every test checks it.
+            violations: list[str] = []
+            page.on("console", lambda m: violations.append(m.text) if CSP in m.text else None)
+            yield page
+            assert not violations, violations
         finally:
             browser.close()
 

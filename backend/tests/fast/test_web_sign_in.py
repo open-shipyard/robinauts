@@ -154,6 +154,43 @@ async def test_a_person_signs_in_writes_from_public_url_only_and_signs_out(
 
 
 @asyncio_test
+async def test_the_local_mode_answers_an_ip_or_localhost_and_writes_from_that_host_only() -> None:
+    async with browser(None) as http:
+        assert (await http.get("/api/conversations")).status_code == 200
+
+        # A rebound name is refused, reads included.
+        for host in (
+            "evil.example",
+            "evil.example:8000",
+            "localhost.evil.example",
+            "",
+            "a@1.2.3.4",
+        ):
+            rebound = await http.get("/api/conversations", headers={"host": host})
+            assert rebound.status_code == 403, host
+            assert rebound.json()["error"] == "Forbidden"
+        rebound = await http.post(
+            "/api/turns",
+            json=TURN,
+            headers={"host": "evil.example", "origin": "http://evil.example"},
+        )
+        assert rebound.status_code == 403
+
+        # A page elsewhere cannot write; this host, a phone through the LAN, or no Origin can.
+        elsewhere = await http.post("/api/turns", json=TURN, headers={"origin": "http://evil"})
+        assert elsewhere.status_code == 403
+        assert (await http.post("/api/turns", json=TURN, headers={"origin": PUBLIC_URL})).is_success
+        phone = {"host": "192.168.1.10:5173", "origin": "http://192.168.1.10:5173"}
+        assert (await http.post("/api/turns", json=TURN, headers=phone)).is_success
+        ipv6 = {"host": "[::1]:5173", "origin": "http://[::1]:5173"}
+        assert (await http.post("/api/turns", json=TURN, headers=ipv6)).is_success
+        local = {"host": "localhost:5173", "origin": "http://localhost:5173"}
+        assert (await http.post("/api/turns", json=TURN, headers=local)).is_success
+        assert (await http.post("/api/turns", json=TURN)).is_success
+        assert len((await http.get("/api/conversations")).json()["items"]) == 5
+
+
+@asyncio_test
 async def test_a_person_not_on_the_allow_list_lands_on_the_sign_in_page(
     stand_in: StandInProvider,
 ) -> None:

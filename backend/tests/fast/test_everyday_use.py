@@ -126,7 +126,9 @@ async def test_everyday_use(agent: str) -> None:
     app = create_app(composed, sign_in=None, secret_for=secret_for)
     async with (
         app.router.lifespan_context(app),
-        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as http,
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+        ) as http,
     ):
         api = Api(http)
 

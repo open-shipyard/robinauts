@@ -26,7 +26,7 @@ async def client() -> AsyncIterator[httpx.AsyncClient]:
     app = create_app(composed, sign_in=None, secret_for={}.get)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1") as http:
             yield http
 
 
