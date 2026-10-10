@@ -30,6 +30,7 @@ async def test_every_answer_carries_the_security_headers(tmp_path: Path) -> None
                 "write to the interface": await http.post("/ui/"),
                 "api": await http.get("/api/conversations"),
                 "refused": await http.get("/api/conversations", headers={"host": "evil.example"}),
+                "refused page": await http.get("/ui/", headers={"host": "evil.example"}),
             }
     statuses = {name: answer.status_code for name, answer in answers.items()}
     assert statuses == {
@@ -38,6 +39,7 @@ async def test_every_answer_carries_the_security_headers(tmp_path: Path) -> None
         "write to the interface": 405,
         "api": 200,
         "refused": 403,
+        "refused page": 403,
     }
     for name, answer in answers.items():
         for header, value in SECURITY_HEADERS:

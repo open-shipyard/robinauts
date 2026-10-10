@@ -20,7 +20,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -31,6 +31,7 @@ from fastapi import Depends, FastAPI, Header, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from robinauts.controller.composition import Composed, SecretLookup
 from robinauts.controller.contract.domain import (
@@ -137,6 +138,30 @@ class Refused(Exception):
         self.status = status
         self.error = error
         self.detail = detail
+
+    def answer(self) -> JSONResponse:
+        return JSONResponse({"error": self.error, "detail": self.detail}, status_code=self.status)
+
+
+class Guard:
+    """Run ``check`` on every HTTP request, and answer its ``Refused`` here.
+
+    Plain ASGI, so the check reaches the mounted interface too: FastAPI's app dependencies
+    reach routes only.
+    """
+
+    def __init__(self, app: ASGIApp, check: Callable[[Request], None]) -> None:
+        self.app = app
+        self.check = check
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            try:
+                self.check(Request(scope))
+            except Refused as refused:
+                await refused.answer()(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
 
 
 # --- what the frontend reads ---------------------------------------------------
@@ -480,14 +505,14 @@ def create_app(
         docs_url=None,
         redoc_url=None,
         responses={"default": {"model": ErrorResponse, "description": "A refusal"}},
-        dependencies=[Depends(same_origin)],
     )
 
+    app.add_middleware(Guard, check=same_origin)
     app.add_middleware(SecurityHeaders)
 
     @app.exception_handler(Refused)
     async def not_let_in(request: Request, exc: Refused) -> JSONResponse:
-        return JSONResponse({"error": exc.error, "detail": exc.detail}, status_code=exc.status)
+        return exc.answer()
 
     @app.exception_handler(NotImplementedError)
     async def not_implemented(request: Request, exc: NotImplementedError) -> JSONResponse:
