@@ -144,7 +144,7 @@ jobs:
         with:
           persist-credentials: false
       # Both toolchains: the test builds the interface and serves it.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: frontend/.nvmrc
           cache: npm
@@ -210,7 +210,7 @@ jobs:
           persist-credentials: false
       # The Node version is frontend/.nvmrc, the same file nvm reads on a
       # laptop, so there is one place it is written down.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: frontend/.nvmrc
           cache: npm
@@ -229,7 +229,7 @@ jobs:
           persist-credentials: false
       # Both toolchains: the wheel carries the built frontend, so this job
       # builds the bundle and then packages it (docs/specs/frontend.md).
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: frontend/.nvmrc
           cache: npm
