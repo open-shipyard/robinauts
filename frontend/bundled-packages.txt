@@ -1,10 +1,10 @@
 # Packages in the built bundle, written by the build.
 # A change here is reviewed: see docs/contributing/js-dependencies.md.
-@assistant-ui/core 0.3.20 MIT
-@assistant-ui/react 0.15.21 MIT
-@assistant-ui/react-markdown 0.14.15 MIT
-@assistant-ui/store 0.3.14 MIT
-@assistant-ui/tap 0.9.18 MIT
+@assistant-ui/core 0.3.21 MIT
+@assistant-ui/react 0.15.22 MIT
+@assistant-ui/react-markdown 0.14.17 MIT
+@assistant-ui/store 0.3.15 MIT
+@assistant-ui/tap 0.9.19 MIT
 @babel/runtime 7.29.7 MIT
 @floating-ui/core 1.8.0 MIT
 @floating-ui/dom 1.8.0 MIT
@@ -40,7 +40,7 @@
 @radix-ui/react-visually-hidden 1.2.11 MIT
 @ungap/structured-clone 1.4.0 ISC
 aria-hidden 1.2.6 MIT
-assistant-stream 0.3.44 MIT
+assistant-stream 0.3.45 MIT
 bail 2.0.2 MIT
 ccount 2.0.1 MIT
 class-variance-authority 0.7.1 Apache-2.0
