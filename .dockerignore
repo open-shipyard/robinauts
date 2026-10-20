@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+
+# Applies to builds that use the repository root as context (the frontend image).
+# The backend image uses backend/ as its context and backend/.dockerignore.
+.git
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+.env

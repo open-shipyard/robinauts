@@ -7,6 +7,9 @@ htmlcov/
 .ruff_cache/
 .import_linter_cache/
 
+# Local secrets for docker compose (see .env.example). Never commit real keys.
+.env
+
 frontend/node_modules/
 frontend/dist/
 
