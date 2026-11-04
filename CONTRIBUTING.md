@@ -70,6 +70,9 @@ merge button rather than showing a red cross — is branch protection, which
 the project owner still has to switch on
 ([docs/oss-checklist.md](docs/oss-checklist.md)).
 
+CI has one exception to that rule. A pull request that changes only `clients/`
+skips `check-tests.sh` and `check-e2e.sh`. A push to `main` runs them all.
+
 `check-tests.sh`, `check-e2e.sh`, `check-licences.sh` and `check-reuse.sh`
 pass their arguments on to the tool they wrap, so
 `scripts/check-tests.sh -k licence` does what you would expect.

@@ -3,9 +3,9 @@
 #
 # Builds the Android client. A workflow of its own rather than a job in
 # ci.yml, because a `paths` filter applies to the whole workflow: this way the
-# backend and frontend jobs in ci.yml still run on every pull request, and this
-# one runs only when the client, or the API contract it is built against,
-# changes. The reuse and sign-off jobs in ci.yml cover the client's files too.
+# jobs in ci.yml decide for themselves when to run, and this one runs only when
+# the client, or the API contract it is built against, changes. The reuse and
+# sign-off jobs in ci.yml cover the client's files too.
 #
 # Like every check, the one job runs one script -- scripts/check-android.sh.
 # The steps before it only put a JDK and the Android SDK on the runner.

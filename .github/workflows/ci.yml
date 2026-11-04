@@ -31,6 +31,28 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
+  # Decides whether `test` and `ui` run. Both are required checks, and GitHub
+  # counts a skipped job as passed, so they skip only on an explicit answer: if
+  # this job fails, its output is empty and they run. A push to main has no
+  # answer either, so it always runs them.
+  scope:
+    name: what the pull request changes
+    runs-on: ubuntu-latest
+    outputs:
+      clients_only: ${{ steps.scope.outputs.clients_only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: scope
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: scripts/clients-only.sh "$BASE" "$HEAD" >>"$GITHUB_OUTPUT"
+
   lint:
     name: ruff and black
     runs-on: ubuntu-latest
@@ -51,6 +73,8 @@ jobs:
 
   test:
     name: tests and architecture contracts
+    needs: [scope]
+    if: ${{ !cancelled() && needs.scope.outputs.clients_only != 'true' }}
     runs-on: ubuntu-latest
     services:
       # The tests that need a database create and drop a schema of their own
@@ -120,7 +144,8 @@ jobs:
     name: the interface in a browser
     # After the fast checks: a browser run is the slowest test there is, and
     # it says nothing new while the unit tests or the frontend's own are red.
-    needs: [test, frontend]
+    needs: [scope, test, frontend]
+    if: ${{ !cancelled() && needs.scope.outputs.clients_only != 'true' && needs.test.result == 'success' && needs.frontend.result == 'success' }}
     runs-on: ubuntu-latest
     services:
       # The same database as the `test` job's, for the same reasons; the
