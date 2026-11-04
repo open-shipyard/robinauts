@@ -70,8 +70,11 @@ merge button rather than showing a red cross — is branch protection, which
 the project owner still has to switch on
 ([docs/oss-checklist.md](docs/oss-checklist.md)).
 
-CI has one exception to that rule. A pull request that changes only `clients/`
-skips `check-tests.sh` and `check-e2e.sh`. A push to `main` runs them all.
+CI has one exception to that rule. `check-tests.sh` and `check-e2e.sh` run when
+a pull request changes `backend/` or `frontend/`. `check-frontend.sh` runs when
+it changes `frontend/` or `backend/openapi.json`. `check-android.sh` runs when
+it changes `clients/android/` or `backend/openapi.json`. A file anywhere else
+runs all four, and so does a push to `main`.
 
 `check-tests.sh`, `check-e2e.sh`, `check-licences.sh` and `check-reuse.sh`
 pass their arguments on to the tool they wrap, so

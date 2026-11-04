@@ -31,15 +31,20 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
-  # Decides whether `test` and `ui` run. Both are required checks, and GitHub
-  # counts a skipped job as passed, so they skip only on an explicit answer: if
-  # this job fails, its output is empty and they run. A push to main has no
-  # answer either, so it always runs them.
+  # Decides whether `test`, `ui`, `frontend` and `android` run. GitHub counts a
+  # skipped job as passed, and all but `android` are required checks, so a job
+  # skips only when every area it depends on is explicitly `false`. If this job
+  # fails, its outputs are empty and the jobs run. A push to main has no outputs
+  # either, so it runs them all.
   scope:
     name: what the pull request changes
     runs-on: ubuntu-latest
     outputs:
-      clients_only: ${{ steps.scope.outputs.clients_only }}
+      backend: ${{ steps.scope.outputs.backend }}
+      frontend: ${{ steps.scope.outputs.frontend }}
+      contract: ${{ steps.scope.outputs.contract }}
+      android: ${{ steps.scope.outputs.android }}
+      repo: ${{ steps.scope.outputs.repo }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: github.event_name == 'pull_request'
@@ -51,7 +56,7 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-        run: scripts/clients-only.sh "$BASE" "$HEAD" >>"$GITHUB_OUTPUT"
+        run: scripts/changed-areas.sh "$BASE" "$HEAD" >>"$GITHUB_OUTPUT"
 
   lint:
     name: ruff and black
@@ -74,7 +79,7 @@ jobs:
   test:
     name: tests and architecture contracts
     needs: [scope]
-    if: ${{ !cancelled() && needs.scope.outputs.clients_only != 'true' }}
+    if: ${{ !cancelled() && (needs.scope.outputs.backend != 'false' || needs.scope.outputs.frontend != 'false' || needs.scope.outputs.contract != 'false' || needs.scope.outputs.repo != 'false') }}
     runs-on: ubuntu-latest
     services:
       # The tests that need a database create and drop a schema of their own
@@ -145,7 +150,7 @@ jobs:
     # After the fast checks: a browser run is the slowest test there is, and
     # it says nothing new while the unit tests or the frontend's own are red.
     needs: [scope, test, frontend]
-    if: ${{ !cancelled() && needs.scope.outputs.clients_only != 'true' && needs.test.result == 'success' && needs.frontend.result == 'success' }}
+    if: ${{ !cancelled() && (needs.scope.outputs.backend != 'false' || needs.scope.outputs.frontend != 'false' || needs.scope.outputs.contract != 'false' || needs.scope.outputs.repo != 'false') && needs.test.result == 'success' && (needs.frontend.result == 'success' || needs.frontend.result == 'skipped') }}
     runs-on: ubuntu-latest
     services:
       # The same database as the `test` job's, for the same reasons; the
@@ -192,6 +197,29 @@ jobs:
           ROBINAUTS_TEST_DATABASE_URL: postgresql://postgres:robinauts-test@127.0.0.1:5432/robinauts_test
         run: scripts/check-e2e.sh
 
+  android:
+    name: the client, assembled
+    needs: [scope]
+    if: ${{ !cancelled() && (needs.scope.outputs.android != 'false' || needs.scope.outputs.contract != 'false' || needs.scope.outputs.repo != 'false') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "17"
+      # ubuntu-latest ships the Android command-line tools and sets
+      # ANDROID_SDK_ROOT. Accept the licences and make sure the platform and
+      # build-tools this build compiles against (SDK 35) are installed.
+      - name: provision the Android SDK
+        run: |
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-35" "build-tools;35.0.0" > /dev/null
+      - run: scripts/check-android.sh
+
   licences:
     name: dependency licences
     runs-on: ubuntu-latest
@@ -228,6 +256,8 @@ jobs:
 
   frontend:
     name: lint, types, tests and the bundle
+    needs: [scope]
+    if: ${{ !cancelled() && (needs.scope.outputs.frontend != 'false' || needs.scope.outputs.contract != 'false' || needs.scope.outputs.repo != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
