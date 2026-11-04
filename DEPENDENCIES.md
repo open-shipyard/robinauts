@@ -318,8 +318,8 @@ the bundle, and excuses nothing there.
 | `spdx-expression-validate` | 2.0.0 | development | `(MIT AND CC-BY-3.0)` | the SPDX expression parser, whose code is MIT and whose data carries the CC-BY-3.0 of the list above |
 | `spdx-ranges` | 2.1.1 | development | `(MIT AND CC-BY-3.0)` | the same, for the ranges of the SPDX list |
 | `lru-cache` | 11.5.3 | development | BlueOak-1.0.0 | permissive and OSI-approved, with no copyleft term and no term beyond attribution; it is not on the allowed list only because nothing had brought one before |
-| `minimatch` | 11.0.1 | development | BlueOak-1.0.0 | the same licence and the same reason. Pinned by an `overrides` entry to fix GHSA-g3hv-75wg-m249: `eslint`, `typescript-eslint` and `openapi-typescript` still ask for older versions. Published 2026-10-27, inside the ten-day cooldown, by an exception that ends on 2026-11-06 |
-| `@isaacs/nonrecursive-glob-match` | 1.0.1 | development | BlueOak-1.0.0 | the same licence and the same reason. Brought by `minimatch` 11, and under the same cooldown exception |
+| `minimatch` | 11.0.1 | development | BlueOak-1.0.0 | the same licence and the same reason. Pinned by an `overrides` entry to fix GHSA-g3hv-75wg-m249: `eslint`, `typescript-eslint` and `openapi-typescript` still ask for older versions. |
+| `@isaacs/nonrecursive-glob-match` | 1.0.1 | development | BlueOak-1.0.0 | the same licence and the same reason. Brought by `minimatch` 11 |
 | `argparse` | 2.0.1 | development | Python-2.0 | SPDX `Python-2.0` and SPDX `PSF-2.0` are **different identifiers** — the first is the CNRI-era Python 2.0 licence, the second the PSF licence agreement — so the allowed list's PSF-2.0 does not cover this and a row is the honest way to record it. Both are permissive, non-copyleft and Apache-compatible in the ASF's own category A. The argument parser `js-yaml` uses, brought by `openapi-typescript` |
 
 ### What the bundle's record does not see
