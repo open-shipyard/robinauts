@@ -67,7 +67,7 @@ jobs:
           persist-credentials: false
       # The uv version lives with the other hand-bumped pins, in one file.
       - run: . ./scripts/tool-versions.sh && echo "UV_VERSION=$UV_VERSION" >>"$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
@@ -119,7 +119,7 @@ jobs:
           persist-credentials: false
       # The uv version lives with the other hand-bumped pins, in one file.
       - run: . ./scripts/tool-versions.sh && echo "UV_VERSION=$UV_VERSION" >>"$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
@@ -181,7 +181,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       # The uv version lives with the other hand-bumped pins, in one file.
       - run: . ./scripts/tool-versions.sh && echo "UV_VERSION=$UV_VERSION" >>"$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
@@ -229,7 +229,7 @@ jobs:
           persist-credentials: false
       # The uv version lives with the other hand-bumped pins, in one file.
       - run: . ./scripts/tool-versions.sh && echo "UV_VERSION=$UV_VERSION" >>"$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
@@ -247,7 +247,7 @@ jobs:
           persist-credentials: false
       # The uv version lives with the other hand-bumped pins, in one file.
       - run: . ./scripts/tool-versions.sh && echo "UV_VERSION=$UV_VERSION" >>"$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
@@ -291,7 +291,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       # The uv version lives with the other hand-bumped pins, in one file.
       - run: . ./scripts/tool-versions.sh && echo "UV_VERSION=$UV_VERSION" >>"$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
@@ -327,7 +327,7 @@ jobs:
           persist-credentials: false
       # The uv version lives with the other hand-bumped pins, in one file.
       - run: . ./scripts/tool-versions.sh && echo "UV_VERSION=$UV_VERSION" >>"$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.PYTHON_VERSION }}
