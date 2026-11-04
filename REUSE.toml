@@ -94,3 +94,15 @@ path = [
 precedence = "aggregate"
 SPDX-FileCopyrightText = "Gradle, Inc."
 SPDX-License-Identifier = "Apache-2.0"
+
+# The Android client's dependency locks. Gradle writes these files whole, so a
+# header would not survive the next `--write-locks`.
+[[annotations]]
+path = [
+    "clients/android/buildscript-gradle.lockfile",
+    "clients/android/settings-gradle.lockfile",
+    "clients/android/app/gradle.lockfile",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "The Robinauts Authors"
+SPDX-License-Identifier = "Apache-2.0"

@@ -20,4 +20,4 @@ if [ -z "${ANDROID_HOME:-}" ] && [ -z "${ANDROID_SDK_ROOT:-}" ] && [ ! -f local.
     exit 1
 fi
 
-./gradlew --no-daemon :app:assembleDebug "$@"
+./gradlew --no-daemon :app:assembleDebug :app:assembleRelease "$@"

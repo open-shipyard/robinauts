@@ -30,6 +30,13 @@ Then, from `clients/android`:
 
 Or open `clients/android` in Android Studio and run the `app` configuration.
 
+## Dependency locks
+
+The `*gradle.lockfile` files pin the dependencies of the debug and release
+builds. A dependency change needs new locks, written from `clients/android`:
+
+    ./gradlew :app:assembleDebug :app:assembleRelease buildEnvironment --write-locks
+
 ## Layout
 
     app/
