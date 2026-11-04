@@ -312,7 +312,6 @@ the bundle, and excuses nothing there.
 | package | version | scope | licence | why it is acceptable |
 |---|---|---|---|---|
 | `lightningcss`, `lightningcss-android-arm64`, `lightningcss-darwin-arm64`, `lightningcss-darwin-x64`, `lightningcss-freebsd-x64`, `lightningcss-linux-arm-gnueabihf`, `lightningcss-linux-arm64-gnu`, `lightningcss-linux-arm64-musl`, `lightningcss-linux-x64-gnu`, `lightningcss-linux-x64-musl`, `lightningcss-win32-arm64-msvc`, `lightningcss-win32-x64-msvc` | 1.33.0 | development | MPL-2.0 | **restricted**, and the restricted category's conditions hold as they do for `pathspec`: unmodified, unbundled, installed by npm from the registry and never vendored, development only, and in no artefact this project ships. The CSS tool Vite compiles stylesheets with; one package plus the prebuilt binary for each platform, all of which the lock pins, and of which a machine installs the one it can run |
-| `lightningcss`, `lightningcss-android-arm64`, `lightningcss-darwin-arm64`, `lightningcss-darwin-x64`, `lightningcss-freebsd-x64`, `lightningcss-linux-arm-gnueabihf`, `lightningcss-linux-arm64-gnu`, `lightningcss-linux-arm64-musl`, `lightningcss-linux-x64-gnu`, `lightningcss-linux-x64-musl`, `lightningcss-win32-arm64-msvc`, `lightningcss-win32-x64-msvc` | 1.32.0 | development | MPL-2.0 | the same packages, the same licence — the MPL-2.0 text ships in the 1.32.0 package too — and the same conditions as the row above. A second copy, because `@tailwindcss/node` depends on `lightningcss` at exactly `1.32.0` while Vite is on 1.33.0, so the lock holds both and the gate asks for the version somebody read |
 | `caniuse-lite` | 1.0.30001819 | development | CC-BY-4.0 | a data set of browser support, which the build reads to decide what to compile down to. Attribution only, no copyleft term, and none of it reaches the bundle. Brought by `eslint-plugin-react-hooks` through `@babel/core` and `browserslist` |
 | `spdx-exceptions` | 2.5.0 | development | CC-BY-3.0 | the SPDX list of licence exceptions — the data `rollup-plugin-license` judges everything else by. Attribution only |
 | `spdx-expression-validate` | 2.0.0 | development | `(MIT AND CC-BY-3.0)` | the SPDX expression parser, whose code is MIT and whose data carries the CC-BY-3.0 of the list above |
@@ -343,7 +342,11 @@ already been read.
 
 What no scanner finds, a person writes down. `CSS_PACKAGES` in
 `frontend/vite.config.ts` names the packages whose CSS ships although no
-module was ever imported from them, and **that list is maintained by hand**:
+module was ever imported from them, and **that list is maintained by hand**.
+It is **empty** since 2026-11-04: the stylesheets are plain CSS over the
+design tokens and name no package
+([ADR 0006](docs/adr/0006-chat-ui-on-react-alone.md)). The list and what the
+build does with it stay, for the day a stylesheet does:
 
 - **a change that adds a CSS `@import` or a `url()` naming a package adds the
   package's name there**, and that name is what a reviewer looks at, exactly

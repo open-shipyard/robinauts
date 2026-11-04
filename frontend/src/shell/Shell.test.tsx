@@ -181,8 +181,8 @@ test("the closed drawer is out of a keyboard's way; the open one is a dialog", a
  *
  * jsdom has no layout engine and reports no boxes for anything, so without
  * this the trap cannot tell what is on the screen -- and the panel holds a
- * control that belongs to the other layout: "Collapse the panel" is
- * `max-md:hidden`, which at drawer width is `display: none`. A stop the
+ * control that belongs to the other layout: "Collapse the panel" is hidden
+ * by `./panel.css` below the breakpoint, `display: none`. A stop the
  * browser will not focus is a stop the trap must skip, or Tab deadlocks on
  * it. `vi.restoreAllMocks` in src/test/setup.ts puts this back.
  */
@@ -703,8 +703,9 @@ test("a model no longer offered is shown, and a turn refused for it says why", a
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await settled();
   });
-  // The chat's own sentence for it (`src/chat/assistant-ui/runtime.tsx`),
-  // and what was written is back in the box to send once another is picked.
+  // The chat's own sentence for it (`MODEL_GONE_NEW_CHAT` in
+  // `src/chat/runtime.tsx`), and what was written is back in the box to send
+  // once another is picked.
   expect(screen.getByRole("status")).toHaveTextContent(
     /model is no longer offered/,
   );
