@@ -190,6 +190,23 @@ test("the secret is shown once, with the sentence that says so", async () => {
   expect(screen.queryByText(SECRET)).toBeNull();
 });
 
+test("New token keeps the secret on the screen until Done", async () => {
+  await page(minting);
+  makeToken("ci");
+  await screen.findByText(SECRET);
+  fireEvent.click(screen.getByRole("button", { name: "New token" }));
+  expect(screen.getByText(SECRET)).toBeVisible();
+  expect(
+    screen.queryByRole("textbox", { name: "Name of the token" }),
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  expect(screen.queryByText(SECRET)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "New token" }));
+  expect(
+    screen.getByRole("textbox", { name: "Name of the token" }),
+  ).toBeVisible();
+});
+
 test("Copy puts the secret on the clipboard", async () => {
   const writeText = vi.fn(() => Promise.resolve());
   Object.defineProperty(navigator, "clipboard", {

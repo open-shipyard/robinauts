@@ -364,23 +364,31 @@ test("a code gone while it waits is replaced at once", async () => {
   expect(screen.getByText(WAITING)).toBeVisible();
 });
 
-test("a code past its expiry is replaced without asking about it", async () => {
-  const fetch = backend((call) =>
-    call.url === PAIRINGS && call.method === "POST"
-      ? json(
-          {
-            id: pairingId(1),
-            expires_at: new Date(Date.now() + 1_000).toISOString(),
-            qr_svg: SVG,
-          },
-          201,
-        )
-      : undefined,
-  );
+test("the server decides when a code is over, whatever the browser's clock says", async () => {
+  let polls = 0;
+  const fetch = backend((call) => {
+    if (call.url === PAIRINGS && call.method === "POST") {
+      return json(
+        {
+          id: pairingId(1),
+          expires_at: new Date(Date.now() - 1_000).toISOString(),
+          qr_svg: SVG,
+        },
+        201,
+      );
+    }
+    if (call.url === FIRST && call.method === "GET") {
+      polls += 1;
+      return polls === 1 ? undefined : claimed();
+    }
+    return undefined;
+  });
   await opened();
   await wait(POLL_MS);
-  expect(callsTo(fetch, PAIRINGS, "POST")).toHaveLength(2);
-  expect(callsTo(fetch, FIRST)).toHaveLength(0);
+  expect(screen.getByText(WAITING)).toBeVisible();
+  await wait(POLL_MS);
+  expect(screen.getByText(CLAIMED)).toBeVisible();
+  expect(callsTo(fetch, PAIRINGS, "POST")).toHaveLength(1);
 });
 
 test("five codes are replaced by themselves; after that, a button", async () => {

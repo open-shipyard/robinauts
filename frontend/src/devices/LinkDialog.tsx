@@ -38,7 +38,6 @@ import {
   CONFLICT,
   deletePairing,
   FORBIDDEN,
-  hasPassed,
   isGone,
   type Minted,
   mintPairing,
@@ -288,22 +287,14 @@ export function LinkDialog({
 
   const shownId = stage.kind === "shown" ? stage.pairing.id : null;
   const shownState = stage.kind === "shown" ? stage.state : null;
-  const shownExpiry = stage.kind === "shown" ? stage.pairing.expires_at : null;
 
   // Steps 2 and 5: every two seconds, while the dialog is open and the tab
   // is visible. Hidden, nothing is scheduled; visible again, it resumes.
+  // Only the server's answer ends a code: a claim moves its expiry.
   useEffect(() => {
     if (shownId === null || !visible) return;
     let dropped = false;
     const timer = setTimeout(() => {
-      if (
-        shownState === "waiting" &&
-        shownExpiry !== null &&
-        hasPassed(shownExpiry)
-      ) {
-        expire();
-        return;
-      }
       pairingState(shownId).then(
         (view) => {
           if (!dropped) seen(shownId, view);
@@ -326,7 +317,7 @@ export function LinkDialog({
       dropped = true;
       clearTimeout(timer);
     };
-  }, [shownId, shownState, shownExpiry, visible, tick, expire, seen]);
+  }, [shownId, shownState, visible, tick, expire, seen]);
 
   // Where the focus goes as the dialog moves on: the number field once a
   // phone has claimed, otherwise the one thing to press next.

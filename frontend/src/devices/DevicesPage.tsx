@@ -326,8 +326,10 @@ function Tokens({
           ref={opener}
           type="button"
           aria-expanded={making.kind === "naming"}
+          aria-disabled={making.kind === "made"}
           onClick={() => {
-            setMaking({ kind: "naming" });
+            // The secret on the screen is shown once: Done ends it.
+            if (making.kind !== "made") setMaking({ kind: "naming" });
           }}
           className="devices-button"
         >

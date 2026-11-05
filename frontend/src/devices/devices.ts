@@ -110,12 +110,6 @@ export function typedNumber(typed: string): string | null {
   return NUMBER.test(trimmed) ? trimmed.replace(" ", "") : null;
 }
 
-/** Whether an instant the server wrote has passed. */
-export function hasPassed(instant: string, now = Date.now()): boolean {
-  const at = Date.parse(instant);
-  return Number.isFinite(at) && at <= now;
-}
-
 /** How a platform the app reported is written for a reader. */
 const PLATFORMS = new Map([
   ["android", "Android"],
