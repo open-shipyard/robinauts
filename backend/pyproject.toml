@@ -367,12 +367,44 @@ forbidden_modules = [
     "robinauts.worker",
 ]
 
+# --- web's contract --------------------------------------------------------------
+# What another package may import of web. A new module of web adds itself to the list.
+
+[[tool.importlinter.contracts]]
+name = "web's contract imports only the controller's contract"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["robinauts.web.contract"]
+forbidden_modules = [
+    "robinauts.web.__main__",
+    "robinauts.web.agui",
+    "robinauts.web.app",
+    "robinauts.web.cli",
+    "robinauts.web.cookies",
+    "robinauts.web.headers",
+    "robinauts.web.lifecycle",
+    "robinauts.web.logs",
+    "robinauts.web.oidc",
+    "robinauts.web.pairing",
+    "robinauts.web.sign_in",
+    "robinauts.web.worker_api",
+    "robinauts.web.worker_process",
+    "robinauts.controller.ports",
+    "robinauts.controller.core",
+    "robinauts.controller.adapters",
+    "robinauts.controller.application",
+    "robinauts.controller.composition",
+    "robinauts.agent_engines",
+    "robinauts.tools",
+    "robinauts.worker",
+]
+
 # --- worker --------------------------------------------------------------------
 # A sibling of the controller, which it reaches through the turn broker alone:
 # controller.contract.broker, beside the records of controller.contract.
 
 [[tool.importlinter.contracts]]
-name = "worker imports the controller's contract, and the engines' and tools' contracts"
+name = "worker imports the controller's contract, web's contract, and the engines' and tools' contracts"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.worker"]
@@ -388,6 +420,8 @@ forbidden_modules = [
     "robinauts.tools.sessions",
     "robinauts.web",
 ]
+# The one part of web the worker may see: the HTTP its turn broker speaks to the server.
+ignore_imports = ["robinauts.worker.** -> robinauts.web.contract.**"]
 
 [[tool.importlinter.contracts]]
 name = "the worker is named by composition alone"

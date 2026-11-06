@@ -9,7 +9,7 @@ runs them.
 agent_engines -> nothing from robinauts
 tools -> agent_engines.contract, controller.contract
 controller -> agent_engines.contract, tools.contract; a tool and the worker, by composition alone
-worker -> controller.contract, agent_engines.contract, tools.contract
+worker -> controller.contract, web.contract, agent_engines.contract, tools.contract
 web -> controller.contract, controller.composition
 
 ## Inside agent_engines
@@ -35,6 +35,11 @@ core -> contract, ports, agent_engines.contract; pure functions, no I/O
 adapters -> contract, ports
 application -> contract, ports, core, agent_engines.contract, tools.contract
 composition -> contract, ports, core, adapters, application, tools, worker; imported by web alone
+
+## Inside web
+
+contract -> controller.contract; nothing else of web
+everything else of web -> anything web may import, contract included
 
 ## Inside worker
 

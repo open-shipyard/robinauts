@@ -47,7 +47,6 @@ from robinauts.controller.composition import (
     read_tables,
     storage_from,
 )
-from robinauts.controller.contract.broker.wire import SERVER_KEEP_ALIVE_SECONDS
 from robinauts.controller.contract.domain import (
     Config,
     ConfigError,
@@ -58,6 +57,7 @@ from robinauts.controller.contract.domain import (
 )
 from robinauts.controller.contract.ports import Credentials
 from robinauts.web.app import create_app
+from robinauts.web.contract.broker.wire import SERVER_KEEP_ALIVE_SECONDS
 from robinauts.web.sign_in import SIGN_IN_KEYS, SignInConfig, is_loopback, parse_sign_in
 
 REPO = Path(__file__).resolve().parents[4]

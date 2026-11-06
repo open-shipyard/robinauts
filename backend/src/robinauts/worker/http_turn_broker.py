@@ -3,7 +3,7 @@
 
 """The turn broker of a worker in a process of its own, over HTTP: the routes of
 ``web/worker_api.py``, at the server that spawned it, with the secret it was handed. What
-crosses is ``controller.contract.broker.wire``, which that server serves.
+crosses is ``web.contract.broker.wire``, which that server serves.
 
 A worker starts before its server listens, and stops while it still does, so a connection
 refused is tried again, for up to ``CONNECT_PATIENCE`` seconds: the request was never sent.
@@ -31,7 +31,14 @@ from robinauts.controller.contract.broker.domain import (
     Task,
 )
 from robinauts.controller.contract.broker.ports import TurnBroker
-from robinauts.controller.contract.broker.wire import (
+from robinauts.controller.contract.domain import (
+    Session,
+    SessionNotFoundError,
+    Turn,
+    TurnLostError,
+    TurnState,
+)
+from robinauts.web.contract.broker.wire import (
     PREFIX,
     SESSION_NOT_FOUND,
     TURN_LOST,
@@ -51,13 +58,6 @@ from robinauts.controller.contract.broker.wire import (
     WaitRequest,
     WaitResponse,
     WorkerRefusal,
-)
-from robinauts.controller.contract.domain import (
-    Session,
-    SessionNotFoundError,
-    Turn,
-    TurnLostError,
-    TurnState,
 )
 
 _log = logging.getLogger(__name__)

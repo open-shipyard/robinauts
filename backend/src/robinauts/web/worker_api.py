@@ -2,7 +2,7 @@
 # Copyright The Robinauts Authors
 
 """The API's routes a worker in a process of its own reaches the core through: the operations
-of ``TurnBroker`` (``controller/contract/broker/wire.py``), served by the core over the
+of ``TurnBroker`` (``web/contract/broker/wire.py``), served by the core over the
 controller's store.
 
 They answer only while such a worker runs, and only the secret the server handed it at its
@@ -27,7 +27,8 @@ from fastapi.routing import APIRoute
 from pydantic import AwareDatetime
 
 from robinauts.controller.contract.broker.ports import TurnBroker
-from robinauts.controller.contract.broker.wire import (
+from robinauts.controller.contract.domain import SessionNotFoundError, TurnLostError
+from robinauts.web.contract.broker.wire import (
     MAX_WAIT_SECONDS,
     PREFIX,
     SESSION_NOT_FOUND,
@@ -47,7 +48,6 @@ from robinauts.controller.contract.broker.wire import (
     WaitRequest,
     WaitResponse,
 )
-from robinauts.controller.contract.domain import SessionNotFoundError, TurnLostError
 
 T = TypeVar("T")
 

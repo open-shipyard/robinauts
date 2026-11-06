@@ -27,7 +27,7 @@ from robinauts.controller.composition import (
     load,
     storage_from,
 )
-from robinauts.controller.contract.broker.wire import PREFIX
+from robinauts.web.contract.broker.wire import PREFIX
 
 PARENT_VARIABLE = "ROBINAUTS_WORKER_PARENT"
 """The id of the process that spawned this one, which it ends with."""
