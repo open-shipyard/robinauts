@@ -14,6 +14,21 @@ worker -> controller.contract.broker, web.contract.broker, agent_engines.contrac
 web -> controller.contract
 cli -> web, controller, worker, tools, agent_engines.contract, all but web and controller.contract by cli.composition alone; imported by nothing
 
+```mermaid
+flowchart TD
+    cli --> web
+    cli -- "contract (composition: all)" --> controller
+    cli -- composition --> worker
+    cli -- composition --> tools
+    cli -- composition --> agent_engines
+    web -- contract --> controller
+    worker -- contract.broker --> controller
+    worker -- contract.broker --> web
+    worker -- contract --> tools
+    worker -- contract --> agent_engines
+    tools -- contract --> agent_engines
+```
+
 ## Inside agent_engines
 
 contract -> nothing from robinauts
