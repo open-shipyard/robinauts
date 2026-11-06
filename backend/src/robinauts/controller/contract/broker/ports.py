@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from datetime import datetime
 
-from robinauts.controller.broker.contract.domain import (
+from robinauts.controller.contract.broker.domain import (
     Cursor,
     Document,
     StoredEvent,

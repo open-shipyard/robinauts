@@ -14,11 +14,11 @@ robinauts/
     src/robinauts/
       agent_engines/    the agent port and its engines: contract/,
                         echo_engine/, langchain_engine/, pydantic_ai_engine/
-      controller/       the application: contract/, broker/contract/,
-                        broker/in_process.py, core/, ports/, application/,
+      controller/       the application: contract/ (and contract/broker/),
+                        core/, ports/, application/,
                         adapters/{in_process,postgres}/, composition/
       worker/           runs the turns; of the controller it sees
-                        contract/ and broker/contract/ alone
+                        contract/ alone, the broker's included
       web/              the HTTP server, sign-in, the CLI, the worker's process
     tests/              unit/, fast/, api/, adapters_free/, adapters_metered/,
                         e2e/, tooling/, util/

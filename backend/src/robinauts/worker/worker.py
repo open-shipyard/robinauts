@@ -23,8 +23,8 @@ from pathlib import Path
 
 from robinauts.agent_engines.contract.domain import AgentDefinition
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
-from robinauts.controller.broker.contract.domain import RUN_TURN, Task
-from robinauts.controller.broker.contract.ports import TurnBroker
+from robinauts.controller.contract.broker.domain import RUN_TURN, Task
+from robinauts.controller.contract.broker.ports import TurnBroker
 from robinauts.controller.contract.domain import (
     Config,
     Message,

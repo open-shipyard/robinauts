@@ -2,7 +2,7 @@
 # Copyright The Robinauts Authors
 
 """The controller's ports: the operations of ``docs/architecture/controller.md``, as types, and
-the records sign-in keeps. What a worker needs from the core is ``controller.broker.contract``."""
+the records sign-in keeps. What a worker needs from the core is ``controller.contract.broker``."""
 
 from __future__ import annotations
 

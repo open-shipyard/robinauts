@@ -32,8 +32,8 @@ from robinauts.controller.adapters.postgres.schema import (
 )
 from robinauts.controller.adapters.postgres.store import PostgresStore
 from robinauts.controller.application.controller import RobinautsController
-from robinauts.controller.broker.contract.ports import TurnBroker
-from robinauts.controller.broker.in_process import InProcessTurnBroker
+from robinauts.controller.application.turn_broker import InProcessTurnBroker
+from robinauts.controller.contract.broker.ports import TurnBroker
 from robinauts.controller.contract.domain import Config, ConfigError, StorageConfig, StorageKind
 from robinauts.controller.contract.ports import Controller, Credentials
 from robinauts.controller.core.config import parse_config

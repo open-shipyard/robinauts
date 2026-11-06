@@ -14,13 +14,13 @@ from collections.abc import AsyncGenerator, Callable
 from datetime import UTC, datetime, timedelta
 
 from robinauts.controller.application.intervals import run_at_intervals
-from robinauts.controller.broker.contract.documents import (
+from robinauts.controller.contract.broker.documents import (
     event_from_document,
     message_from_document,
     stored_message,
 )
-from robinauts.controller.broker.contract.domain import RUN_TURN, Task, TaskState
-from robinauts.controller.broker.contract.partial import failed_answer, partial_answer
+from robinauts.controller.contract.broker.domain import RUN_TURN, Task, TaskState
+from robinauts.controller.contract.broker.partial import failed_answer, partial_answer
 from robinauts.controller.contract.domain import (
     ActiveTurn,
     AgentListing,

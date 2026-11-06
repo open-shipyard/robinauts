@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 
-from robinauts.controller.broker.contract.documents import (
+from robinauts.controller.contract.broker.documents import (
     VERSION,
     clean_text,
     event_from_document,

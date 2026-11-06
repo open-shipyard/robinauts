@@ -20,7 +20,7 @@ signed in is web's own concern, the user session.
 
 The worker handles the tasks its process runs, each running one turn. It is a package of its
 own, `robinauts/worker/`, beside the controller rather than inside it: of the controller it
-sees `controller.contract` and `controller.broker.contract` alone
+sees `controller.contract` alone, the turn broker's contract under it included
 (`docs/architecture/rules.md`). It builds the engines
 the configuration names, and runs their setup, when it starts. It claims queued tasks and
 runs them, up to `max_running_tasks_per_worker` at once. A conversation's first turn says
@@ -31,10 +31,10 @@ controller. The shell starts it after `open` and stops it before `close`
 (`web/lifecycle.py`). A server finishes its start-up once its worker has started, and stops
 its worker before it stops listening.
 
-The worker reaches the core through one port, `TurnBroker` (`broker/contract/ports.py`), and
+The worker reaches the core through one port, `TurnBroker` (`contract/broker/ports.py`), and
 never through the store. The broker's contract also holds what crosses it: the tasks, the
 messages and events as stored records, and their encoding as documents
-(`broker/contract/documents.py`), which the worker writes and the controller reads. These are its operations, the store's of the same names:
+(`contract/broker/documents.py`), which the worker writes and the controller reads. These are its operations, the store's of the same names:
 
 - `claim_tasks`, `wait_for_queued`: the queued tasks, made the worker's.
 - `renew_leases`, `listen_for_cancels`: the leases of the tasks it runs, and the tasks asked
@@ -44,7 +44,7 @@ messages and events as stored records, and their encoding as documents
 - `append_event`, `finish_turn`: what a turn writes.
 
 A worker in the server's process has it over the controller's store
-(`broker/in_process.py`). A worker in a process of its own, which a server on
+(`application/turn_broker.py`). A worker in a process of its own, which a server on
 PostgreSQL spawns, has it over HTTP: the same operations as the API's `/internal/worker/`
 routes (`docs/architecture/web.md`), with the secret its server handed it at its start. The
 engines keep their state apart, in the worker's `AgentEngineStore`: on PostgreSQL a pool of the

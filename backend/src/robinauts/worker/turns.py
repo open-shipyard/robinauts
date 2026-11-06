@@ -29,15 +29,15 @@ from robinauts.agent_engines.contract.domain import (
     ToolResult,
 )
 from robinauts.agent_engines.contract.ports import AgentEngine
-from robinauts.controller.broker.contract.documents import (
+from robinauts.controller.contract.broker.documents import (
     clean_text,
     event_to_document,
     message_from_document,
     stored_message,
 )
-from robinauts.controller.broker.contract.domain import StoredEvent
-from robinauts.controller.broker.contract.partial import failed_answer, with_text
-from robinauts.controller.broker.contract.ports import TurnBroker
+from robinauts.controller.contract.broker.domain import StoredEvent
+from robinauts.controller.contract.broker.partial import failed_answer, with_text
+from robinauts.controller.contract.broker.ports import TurnBroker
 from robinauts.controller.contract.domain import (
     ArgumentsPiece,
     CallCompleted,

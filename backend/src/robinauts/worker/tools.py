@@ -13,8 +13,8 @@ import uuid
 from collections.abc import Mapping
 
 from robinauts.agent_engines.contract.domain import FunctionTool
-from robinauts.controller.broker.contract.documents import message_from_document
-from robinauts.controller.broker.contract.ports import TurnBroker
+from robinauts.controller.contract.broker.documents import message_from_document
+from robinauts.controller.contract.broker.ports import TurnBroker
 from robinauts.controller.contract.domain import (
     AgentConfig,
     Message,

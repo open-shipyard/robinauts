@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from robinauts.controller.broker.contract.domain import StoredMessage
+from robinauts.controller.contract.broker.domain import StoredMessage
 from robinauts.controller.contract.domain import (
     ArgumentsPiece,
     CallCompleted,

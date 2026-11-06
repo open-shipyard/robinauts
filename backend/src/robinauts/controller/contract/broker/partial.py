@@ -10,8 +10,8 @@ import uuid
 from collections.abc import Iterable, Sequence
 from datetime import datetime
 
-from robinauts.controller.broker.contract.documents import event_from_document
-from robinauts.controller.broker.contract.domain import Document
+from robinauts.controller.contract.broker.documents import event_from_document
+from robinauts.controller.contract.broker.domain import Document
 from robinauts.controller.contract.domain import (
     ArgumentsPiece,
     CallCompleted,
