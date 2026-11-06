@@ -4,7 +4,7 @@
 """The tool port: what every tool shares, and nothing that one tool alone needs.
 
 A tool is given a ``TurnScope`` for each turn. The scope holds no user id and no store: what a
-tool may read of the platform's data, it reads through ``ScopedData``, which the controller
+tool may read of the platform's data, it reads through ``ScopedData``, which the worker
 binds to the turn's owner and agent before the tool sees it. A tool cannot name another user,
 nor another agent's sessions.
 """
@@ -16,12 +16,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from robinauts.agent_engines.contract.domain import FunctionTool
-from robinauts.controller.contract.domain import Message, Session
+from robinauts.shared_domain.domain import Message, Session
 
 
 class ScopedData(ABC):
     """The platform's own reads, bound to the turn's owner and agent: the store's, without the
-    owner, which the controller fills in. Hidden sessions are not found, as in the store."""
+    owner, which the worker fills in. Hidden sessions are not found, as in the store."""
 
     __slots__ = ()
 

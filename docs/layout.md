@@ -12,11 +12,17 @@ robinauts/
   frontend/         the UI (ADR 0006)
   backend/
     src/robinauts/
+      shared_domain/    the records more than one package uses
       agent_engines/    the agent port and its engines: contract/,
                         echo_engine/, langchain_engine/, pydantic_ai_engine/
-      controller/       the application: contract/, core/, ports/,
-                        application/, adapters/{in_process,postgres}/, composition/
-      web/              the HTTP server, sign-in, the CLI, the worker's process
+      controller/       the application: contract/ (and contract/broker/),
+                        core/, ports/, application/,
+                        adapters/{in_process,postgres}/
+      worker/           runs the turns; of the controller it sees
+                        contract/broker/ alone
+      web/              the HTTP server and sign-in
+      cli/              the robinauts command: builds the controller and the worker
+                        (composition.py), and starts and stops them and the HTTP server
     tests/              unit/, fast/, api/, adapters_free/, adapters_metered/,
                         e2e/, tooling/, util/
 ```

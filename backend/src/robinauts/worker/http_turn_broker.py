@@ -2,7 +2,8 @@
 # Copyright The Robinauts Authors
 
 """The turn broker of a worker in a process of its own, over HTTP: the routes of
-``web/worker_api.py``, at the server that spawned it, with the secret it was handed.
+``web/worker_api.py``, at the server that spawned it, with the secret it was handed. What
+crosses is ``web.contract.broker.wire``, which that server serves.
 
 A worker starts before its server listens, and stops while it still does, so a connection
 refused is tried again, for up to ``CONNECT_PATIENCE`` seconds: the request was never sent.
@@ -22,20 +23,22 @@ from typing import Any
 
 import httpx
 
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.broker.domain import (
     Cursor,
     Document,
-    Session,
-    SessionNotFoundError,
     StoredEvent,
     StoredMessage,
     Task,
+)
+from robinauts.controller.contract.broker.ports import TurnBroker
+from robinauts.shared_domain.domain import (
+    Session,
+    SessionNotFoundError,
     Turn,
     TurnLostError,
     TurnState,
 )
-from robinauts.controller.contract.ports import TurnBroker
-from robinauts.web.worker_wire import (
+from robinauts.web.contract.broker.wire import (
     PREFIX,
     SESSION_NOT_FOUND,
     TURN_LOST,
@@ -71,19 +74,6 @@ CANCEL_POLL_SECONDS = 25.0
 
 POLL_RETRY_SECONDS = 1.0
 """How long the poll for cancels waits after a failure before it polls again."""
-
-
-class QuietRequests(logging.Filter):
-    """Leaves out of httpx's log the worker's requests to the core, one per event a turn
-    writes, which its server logs already; the engines' requests stay."""
-
-    def __init__(self, url: str) -> None:
-        super().__init__()
-        self._root = url.rstrip("/") + PREFIX
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        args = record.args if isinstance(record.args, tuple) else ()
-        return not any(str(arg).startswith(self._root) for arg in args)
 
 
 class BrokerRefusedError(Exception):

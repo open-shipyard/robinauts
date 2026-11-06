@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from robinauts.controller.contract.domain import (
+from robinauts.shared_domain.domain import (
     Message,
     MessagePart,
     Role,
@@ -18,7 +18,7 @@ from robinauts.controller.contract.domain import (
     ToolCallPart,
     ToolResultPart,
 )
-from robinauts.controller.core.failures import LONGEST, prompt_after_failures
+from robinauts.worker.failures import LONGEST, prompt_after_failures
 
 CALL = ToolCallPart("c1", "search", {"q": "capital"})
 CLOSING = "The user was told it failed, and pressed the retry button."

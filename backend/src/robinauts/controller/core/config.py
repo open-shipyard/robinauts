@@ -8,10 +8,10 @@ import re
 from collections.abc import Callable, Collection, Mapping
 from typing import Any
 
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.domain import ConfigError
+from robinauts.shared_domain.domain import (
     AgentConfig,
     Config,
-    ConfigError,
     ModelConfig,
     ProviderConfig,
     ProviderKind,

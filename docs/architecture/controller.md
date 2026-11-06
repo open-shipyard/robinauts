@@ -18,18 +18,23 @@ signed in is web's own concern, the user session.
 
 ## Worker
 
-The worker handles the tasks its process runs, each running one turn. It builds the engines
+The worker handles the tasks its process runs, each running one turn. It is a package of its
+own, `robinauts/worker/`, beside the controller rather than inside it: of the controller it
+sees the turn broker's contract, `controller.contract.broker`, alone
+(`docs/architecture/rules.md`). It builds the engines
 the configuration names, and runs their setup, when it starts. It claims queued tasks and
 runs them, up to `max_running_tasks_per_worker` at once. A conversation's first turn says
 so, and the worker creates the engine's session before it runs. It renews the tasks' leases
 every `heartbeat_seconds` and stops a task that any process asks to stop. Its stop waits for
 those tasks, bounded, and interrupts the rest. The worker is not an operation of the
 controller. The shell starts it after `open` and stops it before `close`
-(`web/lifecycle.py`). A server finishes its start-up once its worker has started, and stops
+(`cli/lifecycle.py`). A server finishes its start-up once its worker has started, and stops
 its worker before it stops listening.
 
-The worker reaches the core through one port, `TurnBroker` (`contract/ports.py`), and never
-through the store. These are its operations, the store's of the same names:
+The worker reaches the core through one port, `TurnBroker` (`contract/broker/ports.py`), and
+never through the store. The broker's contract also holds what crosses it: the tasks, the
+messages and events as stored records, and their encoding as documents
+(`contract/broker/documents.py`), which the worker writes and the controller reads. These are its operations, the store's of the same names:
 
 - `claim_tasks`, `wait_for_queued`: the queued tasks, made the worker's.
 - `renew_leases`, `listen_for_cancels`: the leases of the tasks it runs, and the tasks asked

@@ -9,7 +9,8 @@ import asyncio
 import uuid
 from collections.abc import AsyncIterator
 
-from robinauts.controller.contract.domain import NumberedEvent, TextPiece, TurnEnded, TurnState
+from robinauts.controller.contract.domain import NumberedEvent
+from robinauts.shared_domain.domain import TextPiece, TurnEnded, TurnState
 from robinauts.web.agui import KEEP_ALIVE, stream
 from util.aio import asyncio_test
 

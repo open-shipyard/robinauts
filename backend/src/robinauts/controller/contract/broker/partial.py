@@ -10,7 +10,9 @@ import uuid
 from collections.abc import Iterable, Sequence
 from datetime import datetime
 
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.broker.documents import event_from_document
+from robinauts.controller.contract.broker.domain import Document
+from robinauts.shared_domain.domain import (
     ArgumentsPiece,
     CallCompleted,
     CallStarted,
@@ -26,8 +28,6 @@ from robinauts.controller.contract.domain import (
     ToolResultPart,
     Turn,
 )
-from robinauts.controller.core.documents import event_from_document
-from robinauts.controller.ports.store import Document
 
 
 def with_text(parts: list[MessagePart], text: str) -> None:

@@ -17,26 +17,23 @@ from echo_controller import CONFIG, start_echo_controller, wait_for_turn_end
 from robinauts.agent_engines.contract.domain import Event
 from robinauts.agent_engines.contract.ports import AgentEngine
 from robinauts.agent_engines.echo_engine.engine import EchoEngine
+from robinauts.cli.composition import Composed
+from robinauts.cli.lifecycle import Lifecycle
 from robinauts.controller.adapters.in_process.credentials import InProcessCredentials
 from robinauts.controller.adapters.in_process.store import InProcessStore
 from robinauts.controller.application.controller import RobinautsController
 from robinauts.controller.application.turn_broker import InProcessTurnBroker
-from robinauts.controller.application.worker import Worker
-from robinauts.controller.composition import Composed
-from robinauts.controller.contract.domain import (
-    ActiveTurn,
-    Identity,
-    NumberedEvent,
+from robinauts.controller.contract.broker.documents import event_from_document
+from robinauts.controller.contract.domain import ActiveTurn, Identity, NumberedEvent, User
+from robinauts.shared_domain.domain import (
     SessionNotFoundError,
     StorageConfig,
     StorageKind,
     TurnEnded,
     TurnStarted,
     TurnState,
-    User,
 )
-from robinauts.controller.core.documents import event_from_document
-from robinauts.web.lifecycle import Lifecycle
+from robinauts.worker.worker import Worker
 from util.aio import asyncio_test
 
 FIVE_MINUTES = timedelta(minutes=5)

@@ -33,13 +33,13 @@ from ag_ui.core import (
 )
 from ag_ui.encoder import EventEncoder
 
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.domain import NumberedEvent
+from robinauts.shared_domain.domain import (
     ArgumentsPiece,
     CallCompleted,
     CallStarted,
     MessageCompleted,
     MessageStarted,
-    NumberedEvent,
     ReasoningPiece,
     ResultLanded,
     Role,

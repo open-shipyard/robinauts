@@ -16,17 +16,16 @@ import pytest
 from robinauts.controller.adapters.postgres.pool import codecs, open_pool
 from robinauts.controller.adapters.postgres.schema import create_schema
 from robinauts.controller.adapters.postgres.store import PostgresStore
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.domain import TurnActiveError, User
+from robinauts.controller.ports.store import Store, StoredMessage
+from robinauts.shared_domain.domain import (
     Role,
     Session,
     SessionNotFoundError,
     Turn,
-    TurnActiveError,
     TurnLostError,
     TurnState,
-    User,
 )
-from robinauts.controller.ports.store import Store, StoredMessage
 from util.aio import asyncio_test
 from util.contracts.store import StoreContract, turn
 from util.controller_db import TemporarySchema, requires_postgres, temporary_schema, url

@@ -17,43 +17,41 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from robinauts.agent_engines.contract.domain import AgentDefinition
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
-from robinauts.controller.application.engines import build_engines
-from robinauts.controller.application.intervals import run_at_intervals
-from robinauts.controller.application.tools import functions_for
-from robinauts.controller.application.turns import (
+from robinauts.controller.contract.broker.domain import RUN_TURN, Task
+from robinauts.controller.contract.broker.ports import TurnBroker
+from robinauts.shared_domain.domain import (
+    Config,
+    Message,
+    StorageConfig,
+    StorageKind,
+    TextPart,
+    Turn,
+    TurnState,
+    UnknownEngineError,
+)
+from robinauts.tools.contract.ports import ToolProvider
+from robinauts.worker.agent_engine_store import AgentEngineStore
+from robinauts.worker.engine_settings import (
+    SecretLookup,
+    engine_settings,
+    engine_storage,
+)
+from robinauts.worker.engines import build_engines
+from robinauts.worker.failures import prompt_after_failures
+from robinauts.worker.tools import functions_for
+from robinauts.worker.turns import (
     CLOSE,
     STALLED,
     end_if_running,
     load_messages,
     run_turn,
 )
-from robinauts.controller.contract.domain import (
-    RUN_TURN,
-    Config,
-    Message,
-    StorageConfig,
-    StorageKind,
-    Task,
-    TextPart,
-    Turn,
-    TurnState,
-    UnknownEngineError,
-)
-from robinauts.controller.contract.ports import TurnBroker
-from robinauts.controller.core.engine_settings import (
-    SecretLookup,
-    engine_settings,
-    engine_storage,
-)
-from robinauts.controller.core.failures import prompt_after_failures
-from robinauts.controller.ports.agent_engine_store import AgentEngineStore
-from robinauts.tools.contract.ports import ToolProvider
 
 _log = logging.getLogger(__name__)
 
@@ -353,6 +351,17 @@ class Worker:
             except Exception:
                 _log.exception("the worker could not claim tasks")
                 await asyncio.sleep(self._wait_timeout)
+
+
+async def run_at_intervals(interval: float, func: Callable[[], Awaitable[None]]) -> None:
+    """Run ``func`` every ``interval`` seconds until cancelled; a failure is logged, and the
+    next run comes as usual."""
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await func()
+        except Exception:
+            _log.exception("%s failed", getattr(func, "__name__", func))
 
 
 async def _cancel_and_wait(task: asyncio.Task[None] | None) -> None:

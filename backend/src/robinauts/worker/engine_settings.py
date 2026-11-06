@@ -13,14 +13,14 @@ from robinauts.agent_engines.contract.ports import (
     StorageKind,
     ToolSecretLookup,
 )
-from robinauts.controller.contract import domain
+from robinauts.shared_domain import domain as shared
 
 SecretLookup = Callable[[str], str | None]
 """An environment variable's value by its name, or ``None``."""
 
 
 class _Keys(ProviderKeyLookup):
-    def __init__(self, config: domain.Config, secret_for: SecretLookup) -> None:
+    def __init__(self, config: shared.Config, secret_for: SecretLookup) -> None:
         self._config = config
         self._secret_for = secret_for
 
@@ -28,12 +28,12 @@ class _Keys(ProviderKeyLookup):
         provider = self._config.providers.get(provider_id)
         key = self._secret_for(provider.api_key_env) if provider is not None else None
         if not key:
-            raise domain.MissingSecretError(f"no key for provider {provider_id!r}")
+            raise shared.MissingSecretError(f"no key for provider {provider_id!r}")
         return key
 
 
 class _ToolSecrets(ToolSecretLookup):
-    def __init__(self, config: domain.Config, secret_for: SecretLookup) -> None:
+    def __init__(self, config: shared.Config, secret_for: SecretLookup) -> None:
         self._config = config
         self._secret_for = secret_for
 
@@ -41,12 +41,12 @@ class _ToolSecrets(ToolSecretLookup):
         server = self._config.tool_servers.get(server_id)
         secret = self._secret_for(server.secret_env) if server is not None else None
         if not secret:
-            raise domain.MissingSecretError(f"no secret for tool server {server_id!r}")
+            raise shared.MissingSecretError(f"no secret for tool server {server_id!r}")
         return secret
 
 
-def engine_settings(config: domain.Config, secret_for: SecretLookup) -> EngineSettings:
-    """The controller's configuration as the engines take it: the same tables, no agents."""
+def engine_settings(config: shared.Config, secret_for: SecretLookup) -> EngineSettings:
+    """The configuration as the engines take it: the same tables, no agents."""
     models = engine_domain.ModelsConfig(
         providers={
             p.id: engine_domain.ModelProviderConfig(
@@ -85,10 +85,11 @@ def engine_settings(config: domain.Config, secret_for: SecretLookup) -> EngineSe
     )
 
 
-def engine_storage(storage: domain.StorageConfig, pool: object | None) -> StorageConfig:
-    """The controller's storage as an engine takes it. A PostgreSQL pool is the controller's."""
-    if storage.kind is domain.StorageKind.POSTGRES:
+def engine_storage(storage: shared.StorageConfig, pool: object | None) -> StorageConfig:
+    """The storage asked for, as an engine takes it. A PostgreSQL pool is the worker's own
+    (``AgentEngineStore``), for the engines' tables, never the core's."""
+    if storage.kind is shared.StorageKind.POSTGRES:
         return StorageConfig(StorageKind.POSTGRES, {"pool": pool})
-    if storage.kind is domain.StorageKind.LOCAL:
+    if storage.kind is shared.StorageKind.LOCAL:
         return StorageConfig(StorageKind.LOCAL, {"path": storage.path})
     return StorageConfig(StorageKind.IN_PROCESS, {})

@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 from robinauts.agent_engines.contract.domain import FunctionTool, FunctionToolError
-from robinauts.controller.contract.domain import (
+from robinauts.shared_domain.domain import (
     Message,
     MessagePart,
     ReasoningPart,
