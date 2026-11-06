@@ -19,7 +19,7 @@ robinauts/
                         core/, ports/, application/,
                         adapters/{in_process,postgres}/
       worker/           runs the turns; of the controller it sees
-                        contract/ alone, the broker's included
+                        contract/broker/ alone
       web/              the HTTP server and sign-in
       cli/              the robinauts command: builds the controller and the worker
                         (composition.py), and starts and stops them and the HTTP server

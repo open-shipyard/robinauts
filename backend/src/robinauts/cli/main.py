@@ -30,7 +30,7 @@ import logging
 import os
 import sys
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -50,10 +50,10 @@ from robinauts.cli.composition import (
     read_tables,
     storage_from,
 )
-from robinauts.cli.lifecycle import Lifecycle
+from robinauts.cli.lifecycle import Lifecycle, WorkerStartError
 from robinauts.controller.contract.domain import ConfigError, DeviceSession, User
 from robinauts.controller.contract.ports import Credentials
-from robinauts.shared_domain.domain import Config, StorageConfig, StorageKind
+from robinauts.shared_domain.domain import Config, ControllerError, StorageConfig, StorageKind
 from robinauts.web.app import create_app
 from robinauts.web.contract.broker.wire import SERVER_KEEP_ALIVE_SECONDS
 from robinauts.web.sign_in import SIGN_IN_KEYS, SignInConfig, is_loopback, parse_sign_in
@@ -160,30 +160,36 @@ def build_app(
     )
 
 
-async def serve(server: uvicorn.Server, lifecycle: Lifecycle) -> None:
+async def serve(server: Server, lifecycle: Lifecycle) -> None:
     """Open the controller and start the worker, then serve until asked to stop. ``Server``
-    stops the worker before it stops listening; the controller is closed once it has."""
-    await lifecycle.start()
+    stops them as it shuts down; the stop here is for a start that failed, or a server that
+    never got as far as its shut-down, and does nothing after the server's."""
     try:
+        await lifecycle.start()
         await server.serve()
     finally:
         await lifecycle.stop()
 
 
 class Server(uvicorn.Server):
-    """uvicorn's server, which stops the worker before it stops listening: a worker in a
-    process of its own ends the turns it runs through this server's API, which the app's
-    lifespan, run once nothing listens any more, would be too late for."""
+    """uvicorn's server, which stops the worker before it stops listening, and closes the
+    controller once it has. A worker in a process of its own ends the turns it runs through
+    this server's API, which the app's shut-down, run once nothing listens any more, would be
+    too late for. The controller is closed here, inside ``serve``, because uvicorn raises a
+    signal it caught again as ``serve`` returns: on SIGTERM nothing after it runs."""
 
-    def __init__(self, config: uvicorn.Config, stop_worker: Callable[[], Awaitable[None]]) -> None:
+    def __init__(self, config: uvicorn.Config, lifecycle: Lifecycle) -> None:
         super().__init__(config)
-        self._stop_worker = stop_worker
+        self._lifecycle = lifecycle
 
     async def shutdown(self, sockets: list[Any] | None = None) -> None:
         try:
-            await self._stop_worker()
+            await self._lifecycle.stop_worker()
         finally:
-            await super().shutdown(sockets=sockets)
+            try:
+                await super().shutdown(sockets=sockets)
+            finally:
+                await self._lifecycle.stop()
 
 
 def start(host: str, port: int, *, dev_no_sign_in: bool) -> int:
@@ -216,11 +222,12 @@ def start(host: str, port: int, *, dev_no_sign_in: bool) -> int:
         timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
         timeout_keep_alive=SERVER_KEEP_ALIVE_SECONDS,
     )
-    server = Server(config, lifecycle.stop_worker)
+    server = Server(config, lifecycle)
     try:
         asyncio.run(serve(server, lifecycle), loop_factory=config.get_loop_factory())
-    except ConfigError as refused:
-        # A database that will not open, or is not this build's: said before anything listens.
+    except (ControllerError, WorkerStartError) as refused:
+        # A database that will not open or is not this build's, an engine the build lacks or a
+        # secret missing, a worker process that did not start: said before anything listens.
         print(refused, file=sys.stderr)
         return 1
     return 0

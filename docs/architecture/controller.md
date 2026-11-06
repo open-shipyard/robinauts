@@ -20,7 +20,7 @@ signed in is web's own concern, the user session.
 
 The worker handles the tasks its process runs, each running one turn. It is a package of its
 own, `robinauts/worker/`, beside the controller rather than inside it: of the controller it
-sees `controller.contract` alone, the turn broker's contract under it included
+sees the turn broker's contract, `controller.contract.broker`, alone
 (`docs/architecture/rules.md`). It builds the engines
 the configuration names, and runs their setup, when it starts. It claims queued tasks and
 runs them, up to `max_running_tasks_per_worker` at once. A conversation's first turn says

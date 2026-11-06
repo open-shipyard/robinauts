@@ -34,6 +34,12 @@ _log = logging.getLogger(__name__)
 
 WORKER_MODULE = "robinauts.cli.worker_process"
 
+
+class WorkerStartError(RuntimeError):
+    """The worker's process ended, or said nothing for ``WORKER_START_SECONDS``, before its
+    worker started."""
+
+
 WORKER_START_SECONDS = 60.0
 """How long `start` waits for the worker's process to say its worker has started, before it
 kills it and fails."""
@@ -55,6 +61,7 @@ class Lifecycle:
         self.composed = composed
         self._broker_url = broker_url
         self._worker_running = False
+        self._opened = False
         self._process: asyncio.subprocess.Process | None = None
         self._watching: asyncio.Task[None] | None = None
         self.access = WorkerAccess()
@@ -67,6 +74,7 @@ class Lifecycle:
         that a server which says it is up runs turns. A worker process is let in through the
         API from then on, with the secret it reads from a pipe at its start."""
         await self.composed.controller.open()
+        self._opened = True
         if self._broker_url is None:
             self.composed.worker.activity_file = self.activity_file
             await self.composed.worker.start()
@@ -133,7 +141,7 @@ class Lifecycle:
             loop.remove_reader(ready)
         if line != READY_LINE:
             await self._stop_process(process)
-            raise RuntimeError(
+            raise WorkerStartError(
                 f"the worker process did not start within {WORKER_START_SECONDS:g} s"
             )
 
@@ -158,10 +166,15 @@ class Lifecycle:
         self.access.close()
 
     async def stop(self) -> None:
-        """Stop the worker, if it still runs, then close the controller."""
+        """Stop the worker, if it still runs, then close the controller, if it is open. Again,
+        or after a start that failed, it does only what is left, and awaits nothing once all
+        is done: a stop a signal has cancelled already must not be cut short by it."""
         await self.stop_worker()
         self.activity_file.unlink(missing_ok=True)
-        await self.composed.controller.close()
+        if self._opened:
+            self._opened = False
+            await self.composed.controller.close()
+            _log.info("the controller is closed")
 
     async def _stop_process(self, process: asyncio.subprocess.Process) -> None:
         if self._watching is not None:
