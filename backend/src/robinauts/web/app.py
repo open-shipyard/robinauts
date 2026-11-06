@@ -43,6 +43,16 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from robinauts.controller.composition import Composed, SecretLookup
+from robinauts.controller.contract.core.domain import (
+    Message,
+    ReasoningPart,
+    Role,
+    Session,
+    TextPart,
+    ToolCallPart,
+    ToolResultPart,
+    Turn,
+)
 from robinauts.controller.contract.domain import (
     ApiToken,
     ControllerError,
@@ -50,19 +60,11 @@ from robinauts.controller.contract.domain import (
     DeviceSession,
     Identity,
     InvalidValueError,
-    Message,
     MessageNotFoundError,
     NoActiveTurnError,
     NumberedEvent,
     OpenedSession,
-    ReasoningPart,
-    Role,
-    Session,
     SessionNotFoundError,
-    TextPart,
-    ToolCallPart,
-    ToolResultPart,
-    Turn,
     TurnActiveError,
     UnknownAgentError,
     UnknownModelError,

@@ -17,7 +17,7 @@ import httpx
 import pytest
 
 from robinauts.controller.composition import compose
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.core.domain import (
     AgentConfig,
     Config,
     ModelConfig,
@@ -25,7 +25,7 @@ from robinauts.controller.contract.domain import (
     StorageConfig,
     StorageKind,
 )
-from robinauts.controller.contract.domain import ProviderConfig as ModelProvider
+from robinauts.controller.contract.core.domain import ProviderConfig as ModelProvider
 from robinauts.web.app import create_app
 from robinauts.web.sign_in import AllowEntry, Matcher, ProviderConfig, SignInConfig
 from util.aio import asyncio_test

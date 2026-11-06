@@ -22,12 +22,11 @@ import pytest
 from echo_controller import CONFIG
 
 from robinauts.controller.composition import Composed, compose
+from robinauts.controller.contract.core.domain import StorageConfig, StorageKind
 from robinauts.controller.contract.domain import (
     DeviceDescription,
     DeviceSession,
     Identity,
-    StorageConfig,
-    StorageKind,
     User,
     UserSession,
 )

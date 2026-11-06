@@ -281,6 +281,17 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "the contract's core imports nothing else of the contract, which builds on it"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["robinauts.controller.contract.core"]
+forbidden_modules = [
+    "robinauts.controller.contract.domain",
+    "robinauts.controller.contract.ports",
+    "robinauts.controller.contract.broker",
+]
+
+[[tool.importlinter.contracts]]
 name = "the controller's records do not import the broker's contract, which builds on them"
 type = "forbidden"
 allow_indirect_imports = true

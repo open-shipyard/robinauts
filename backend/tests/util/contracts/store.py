@@ -19,14 +19,11 @@ from typing import Any
 import pytest
 
 from robinauts.controller.contract.broker.domain import RUN_TURN, Task, TaskState
+from robinauts.controller.contract.core.domain import Role, Session, Turn, TurnState
 from robinauts.controller.contract.domain import (
-    Role,
-    Session,
     SessionNotFoundError,
-    Turn,
     TurnActiveError,
     TurnLostError,
-    TurnState,
     User,
 )
 from robinauts.controller.ports.store import Store, StoredEvent, StoredMessage

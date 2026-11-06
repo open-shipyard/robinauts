@@ -33,6 +33,7 @@ from ag_ui.core import (
 )
 from ag_ui.encoder import EventEncoder
 
+from robinauts.controller.contract.core.domain import Role, TurnState
 from robinauts.controller.contract.domain import (
     ArgumentsPiece,
     CallCompleted,
@@ -42,11 +43,9 @@ from robinauts.controller.contract.domain import (
     NumberedEvent,
     ReasoningPiece,
     ResultLanded,
-    Role,
     TextPiece,
     TurnEnded,
     TurnEvent,
-    TurnState,
 )
 
 ENCODER = EventEncoder()

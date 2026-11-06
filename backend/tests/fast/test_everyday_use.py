@@ -33,7 +33,7 @@ from robinauts.agent_engines.contract.domain import (
 )
 from robinauts.agent_engines.contract.ports import AgentEngine
 from robinauts.controller.composition import compose, configure
-from robinauts.controller.contract.domain import StorageConfig, StorageKind
+from robinauts.controller.contract.core.domain import StorageConfig, StorageKind
 from robinauts.web.app import LOCAL_IDENTITY, create_app
 from util import stack
 from util.aio import asyncio_test

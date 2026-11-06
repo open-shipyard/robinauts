@@ -10,18 +10,19 @@ import pytest
 from robinauts.agent_engines.contract.domain import ProviderKind, ToolServerAuth
 from robinauts.agent_engines.contract.ports import StorageKind
 from robinauts.controller.contract import domain
+from robinauts.controller.contract.core import domain as core
 from robinauts.worker.engine_settings import engine_settings, engine_storage
 
-CONFIG = domain.Config(
-    providers={"acme": domain.ProviderConfig("acme", domain.ProviderKind.ANTHROPIC, "ACME_KEY")},
-    models={"m": domain.ModelConfig("m", "acme", "model-1")},
+CONFIG = core.Config(
+    providers={"acme": core.ProviderConfig("acme", core.ProviderKind.ANTHROPIC, "ACME_KEY")},
+    models={"m": core.ModelConfig("m", "acme", "model-1")},
     tool_servers={
-        "t": domain.ToolServerConfig("t", "https://tools.example", "T_SECRET"),
-        "c": domain.ToolServerConfig(
-            "c", "https://c.example", "C_KEY", domain.ToolServerAuth.HEADER, header="x-api-key"
+        "t": core.ToolServerConfig("t", "https://tools.example", "T_SECRET"),
+        "c": core.ToolServerConfig(
+            "c", "https://c.example", "C_KEY", core.ToolServerAuth.HEADER, header="x-api-key"
         ),
     },
-    agents={"a": domain.AgentConfig("a", "A", "", "m", "echo", ("t",))},
+    agents={"a": core.AgentConfig("a", "A", "", "m", "echo", ("t",))},
 )
 
 
@@ -52,19 +53,19 @@ POOL = object()
     ("storage", "kind", "options"),
     [
         (
-            domain.StorageConfig(domain.StorageKind.LOCAL, path="/d"),
+            core.StorageConfig(core.StorageKind.LOCAL, path="/d"),
             StorageKind.LOCAL,
             {"path": "/d"},
         ),
         (
-            domain.StorageConfig(domain.StorageKind.POSTGRES, url="x"),
+            core.StorageConfig(core.StorageKind.POSTGRES, url="x"),
             StorageKind.POSTGRES,
             {"pool": POOL},
         ),
     ],
 )
 def test_storage_kinds_map_to_the_engines_options(
-    storage: domain.StorageConfig, kind: StorageKind, options: dict[str, object]
+    storage: core.StorageConfig, kind: StorageKind, options: dict[str, object]
 ) -> None:
     mapped = engine_storage(storage, POOL)
     assert (mapped.kind, mapped.options) == (kind, options)

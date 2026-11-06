@@ -7,7 +7,8 @@ import re
 
 import pytest
 
-from robinauts.controller.contract.domain import ConfigError, ProviderKind, ToolServerAuth
+from robinauts.controller.contract.core.domain import ProviderKind, ToolServerAuth
+from robinauts.controller.contract.domain import ConfigError
 from robinauts.controller.core.config import parse_config
 
 AGENT = {"title": "A", "system_prompt": "", "model": "fast"}

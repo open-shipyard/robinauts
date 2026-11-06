@@ -29,6 +29,7 @@ no tool imports another; only controller.composition imports a tool
 ## Inside controller
 
 contract -> nothing from robinauts
+contract.core -> nothing from robinauts; the rest of contract builds on it
 contract.broker -> contract; contract never imports contract.broker
 ports -> contract
 core -> contract, ports, agent_engines.contract; pure functions, no I/O

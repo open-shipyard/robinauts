@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from robinauts.agent_engines.contract.domain import FunctionTool
-from robinauts.controller.contract.domain import Message, Session
+from robinauts.controller.contract.core.domain import Message, Session
 
 
 class ScopedData(ABC):

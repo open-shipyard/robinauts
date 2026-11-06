@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from robinauts.agent_engines.contract.domain import FunctionTool, FunctionToolError
-from robinauts.controller.contract.domain import Message, Role, Session, TextPart
+from robinauts.controller.contract.core.domain import Message, Role, Session, TextPart
 from robinauts.tools.contract.ports import TurnScope
 
 NAME = "search_sessions"

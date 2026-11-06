@@ -13,27 +13,28 @@ import pytest
 from robinauts.agent_engines.contract.domain import ProviderKind
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
 from robinauts.controller.contract import domain
+from robinauts.controller.contract.core import domain as core
 from robinauts.worker.engine_settings import engine_settings, engine_storage
 from robinauts.worker.engines import build_engines
 from util.aio import asyncio_test
 
 
-def config(engine: str, kind: domain.ProviderKind = domain.ProviderKind.ANTHROPIC) -> domain.Config:
-    return domain.Config(
-        providers={"acme": domain.ProviderConfig("acme", kind, "ACME_KEY")},
-        models={"m": domain.ModelConfig("m", "acme", "model-1")},
+def config(engine: str, kind: core.ProviderKind = core.ProviderKind.ANTHROPIC) -> core.Config:
+    return core.Config(
+        providers={"acme": core.ProviderConfig("acme", kind, "ACME_KEY")},
+        models={"m": core.ModelConfig("m", "acme", "model-1")},
         agents={
-            "a": domain.AgentConfig("a", "A", "", "m", engine),
-            "b": domain.AgentConfig("b", "B", "", "m", engine),
+            "a": core.AgentConfig("a", "A", "", "m", engine),
+            "b": core.AgentConfig("b", "B", "", "m", engine),
         },
     )
 
 
 async def build(
-    config: domain.Config, factories: Mapping[str, EngineFactory]
+    config: core.Config, factories: Mapping[str, EngineFactory]
 ) -> dict[str, AgentEngine]:
     settings = engine_settings(config, {"ACME_KEY": "sk-1"}.get)
-    storage = engine_storage(domain.StorageConfig(domain.StorageKind.IN_PROCESS), None)
+    storage = engine_storage(core.StorageConfig(core.StorageKind.IN_PROCESS), None)
     return await build_engines(config, settings, storage, factories)
 
 
@@ -46,13 +47,13 @@ def anthropic_only(*_: object) -> AgentEngine:
 @pytest.mark.parametrize(
     ("engine", "kind", "error", "named"),
     [
-        ("other", domain.ProviderKind.ANTHROPIC, domain.UnknownEngineError, "'other'"),
-        ("fake", domain.ProviderKind.OPENAI, domain.UnreachableProviderError, "'openai'"),
+        ("other", core.ProviderKind.ANTHROPIC, domain.UnknownEngineError, "'other'"),
+        ("fake", core.ProviderKind.OPENAI, domain.UnreachableProviderError, "'openai'"),
     ],
 )
 @asyncio_test
 async def test_an_engine_that_cannot_run_the_agent_is_refused_by_name(
-    engine: str, kind: domain.ProviderKind, error: type[Exception], named: str
+    engine: str, kind: core.ProviderKind, error: type[Exception], named: str
 ) -> None:
     with pytest.raises(error, match=named):
         await build(config(engine, kind), {"fake": anthropic_only})

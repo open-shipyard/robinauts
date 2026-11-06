@@ -24,18 +24,16 @@ from robinauts.agent_engines.contract.domain import (
 )
 from robinauts.agent_engines.echo_engine.engine import EchoEngine
 from robinauts.controller.composition import compose
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.core.domain import (
     AgentConfig,
     Config,
-    Identity,
     ModelConfig,
     ProviderConfig,
     ProviderKind,
     StorageConfig,
     StorageKind,
-    TurnStarted,
-    User,
 )
+from robinauts.controller.contract.domain import Identity, TurnStarted, User
 from robinauts.web.lifecycle import Lifecycle
 from util.aio import asyncio_test
 

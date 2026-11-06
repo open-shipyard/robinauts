@@ -21,26 +21,28 @@ from robinauts.controller.contract.broker.documents import (
 )
 from robinauts.controller.contract.broker.domain import RUN_TURN, Task, TaskState
 from robinauts.controller.contract.broker.partial import failed_answer, partial_answer
+from robinauts.controller.contract.core.domain import (
+    Config,
+    Message,
+    Role,
+    Session,
+    TextPart,
+    Turn,
+    TurnState,
+)
 from robinauts.controller.contract.domain import (
     ActiveTurn,
     AgentListing,
-    Config,
     Identity,
     InvalidValueError,
-    Message,
     MessageNotFoundError,
     ModelListing,
     NoActiveTurnError,
     NumberedEvent,
     OpenedSession,
-    Role,
-    Session,
     SessionPage,
-    TextPart,
-    Turn,
     TurnEnded,
     TurnStarted,
-    TurnState,
     UnknownModelError,
     User,
 )

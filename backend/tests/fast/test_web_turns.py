@@ -15,7 +15,7 @@ import httpx
 from echo_controller import CONFIG
 
 from robinauts.controller.composition import compose
-from robinauts.controller.contract.domain import StorageConfig, StorageKind
+from robinauts.controller.contract.core.domain import StorageConfig, StorageKind
 from robinauts.web.app import create_app
 from util.aio import asyncio_test
 

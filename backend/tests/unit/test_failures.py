@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.core.domain import (
     Message,
     MessagePart,
     Role,

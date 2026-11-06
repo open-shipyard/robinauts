@@ -12,21 +12,23 @@ from datetime import datetime
 
 from robinauts.controller.contract.broker.documents import event_from_document
 from robinauts.controller.contract.broker.domain import Document
+from robinauts.controller.contract.core.domain import (
+    Message,
+    MessagePart,
+    Role,
+    Session,
+    TextPart,
+    ToolCallPart,
+    ToolResultPart,
+    Turn,
+)
 from robinauts.controller.contract.domain import (
     ArgumentsPiece,
     CallCompleted,
     CallStarted,
-    Message,
-    MessagePart,
     MessageStarted,
     ResultLanded,
-    Role,
-    Session,
-    TextPart,
     TextPiece,
-    ToolCallPart,
-    ToolResultPart,
-    Turn,
 )
 
 

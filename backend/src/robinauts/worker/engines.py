@@ -19,10 +19,11 @@ from robinauts.agent_engines.contract.ports import (
     StorageConfig,
 )
 from robinauts.controller.contract import domain
+from robinauts.controller.contract.core import domain as core
 
 
 async def build_engines(
-    config: domain.Config,
+    config: core.Config,
     settings: EngineSettings,
     storage: StorageConfig,
     factories: Mapping[str, EngineFactory],

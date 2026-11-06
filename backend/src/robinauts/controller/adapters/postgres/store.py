@@ -29,14 +29,11 @@ import asyncpg
 from robinauts.controller.adapters.postgres.pool import close_pool, open_pool
 from robinauts.controller.adapters.postgres.schema import check_schema
 from robinauts.controller.contract.broker.domain import Task, TaskState
+from robinauts.controller.contract.core.domain import Role, Session, Turn, TurnState
 from robinauts.controller.contract.domain import (
-    Role,
-    Session,
     SessionNotFoundError,
-    Turn,
     TurnActiveError,
     TurnLostError,
-    TurnState,
     User,
 )
 from robinauts.controller.ports.store import (

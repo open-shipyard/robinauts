@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 
 from robinauts.controller.composition import compose
-from robinauts.controller.contract.domain import Config, StorageConfig, StorageKind
+from robinauts.controller.contract.core.domain import Config, StorageConfig, StorageKind
 from robinauts.web.app import create_app
 
 SNAPSHOT = Path(__file__).resolve().parents[2] / "openapi.json"

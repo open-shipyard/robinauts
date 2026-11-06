@@ -38,28 +38,30 @@ from robinauts.controller.contract.broker.documents import (
 from robinauts.controller.contract.broker.domain import StoredEvent
 from robinauts.controller.contract.broker.partial import failed_answer, with_text
 from robinauts.controller.contract.broker.ports import TurnBroker
+from robinauts.controller.contract.core.domain import (
+    Message,
+    MessagePart,
+    Role,
+    Session,
+    TextPart,
+    ToolCallPart,
+    ToolResultPart,
+    Turn,
+    TurnState,
+)
 from robinauts.controller.contract.domain import (
     ArgumentsPiece,
     CallCompleted,
     CallStarted,
-    Message,
     MessageCompleted,
-    MessagePart,
     MessageStarted,
     ReasoningPiece,
     ResultLanded,
-    Role,
-    Session,
     SessionNotFoundError,
-    TextPart,
     TextPiece,
-    ToolCallPart,
-    ToolResultPart,
-    Turn,
     TurnEnded,
     TurnEvent,
     TurnLostError,
-    TurnState,
 )
 
 CLOSE = "close"

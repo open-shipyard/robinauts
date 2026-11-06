@@ -8,10 +8,9 @@ import re
 from collections.abc import Callable, Collection, Mapping
 from typing import Any
 
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.core.domain import (
     AgentConfig,
     Config,
-    ConfigError,
     ModelConfig,
     ProviderConfig,
     ProviderKind,
@@ -19,6 +18,7 @@ from robinauts.controller.contract.domain import (
     ToolServerConfig,
     WorkConfig,
 )
+from robinauts.controller.contract.domain import ConfigError
 
 ENGINES = ("langchain", "pydantic-ai", "echo")
 
