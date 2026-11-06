@@ -16,12 +16,12 @@ cli -> web, controller, worker, tools, agent_engines.contract, all but web and c
 
 ```mermaid
 flowchart TD
-    web -- contract --> controller
-    worker -- contract.broker --> controller
-    worker -- contract.broker --> web
-    worker -- contract --> tools
-    worker -- contract --> agent_engines
-    tools -- contract --> agent_engines
+    web --> controller
+    worker --> controller
+    worker --> web
+    worker --> tools
+    worker --> agent_engines
+    tools --> agent_engines
 ```
 
 ## Inside agent_engines
