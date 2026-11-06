@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""Work in the background on a schedule: the controller's sweep, the worker's heartbeat."""
+"""Work in the background on a schedule: the controller's sweep. The worker has its own,
+for its heartbeat, being apart from the controller."""
 
 from __future__ import annotations
 

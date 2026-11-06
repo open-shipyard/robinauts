@@ -14,9 +14,14 @@ from collections.abc import AsyncGenerator, Callable
 from datetime import UTC, datetime, timedelta
 
 from robinauts.controller.application.intervals import run_at_intervals
-from robinauts.controller.application.turns import load_messages
+from robinauts.controller.broker.contract.documents import (
+    event_from_document,
+    message_from_document,
+    stored_message,
+)
+from robinauts.controller.broker.contract.domain import RUN_TURN, Task, TaskState
+from robinauts.controller.broker.contract.partial import failed_answer, partial_answer
 from robinauts.controller.contract.domain import (
-    RUN_TURN,
     ActiveTurn,
     AgentListing,
     Config,
@@ -31,8 +36,6 @@ from robinauts.controller.contract.domain import (
     Role,
     Session,
     SessionPage,
-    Task,
-    TaskState,
     TextPart,
     Turn,
     TurnEnded,
@@ -42,11 +45,6 @@ from robinauts.controller.contract.domain import (
     User,
 )
 from robinauts.controller.contract.ports import Controller
-from robinauts.controller.core.documents import (
-    event_from_document,
-    stored_message,
-)
-from robinauts.controller.core.partial import failed_answer, partial_answer
 from robinauts.controller.core.titles import title_from_text
 from robinauts.controller.ports.store import Cursor, Store
 
@@ -422,6 +420,11 @@ class RobinautsController(Controller):
         answer = failed_answer(answer_id or uuid.uuid4(), session, turn, parts, now)
         stored = stored_message(answer)
         await self._store.end_expired_turn(session.owner_id, session.id, turn.id, now, stored)
+
+
+async def load_messages(store: Store, owner: uuid.UUID, session: uuid.UUID) -> list[Message]:
+    """Every message of the session, decoded, oldest first."""
+    return [message_from_document(d) for d in await store.messages_of(owner, session)]
 
 
 def _encode_cursor(session: Session) -> str:

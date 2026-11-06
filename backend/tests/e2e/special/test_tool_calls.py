@@ -23,7 +23,7 @@ from util.mcp_server import mcp_server
 
 pytestmark = [pytest.mark.io, pytest.mark.database]
 
-# What the retry is told the failed answer did (controller/core/failures.py).
+# What the retry is told the failed answer did (worker/failures.py).
 POISON_CALL = '- shout({"text": "poison pill"}) -> result, tool output: "POISON PILL"'
 
 

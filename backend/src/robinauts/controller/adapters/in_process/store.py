@@ -12,11 +12,10 @@ import uuid
 from collections.abc import Callable, Sequence
 from datetime import datetime
 
+from robinauts.controller.broker.contract.domain import Task, TaskState
 from robinauts.controller.contract.domain import (
     Session,
     SessionNotFoundError,
-    Task,
-    TaskState,
     Turn,
     TurnActiveError,
     TurnLostError,

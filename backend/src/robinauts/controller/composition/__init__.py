@@ -23,9 +23,8 @@ from robinauts.agent_engines.contract.ports import StorageKind as EngineStorageK
 from robinauts.controller.adapters.config_file import read_config
 from robinauts.controller.adapters.in_process.credentials import InProcessCredentials
 from robinauts.controller.adapters.in_process.store import InProcessStore
-from robinauts.controller.adapters.postgres.agent_engine_store import PostgresAgentEngineStore
 from robinauts.controller.adapters.postgres.credentials import PostgresCredentials
-from robinauts.controller.adapters.postgres.pool import open_pool
+from robinauts.controller.adapters.postgres.pool import close_pool, open_pool
 from robinauts.controller.adapters.postgres.schema import (
     SCHEMA_SHA256,
     SCHEMA_VERSION,
@@ -33,15 +32,17 @@ from robinauts.controller.adapters.postgres.schema import (
 )
 from robinauts.controller.adapters.postgres.store import PostgresStore
 from robinauts.controller.application.controller import RobinautsController
-from robinauts.controller.application.turn_broker import InProcessTurnBroker
-from robinauts.controller.application.worker import Worker
+from robinauts.controller.broker.contract.ports import TurnBroker
+from robinauts.controller.broker.in_process import InProcessTurnBroker
 from robinauts.controller.contract.domain import Config, ConfigError, StorageConfig, StorageKind
-from robinauts.controller.contract.ports import Controller, Credentials, TurnBroker
+from robinauts.controller.contract.ports import Controller, Credentials
 from robinauts.controller.core.config import parse_config
-from robinauts.controller.core.engine_settings import SecretLookup, engine_settings
 from robinauts.controller.ports.store import Store
 from robinauts.tools import sessions
 from robinauts.tools.contract.ports import ToolProvider
+from robinauts.worker.agent_engine_store import PoolAgentEngineStore
+from robinauts.worker.engine_settings import SecretLookup, engine_settings
+from robinauts.worker.worker import Worker
 
 DATABASE_URL_VARIABLE = "ROBINAUTS_DATABASE_URL"
 
@@ -120,14 +121,15 @@ def compose_worker(
     broker: TurnBroker,
     engines: Mapping[str, EngineFactory] | None = None,
 ) -> Worker:
-    """A worker that reaches the core through `core` alone. Its engines keep their state on
+    """A worker that reaches the core through `broker` alone. Its engines keep their state on
     `storage`: on PostgreSQL in a pool of the worker's own, which reads and writes the
     engines' tables, never the core's."""
     agent_engine_store = None
     if storage.kind is StorageKind.POSTGRES:
         if not storage.url:
             raise ConfigError(f"{DATABASE_URL_VARIABLE} is not set")
-        agent_engine_store = PostgresAgentEngineStore(storage.url)
+        url = storage.url
+        agent_engine_store = PoolAgentEngineStore(lambda: open_pool(url), close_pool)
     return Worker(
         broker,
         config,

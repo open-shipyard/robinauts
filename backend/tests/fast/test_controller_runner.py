@@ -20,8 +20,8 @@ from robinauts.agent_engines.echo_engine.engine import EchoEngine
 from robinauts.controller.adapters.in_process.credentials import InProcessCredentials
 from robinauts.controller.adapters.in_process.store import InProcessStore
 from robinauts.controller.application.controller import RobinautsController
-from robinauts.controller.application.turn_broker import InProcessTurnBroker
-from robinauts.controller.application.worker import Worker
+from robinauts.controller.broker.contract.documents import event_from_document
+from robinauts.controller.broker.in_process import InProcessTurnBroker
 from robinauts.controller.composition import Composed
 from robinauts.controller.contract.domain import (
     ActiveTurn,
@@ -35,8 +35,8 @@ from robinauts.controller.contract.domain import (
     TurnState,
     User,
 )
-from robinauts.controller.core.documents import event_from_document
 from robinauts.web.lifecycle import Lifecycle
+from robinauts.worker.worker import Worker
 from util.aio import asyncio_test
 
 FIVE_MINUTES = timedelta(minutes=5)

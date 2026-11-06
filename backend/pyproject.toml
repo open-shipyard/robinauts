@@ -230,7 +230,7 @@ name = "agent_engines imports nothing from robinauts outside itself"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.agent_engines"]
-forbidden_modules = ["robinauts.controller", "robinauts.tools", "robinauts.web"]
+forbidden_modules = ["robinauts.controller", "robinauts.tools", "robinauts.worker", "robinauts.web"]
 
 [[tool.importlinter.contracts]]
 name = "the engines' contract imports no engine"
@@ -270,6 +270,7 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.controller.contract"]
 forbidden_modules = [
+    "robinauts.controller.broker",
     "robinauts.controller.ports",
     "robinauts.controller.core",
     "robinauts.controller.adapters",
@@ -277,14 +278,46 @@ forbidden_modules = [
     "robinauts.controller.composition",
     "robinauts.agent_engines",
     "robinauts.tools",
+    "robinauts.worker",
 ]
 
 [[tool.importlinter.contracts]]
-name = "controller.ports imports only the controller's contract"
+name = "the broker's contract imports only the controller's contract"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["robinauts.controller.broker.contract"]
+forbidden_modules = [
+    "robinauts.controller.broker.in_process",
+    "robinauts.controller.ports",
+    "robinauts.controller.core",
+    "robinauts.controller.adapters",
+    "robinauts.controller.application",
+    "robinauts.controller.composition",
+    "robinauts.agent_engines",
+    "robinauts.tools",
+    "robinauts.worker",
+]
+
+[[tool.importlinter.contracts]]
+name = "the in-process broker imports the contracts and the ports"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["robinauts.controller.broker.in_process"]
+forbidden_modules = [
+    "robinauts.controller.core",
+    "robinauts.controller.adapters",
+    "robinauts.controller.application",
+    "robinauts.agent_engines",
+    "robinauts.tools",
+]
+
+[[tool.importlinter.contracts]]
+name = "controller.ports imports only the controller's and the broker's contracts"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.controller.ports"]
 forbidden_modules = [
+    "robinauts.controller.broker.in_process",
     "robinauts.controller.core",
     "robinauts.controller.adapters",
     "robinauts.controller.application",
@@ -294,11 +327,12 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "controller.adapters imports only the contract and the ports"
+name = "controller.adapters imports only the contracts and the ports"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.controller.adapters"]
 forbidden_modules = [
+    "robinauts.controller.broker.in_process",
     "robinauts.controller.core",
     "robinauts.controller.application",
     "robinauts.controller.composition",
@@ -307,11 +341,12 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "controller.core imports the contract, the ports and the engines' contract"
+name = "controller.core imports the contracts, the ports and the engines' contract"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.controller.core"]
 forbidden_modules = [
+    "robinauts.controller.broker.in_process",
     "robinauts.controller.adapters",
     "robinauts.controller.application",
     "robinauts.controller.composition",
@@ -319,11 +354,15 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-name = "controller.application imports the contract, the ports and the engines' and tools' contracts"
+name = "controller.application imports the contracts, the ports, the core and the engines' and tools' contracts"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.controller.application"]
-forbidden_modules = ["robinauts.controller.adapters", "robinauts.controller.composition"]
+forbidden_modules = [
+    "robinauts.controller.broker.in_process",
+    "robinauts.controller.adapters",
+    "robinauts.controller.composition",
+]
 
 [[tool.importlinter.contracts]]
 name = "composition is imported by web alone"
@@ -331,28 +370,67 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
     "robinauts.controller.contract",
+    "robinauts.controller.broker",
     "robinauts.controller.ports",
     "robinauts.controller.core",
     "robinauts.controller.adapters",
     "robinauts.controller.application",
     "robinauts.agent_engines",
     "robinauts.tools",
+    "robinauts.worker",
 ]
 forbidden_modules = ["robinauts.controller.composition"]
 
 [[tool.importlinter.contracts]]
-name = "web imports only the controller's contract and composition"
+name = "web imports only the controller's and the broker's contracts and composition"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.web"]
 forbidden_modules = [
+    "robinauts.controller.broker.in_process",
     "robinauts.controller.core",
     "robinauts.controller.ports",
     "robinauts.controller.adapters",
     "robinauts.controller.application",
     "robinauts.agent_engines",
     "robinauts.tools",
+    "robinauts.worker",
 ]
+
+# --- worker --------------------------------------------------------------------
+# A sibling of the controller, which it reaches through the broker's contract alone.
+
+[[tool.importlinter.contracts]]
+name = "worker imports the controller's and the broker's contracts, and the engines' and tools' contracts"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["robinauts.worker"]
+forbidden_modules = [
+    "robinauts.controller.broker.in_process",
+    "robinauts.controller.ports",
+    "robinauts.controller.core",
+    "robinauts.controller.adapters",
+    "robinauts.controller.application",
+    "robinauts.controller.composition",
+    "robinauts.agent_engines.echo_engine",
+    "robinauts.agent_engines.langchain_engine",
+    "robinauts.agent_engines.pydantic_ai_engine",
+    "robinauts.tools.sessions",
+    "robinauts.web",
+]
+
+[[tool.importlinter.contracts]]
+name = "the worker is named by composition alone"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "robinauts.agent_engines",
+    "robinauts.controller",
+    "robinauts.tools",
+    "robinauts.web",
+]
+forbidden_modules = ["robinauts.worker"]
+ignore_imports = ["robinauts.controller.composition -> robinauts.worker.*"]
 
 # --- tools ---------------------------------------------------------------------
 # Everything about a tool is in its package. A new tool adds its package to the
@@ -366,6 +444,7 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.tools"]
 forbidden_modules = [
+    "robinauts.controller.broker",
     "robinauts.controller.ports",
     "robinauts.controller.core",
     "robinauts.controller.adapters",
@@ -374,6 +453,7 @@ forbidden_modules = [
     "robinauts.agent_engines.echo_engine",
     "robinauts.agent_engines.langchain_engine",
     "robinauts.agent_engines.pydantic_ai_engine",
+    "robinauts.worker",
     "robinauts.web",
 ]
 
@@ -386,6 +466,7 @@ allow_indirect_imports = true
 source_modules = [
     "robinauts.agent_engines",
     "robinauts.controller",
+    "robinauts.worker",
     "robinauts.web",
     "robinauts.tools.contract",
 ]

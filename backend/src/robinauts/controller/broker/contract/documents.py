@@ -20,6 +20,7 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
+from robinauts.controller.broker.contract.domain import StoredMessage
 from robinauts.controller.contract.domain import (
     ArgumentsPiece,
     CallCompleted,
@@ -43,7 +44,6 @@ from robinauts.controller.contract.domain import (
     TurnStarted,
     TurnState,
 )
-from robinauts.controller.ports.store import StoredMessage
 
 VERSION = 1
 """One number for both documents. Additive changes keep it; anything else moves it."""

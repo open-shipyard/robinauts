@@ -22,19 +22,21 @@ from typing import Any
 
 import httpx
 
-from robinauts.controller.contract.domain import (
+from robinauts.controller.broker.contract.domain import (
     Cursor,
     Document,
-    Session,
-    SessionNotFoundError,
     StoredEvent,
     StoredMessage,
     Task,
+)
+from robinauts.controller.broker.contract.ports import TurnBroker
+from robinauts.controller.contract.domain import (
+    Session,
+    SessionNotFoundError,
     Turn,
     TurnLostError,
     TurnState,
 )
-from robinauts.controller.contract.ports import TurnBroker
 from robinauts.web.worker_wire import (
     PREFIX,
     SESSION_NOT_FOUND,

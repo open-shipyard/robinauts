@@ -12,9 +12,9 @@ import pytest
 
 from robinauts.agent_engines.contract.domain import ProviderKind
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
-from robinauts.controller.application.engines import build_engines
 from robinauts.controller.contract import domain
-from robinauts.controller.core.engine_settings import engine_settings, engine_storage
+from robinauts.worker.engine_settings import engine_settings, engine_storage
+from robinauts.worker.engines import build_engines
 from util.aio import asyncio_test
 
 

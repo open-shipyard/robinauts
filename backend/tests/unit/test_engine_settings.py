@@ -10,7 +10,7 @@ import pytest
 from robinauts.agent_engines.contract.domain import ProviderKind, ToolServerAuth
 from robinauts.agent_engines.contract.ports import StorageKind
 from robinauts.controller.contract import domain
-from robinauts.controller.core.engine_settings import engine_settings, engine_storage
+from robinauts.worker.engine_settings import engine_settings, engine_storage
 
 CONFIG = domain.Config(
     providers={"acme": domain.ProviderConfig("acme", domain.ProviderKind.ANTHROPIC, "ACME_KEY")},

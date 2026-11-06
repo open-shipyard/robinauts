@@ -7,7 +7,7 @@ The model is ``docs/architecture/data-model.md``. Every operation on a session n
 owner and the session; every operation on a turn names the owner, the session and the turn,
 so that a store keeping a session's records in one partition finds them from those ids. A
 session that is not that owner's, or is hidden, is ``SessionNotFoundError``. Messages and
-events cross as the documents ``controller.core.documents`` writes, with the columns
+events cross as the documents ``controller.broker.contract.documents`` writes, with the columns
 beside them, and the store never reads inside one. A store keeps no clock and mints no id:
 every time and every id comes from the caller.
 """
@@ -19,17 +19,14 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from datetime import datetime
 
-from robinauts.controller.contract.domain import (
+from robinauts.controller.broker.contract.domain import (
     Cursor,
     Document,
-    Session,
     StoredEvent,
     StoredMessage,
     Task,
-    Turn,
-    TurnState,
-    User,
 )
+from robinauts.controller.contract.domain import Session, Turn, TurnState, User
 
 
 class Store(ABC):
