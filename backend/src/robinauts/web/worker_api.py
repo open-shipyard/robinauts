@@ -27,7 +27,7 @@ from fastapi.routing import APIRoute
 from pydantic import AwareDatetime
 
 from robinauts.controller.contract.broker.ports import TurnBroker
-from robinauts.controller.contract.domain import SessionNotFoundError, TurnLostError
+from robinauts.shared_domain.domain import SessionNotFoundError, TurnLostError
 from robinauts.web.contract.broker.wire import (
     MAX_WAIT_SECONDS,
     PREFIX,

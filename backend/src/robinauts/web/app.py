@@ -45,7 +45,6 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from robinauts.controller.composition import Composed, SecretLookup
 from robinauts.controller.contract.domain import (
     ApiToken,
-    ControllerError,
     DeviceDescription,
     DeviceSession,
     Identity,
@@ -54,17 +53,18 @@ from robinauts.controller.contract.domain import (
     NoActiveTurnError,
     NumberedEvent,
     OpenedSession,
-    SessionNotFoundError,
     TurnActiveError,
     UnknownAgentError,
     UnknownModelError,
     User,
 )
 from robinauts.shared_domain.domain import (
+    ControllerError,
     Message,
     ReasoningPart,
     Role,
     Session,
+    SessionNotFoundError,
     TextPart,
     ToolCallPart,
     ToolResultPart,

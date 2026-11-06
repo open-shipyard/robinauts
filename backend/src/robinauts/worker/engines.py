@@ -18,7 +18,6 @@ from robinauts.agent_engines.contract.ports import (
     EngineSettings,
     StorageConfig,
 )
-from robinauts.controller.contract import domain
 from robinauts.shared_domain import domain as shared
 
 
@@ -43,7 +42,7 @@ async def build_engines(
             continue
         factory = factories.get(agent.engine)
         if factory is None:
-            raise domain.UnknownEngineError(
+            raise shared.UnknownEngineError(
                 f"agent {agent.id!r} runs on engine {agent.engine!r}, which this build"
                 f" does not have"
             )
@@ -55,7 +54,7 @@ async def build_engines(
         model = config.models[agent.model]
         kind = config.providers[model.provider].kind
         if engine_domain.ProviderKind(kind.value) not in engines[agent.engine].kinds():
-            raise domain.UnreachableProviderError(
+            raise shared.UnreachableProviderError(
                 f"agent {agent.id!r} runs on model {agent.model!r}, of kind {kind.value!r},"
                 f" which engine {agent.engine!r} cannot reach"
             )

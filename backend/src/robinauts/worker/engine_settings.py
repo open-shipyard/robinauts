@@ -13,7 +13,6 @@ from robinauts.agent_engines.contract.ports import (
     StorageKind,
     ToolSecretLookup,
 )
-from robinauts.controller.contract import domain
 from robinauts.shared_domain import domain as shared
 
 SecretLookup = Callable[[str], str | None]
@@ -29,7 +28,7 @@ class _Keys(ProviderKeyLookup):
         provider = self._config.providers.get(provider_id)
         key = self._secret_for(provider.api_key_env) if provider is not None else None
         if not key:
-            raise domain.MissingSecretError(f"no key for provider {provider_id!r}")
+            raise shared.MissingSecretError(f"no key for provider {provider_id!r}")
         return key
 
 
@@ -42,7 +41,7 @@ class _ToolSecrets(ToolSecretLookup):
         server = self._config.tool_servers.get(server_id)
         secret = self._secret_for(server.secret_env) if server is not None else None
         if not secret:
-            raise domain.MissingSecretError(f"no secret for tool server {server_id!r}")
+            raise shared.MissingSecretError(f"no secret for tool server {server_id!r}")
         return secret
 
 

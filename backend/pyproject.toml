@@ -420,14 +420,16 @@ forbidden_modules = [
 
 # --- worker --------------------------------------------------------------------
 # A sibling of the controller, which it reaches through the turn broker alone:
-# controller.contract.broker, beside the records of controller.contract.
+# controller.contract.broker, and web.contract.broker over HTTP.
 
 [[tool.importlinter.contracts]]
-name = "worker imports the controller's contract, web's contract, and the engines' and tools' contracts"
+name = "worker imports the broker's contracts, shared_domain, and the engines' and tools' contracts"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.worker"]
 forbidden_modules = [
+    "robinauts.controller.contract.domain",
+    "robinauts.controller.contract.ports",
     "robinauts.controller.ports",
     "robinauts.controller.core",
     "robinauts.controller.adapters",
@@ -440,7 +442,7 @@ forbidden_modules = [
     "robinauts.web",
 ]
 # The one part of web the worker may see: the HTTP its turn broker speaks to the server.
-ignore_imports = ["robinauts.worker.** -> robinauts.web.contract.**"]
+ignore_imports = ["robinauts.worker.** -> robinauts.web.contract.broker.**"]
 
 [[tool.importlinter.contracts]]
 name = "the worker is named by composition alone"

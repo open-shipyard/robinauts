@@ -12,7 +12,6 @@ import pytest
 
 from robinauts.agent_engines.contract.domain import ProviderKind
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
-from robinauts.controller.contract import domain
 from robinauts.shared_domain import domain as shared
 from robinauts.worker.engine_settings import engine_settings, engine_storage
 from robinauts.worker.engines import build_engines
@@ -47,8 +46,8 @@ def anthropic_only(*_: object) -> AgentEngine:
 @pytest.mark.parametrize(
     ("engine", "kind", "error", "named"),
     [
-        ("other", shared.ProviderKind.ANTHROPIC, domain.UnknownEngineError, "'other'"),
-        ("fake", shared.ProviderKind.OPENAI, domain.UnreachableProviderError, "'openai'"),
+        ("other", shared.ProviderKind.ANTHROPIC, shared.UnknownEngineError, "'other'"),
+        ("fake", shared.ProviderKind.OPENAI, shared.UnreachableProviderError, "'openai'"),
     ],
 )
 @asyncio_test

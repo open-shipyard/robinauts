@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 from robinauts.shared_domain.domain import (
+    ControllerError,
     Message,
     Session,
     Turn,
@@ -21,16 +22,8 @@ from robinauts.shared_domain.domain import (
 # --- errors -------------------------------------------------------------------
 
 
-class ControllerError(Exception):
-    pass
-
-
 class InvalidValueError(ControllerError, ValueError):
     pass
-
-
-class SessionNotFoundError(ControllerError):
-    """Also for a session that exists and is not the user's."""
 
 
 class MessageNotFoundError(ControllerError):
@@ -45,29 +38,12 @@ class UnknownModelError(ControllerError):
     pass
 
 
-class UnknownEngineError(ControllerError):
-    """An agent configured on an engine this build does not have."""
-
-
-class UnreachableProviderError(ControllerError):
-    """A model on a provider kind its agent's engine cannot reach."""
-
-
-class MissingSecretError(ControllerError):
-    """A key or a secret the environment does not hold."""
-
-
 class ConfigError(ControllerError):
     """A configuration that cannot be used; the message lists every problem found."""
 
 
 class TurnActiveError(ControllerError):
     """A turn asked for while the session already has one running."""
-
-
-class TurnLostError(ControllerError):
-    """A runner's write refused: the turn is no longer running, its lease has passed, or
-    another runner holds the position. The runner writes nothing more."""
 
 
 class NoActiveTurnError(ControllerError):

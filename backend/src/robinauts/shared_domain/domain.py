@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""The records more than one package uses: the configuration, the storage asked for, a session
-with its messages and turns, and the events a turn is told as."""
+"""The records more than one package uses: the errors they share, the configuration, the storage
+asked for, a session with its messages and turns, and the events a turn is told as."""
 
 from __future__ import annotations
 
@@ -12,6 +12,34 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
+
+# --- errors -------------------------------------------------------------------
+
+
+class ControllerError(Exception):
+    pass
+
+
+class SessionNotFoundError(ControllerError):
+    """Also for a session that exists and is not the user's."""
+
+
+class UnknownEngineError(ControllerError):
+    """An agent configured on an engine this build does not have."""
+
+
+class UnreachableProviderError(ControllerError):
+    """A model on a provider kind its agent's engine cannot reach."""
+
+
+class MissingSecretError(ControllerError):
+    """A key or a secret the environment does not hold."""
+
+
+class TurnLostError(ControllerError):
+    """A runner's write refused: the turn is no longer running, its lease has passed, or
+    another runner holds the position. The runner writes nothing more."""
+
 
 # --- configuration ------------------------------------------------------------
 

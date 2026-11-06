@@ -31,8 +31,13 @@ from robinauts.controller.contract.broker.domain import (
     Task,
 )
 from robinauts.controller.contract.broker.ports import TurnBroker
-from robinauts.controller.contract.domain import SessionNotFoundError, TurnLostError
-from robinauts.shared_domain.domain import Session, Turn, TurnState
+from robinauts.shared_domain.domain import (
+    Session,
+    SessionNotFoundError,
+    Turn,
+    TurnLostError,
+    TurnState,
+)
 from robinauts.web.contract.broker.wire import (
     PREFIX,
     SESSION_NOT_FOUND,

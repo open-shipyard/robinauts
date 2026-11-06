@@ -9,7 +9,6 @@ import pytest
 
 from robinauts.agent_engines.contract.domain import ProviderKind, ToolServerAuth
 from robinauts.agent_engines.contract.ports import StorageKind
-from robinauts.controller.contract import domain
 from robinauts.shared_domain import domain as shared
 from robinauts.worker.engine_settings import engine_settings, engine_storage
 
@@ -40,9 +39,9 @@ def test_settings_carry_the_tables_without_agents_and_answer_secrets_by_id() -> 
 
 def test_a_secret_the_environment_lacks_is_refused_by_name() -> None:
     settings = engine_settings(CONFIG, {}.get)
-    with pytest.raises(domain.MissingSecretError, match="'acme'"):
+    with pytest.raises(shared.MissingSecretError, match="'acme'"):
         settings.keys.key_for("acme")
-    with pytest.raises(domain.MissingSecretError, match="'t'"):
+    with pytest.raises(shared.MissingSecretError, match="'t'"):
         settings.tool_secrets.secret_for("t")
 
 
