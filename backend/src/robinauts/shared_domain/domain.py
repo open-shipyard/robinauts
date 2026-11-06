@@ -269,3 +269,24 @@ class TurnEnded:
     """The state alone: the error is on the turn's record, for the operator."""
 
     state: TurnState
+
+
+@dataclass(frozen=True, slots=True)
+class TurnStarted:
+    session_id: uuid.UUID
+    turn_id: uuid.UUID
+    question: Message
+
+
+TurnEvent = (
+    TurnStarted
+    | MessageStarted
+    | TextPiece
+    | ReasoningPiece
+    | CallStarted
+    | ArgumentsPiece
+    | CallCompleted
+    | ResultLanded
+    | MessageCompleted
+    | TurnEnded
+)

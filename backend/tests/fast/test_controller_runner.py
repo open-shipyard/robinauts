@@ -28,10 +28,15 @@ from robinauts.controller.contract.domain import (
     Identity,
     NumberedEvent,
     SessionNotFoundError,
-    TurnStarted,
     User,
 )
-from robinauts.shared_domain.domain import StorageConfig, StorageKind, TurnEnded, TurnState
+from robinauts.shared_domain.domain import (
+    StorageConfig,
+    StorageKind,
+    TurnEnded,
+    TurnStarted,
+    TurnState,
+)
 from robinauts.web.lifecycle import Lifecycle
 from robinauts.worker.worker import Worker
 from util.aio import asyncio_test

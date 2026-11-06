@@ -20,7 +20,7 @@ from robinauts.controller.contract.broker.documents import (
     message_from_document,
     message_to_document,
 )
-from robinauts.controller.contract.domain import InvalidValueError, NumberedEvent, TurnStarted
+from robinauts.controller.contract.domain import InvalidValueError, NumberedEvent
 from robinauts.shared_domain.domain import (
     ArgumentsPiece,
     CallCompleted,
@@ -37,6 +37,7 @@ from robinauts.shared_domain.domain import (
     ToolCallPart,
     ToolResultPart,
     TurnEnded,
+    TurnStarted,
     TurnState,
 )
 

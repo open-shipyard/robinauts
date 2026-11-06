@@ -25,11 +25,10 @@ from robinauts.controller.contract.domain import (
     PairingState,
     PendingLogin,
     SessionPage,
-    TurnStarted,
     User,
     UserSession,
 )
-from robinauts.shared_domain.domain import Session
+from robinauts.shared_domain.domain import Session, TurnStarted
 
 
 class Controller(ABC):

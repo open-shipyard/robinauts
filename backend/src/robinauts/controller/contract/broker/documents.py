@@ -21,12 +21,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from robinauts.controller.contract.broker.domain import StoredMessage
-from robinauts.controller.contract.domain import (
-    InvalidValueError,
-    NumberedEvent,
-    TurnEvent,
-    TurnStarted,
-)
+from robinauts.controller.contract.domain import InvalidValueError, NumberedEvent
 from robinauts.shared_domain.domain import (
     ArgumentsPiece,
     CallCompleted,
@@ -44,6 +39,8 @@ from robinauts.shared_domain.domain import (
     ToolCallPart,
     ToolResultPart,
     TurnEnded,
+    TurnEvent,
+    TurnStarted,
     TurnState,
 )
 

@@ -12,18 +12,10 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 from robinauts.shared_domain.domain import (
-    ArgumentsPiece,
-    CallCompleted,
-    CallStarted,
     Message,
-    MessageCompleted,
-    MessageStarted,
-    ReasoningPiece,
-    ResultLanded,
     Session,
-    TextPiece,
     Turn,
-    TurnEnded,
+    TurnEvent,
 )
 
 # --- errors -------------------------------------------------------------------
@@ -268,27 +260,6 @@ class OpenedSession:
 
 
 # --- turns --------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class TurnStarted:
-    session_id: uuid.UUID
-    turn_id: uuid.UUID
-    question: Message
-
-
-TurnEvent = (
-    TurnStarted
-    | MessageStarted
-    | TextPiece
-    | ReasoningPiece
-    | CallStarted
-    | ArgumentsPiece
-    | CallCompleted
-    | ResultLanded
-    | MessageCompleted
-    | TurnEnded
-)
 
 
 @dataclass(frozen=True, slots=True)
