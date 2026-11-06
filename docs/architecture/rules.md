@@ -11,8 +11,9 @@ agent_engines -> nothing from robinauts
 tools -> agent_engines.contract
 controller -> shared_domain
 worker -> controller.contract.broker, web.contract.broker, agent_engines.contract, tools.contract
-composition -> controller, worker, tools, agent_engines.contract; imported by web alone
-web -> controller.contract, composition
+composition -> controller, worker, tools, agent_engines.contract; imported by cli alone
+web -> controller.contract
+cli -> composition, web, controller.contract; imported by nothing
 
 ## Inside agent_engines
 
@@ -48,5 +49,7 @@ pydantic_ai, pydantic_graph, fastmcp, logfire, logfire_api, opentelemetry -> pyd
 anthropic, openai, mcp -> langchain_engine, pydantic_ai_engine
 asyncpg, sqlite3, aiosqlite -> langchain_engine, pydantic_ai_engine, controller.adapters
 httpx -> web, worker.http_turn_broker, langchain_engine, pydantic_ai_engine
-fastapi, starlette, uvicorn, ag_ui -> web
+fastapi -> web, cli
+starlette, ag_ui -> web
+uvicorn -> cli
 qrcodegen -> web

@@ -23,6 +23,7 @@ from robinauts.agent_engines.contract.domain import (
     ToolResult,
 )
 from robinauts.agent_engines.echo_engine.engine import EchoEngine
+from robinauts.cli.lifecycle import Lifecycle
 from robinauts.composition import compose
 from robinauts.controller.contract.domain import Identity, User
 from robinauts.shared_domain.domain import (
@@ -35,7 +36,6 @@ from robinauts.shared_domain.domain import (
     StorageKind,
     TurnStarted,
 )
-from robinauts.web.lifecycle import Lifecycle
 from util.aio import asyncio_test
 
 SEARCH = "search: "

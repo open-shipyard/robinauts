@@ -28,7 +28,7 @@ so, and the worker creates the engine's session before it runs. It renews the ta
 every `heartbeat_seconds` and stops a task that any process asks to stop. Its stop waits for
 those tasks, bounded, and interrupts the rest. The worker is not an operation of the
 controller. The shell starts it after `open` and stops it before `close`
-(`web/lifecycle.py`). A server finishes its start-up once its worker has started, and stops
+(`cli/lifecycle.py`). A server finishes its start-up once its worker has started, and stops
 its worker before it stops listening.
 
 The worker reaches the core through one port, `TurnBroker` (`contract/broker/ports.py`), and

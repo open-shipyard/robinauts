@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""``robinauts start`` serves the web shell; ``robinauts db init`` makes the database ready;
-``robinauts version`` prints the version;
+"""The ``robinauts`` command: the one place that runs Robinauts, and that starts and stops its
+parts in order. ``robinauts start`` serves the web shell; ``robinauts db init`` makes the
+database ready; ``robinauts version`` prints the version;
 ``robinauts devices list`` and ``robinauts devices end`` are the operator's hold on linked
 devices (``docs/architecture/device-pairing.md``), over the database the server reads.
 
@@ -35,10 +36,13 @@ from pathlib import Path
 from typing import Any
 
 import uvicorn
+from fastapi import FastAPI
 
+from robinauts.cli.lifecycle import Lifecycle
 from robinauts.composition import (
     CONTROLLER_TABLES,
     DATABASE_URL_VARIABLE,
+    Composed,
     SecretLookup,
     compose,
     configure,
@@ -134,6 +138,38 @@ def worker_broker_url(host: str, port: int) -> str:
     return f"http://{host}:{port}"
 
 
+def build_app(
+    composed: Composed,
+    lifecycle: Lifecycle,
+    *,
+    sign_in: SignInConfig | None,
+    secret_for: SecretLookup,
+    ui_dir: Path | None = None,
+) -> FastAPI:
+    """The HTTP server over what the composition built, with the lifecycle's gate for a worker
+    in a process of its own and its health. The app starts and stops nothing: ``serve`` does."""
+    return create_app(
+        composed.controller,
+        composed.credentials,
+        composed.broker,
+        worker_access=lifecycle.access,
+        healthy=lifecycle.healthy,
+        sign_in=sign_in,
+        secret_for=secret_for,
+        ui_dir=ui_dir,
+    )
+
+
+async def serve(server: uvicorn.Server, lifecycle: Lifecycle) -> None:
+    """Open the controller and start the worker, then serve until asked to stop. ``Server``
+    stops the worker before it stops listening; the controller is closed once it has."""
+    await lifecycle.start()
+    try:
+        await server.serve()
+    finally:
+        await lifecycle.stop()
+
+
 class Server(uvicorn.Server):
     """uvicorn's server, which stops the worker before it stops listening: a worker in a
     process of its own ends the turns it runs through this server's API, which the app's
@@ -165,16 +201,14 @@ def start(host: str, port: int, *, dev_no_sign_in: bool) -> int:
     logging.basicConfig(level=logging.INFO)
     if dev_no_sign_in:
         logging.getLogger(__name__).warning(SIGN_IN_OFF)
-    app = create_app(
+    lifecycle = Lifecycle(
         composed,
-        sign_in=sign_in,
-        secret_for=secret_for,
-        ui_dir=ui_dir,
         # A store in this process is this process's alone: its worker runs here.
-        worker_broker_url=(
+        broker_url=(
             worker_broker_url(host, port) if storage.kind is StorageKind.POSTGRES else None
         ),
     )
+    app = build_app(composed, lifecycle, sign_in=sign_in, secret_for=secret_for, ui_dir=ui_dir)
     config = uvicorn.Config(
         app,
         host=host,
@@ -182,7 +216,13 @@ def start(host: str, port: int, *, dev_no_sign_in: bool) -> int:
         timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_SECONDS,
         timeout_keep_alive=SERVER_KEEP_ALIVE_SECONDS,
     )
-    Server(config, app.state.lifecycle.stop_worker).run()
+    server = Server(config, lifecycle.stop_worker)
+    try:
+        asyncio.run(serve(server, lifecycle), loop_factory=config.get_loop_factory())
+    except ConfigError as refused:
+        # A database that will not open, or is not this build's: said before anything listens.
+        print(refused, file=sys.stderr)
+        return 1
     return 0
 
 

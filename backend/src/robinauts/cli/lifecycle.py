@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""The start and the stop of what the composition built, in order: what the app's lifespan
-runs, and what a test that needs no app runs in its place. The worker runs in this process,
+"""The start and the stop of what the composition built, in order: what ``robinauts start``
+runs around the HTTP server (``cli/main.py``), and what a test runs around an app or in its
+place. The worker runs in this process,
 or in a process of its own (``broker_url``), which reaches the core through this server's API
 alone, with a secret handed to it at its start through a pipe, never its environment."""
 
@@ -18,9 +19,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from robinauts.composition import Composed
-from robinauts.web.worker_api import WorkerAccess
-from robinauts.web.worker_process import (
+from robinauts.cli.worker_process import (
     ACTIVITY_VARIABLE,
     BROKER_URL_VARIABLE,
     PARENT_VARIABLE,
@@ -28,10 +27,12 @@ from robinauts.web.worker_process import (
     READY_VARIABLE,
     SECRET_VARIABLE,
 )
+from robinauts.composition import Composed
+from robinauts.web.worker_api import WorkerAccess
 
 _log = logging.getLogger(__name__)
 
-WORKER_MODULE = "robinauts.web.worker_process"
+WORKER_MODULE = "robinauts.cli.worker_process"
 
 WORKER_START_SECONDS = 60.0
 """How long `start` waits for the worker's process to say its worker has started, before it
