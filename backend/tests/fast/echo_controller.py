@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from robinauts.agent_engines.contract.ports import AgentEngine
-from robinauts.controller.composition import compose
+from robinauts.composition import compose
 from robinauts.controller.contract.domain import User
 from robinauts.controller.contract.ports import Controller
 from robinauts.shared_domain.domain import (

@@ -21,7 +21,7 @@ import httpx
 import pytest
 from echo_controller import CONFIG
 
-from robinauts.controller.composition import Composed, compose
+from robinauts.composition import Composed, compose
 from robinauts.controller.contract.domain import (
     DeviceDescription,
     DeviceSession,

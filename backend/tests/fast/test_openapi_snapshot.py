@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from robinauts.controller.composition import compose
+from robinauts.composition import compose
 from robinauts.shared_domain.domain import Config, StorageConfig, StorageKind
 from robinauts.web.app import create_app
 

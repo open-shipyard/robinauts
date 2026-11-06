@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, urlsplit
 import httpx
 import pytest
 
-from robinauts.controller.composition import compose
+from robinauts.composition import compose
 from robinauts.shared_domain.domain import (
     AgentConfig,
     Config,

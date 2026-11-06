@@ -25,7 +25,7 @@ from urllib.parse import quote_plus, urlencode, urlsplit
 
 import httpx
 
-from robinauts.controller.composition import SecretLookup
+from robinauts.composition import SecretLookup
 from robinauts.controller.contract.domain import User
 from robinauts.web.sign_in import (
     GOOGLE_ISSUER,

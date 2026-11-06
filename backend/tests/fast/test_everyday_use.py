@@ -32,7 +32,7 @@ from robinauts.agent_engines.contract.domain import (
     ToolResult,
 )
 from robinauts.agent_engines.contract.ports import AgentEngine
-from robinauts.controller.composition import compose, configure
+from robinauts.composition import compose, configure
 from robinauts.shared_domain.domain import StorageConfig, StorageKind
 from robinauts.web.app import LOCAL_IDENTITY, create_app
 from util import stack

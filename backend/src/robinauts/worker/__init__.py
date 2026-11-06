@@ -5,6 +5,6 @@
 
 A sibling of ``controller``, not a part of it. Of the controller it imports
 ``controller.contract``, its records and the turn broker's contract under it; of the rest of
-Robinauts, the engines' and the tools' contracts. ``controller.composition`` builds it, and
+Robinauts, the engines' and the tools' contracts. ``composition`` builds it, and
 alone imports it.
 """

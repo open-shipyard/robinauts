@@ -18,7 +18,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from robinauts.controller.composition import Composed
+from robinauts.composition import Composed
 from robinauts.web.worker_api import WorkerAccess
 from robinauts.web.worker_process import (
     ACTIVITY_VARIABLE,

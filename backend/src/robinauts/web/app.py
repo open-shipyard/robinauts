@@ -42,7 +42,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from robinauts.controller.composition import Composed, SecretLookup
+from robinauts.composition import Composed, SecretLookup
 from robinauts.controller.contract.domain import (
     ApiToken,
     DeviceDescription,

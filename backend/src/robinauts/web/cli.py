@@ -36,7 +36,7 @@ from typing import Any
 
 import uvicorn
 
-from robinauts.controller.composition import (
+from robinauts.composition import (
     CONTROLLER_TABLES,
     DATABASE_URL_VARIABLE,
     SecretLookup,

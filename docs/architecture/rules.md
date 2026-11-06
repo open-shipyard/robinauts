@@ -9,9 +9,10 @@ runs them.
 shared_domain -> nothing from robinauts; any package but agent_engines may import it
 agent_engines -> nothing from robinauts
 tools -> agent_engines.contract, controller.contract
-controller -> agent_engines.contract, tools.contract; a tool and the worker, by composition alone
+controller -> shared_domain
 worker -> controller.contract.broker, web.contract.broker, agent_engines.contract, tools.contract
-web -> controller.contract, controller.composition
+composition -> controller, worker, tools, agent_engines.contract; imported by web alone
+web -> controller.contract, composition
 
 ## Inside agent_engines
 
@@ -25,17 +26,16 @@ no engine imports another
 
 contract -> agent_engines.contract, controller.contract
 each tool (sessions) -> contract, agent_engines.contract, controller.contract
-no tool imports another; only controller.composition imports a tool
+no tool imports another; only composition imports a tool
 
 ## Inside controller
 
 contract -> nothing from robinauts
 contract.broker -> contract; contract never imports contract.broker
 ports -> contract
-core -> contract, ports, agent_engines.contract; pure functions, no I/O
+core -> contract, ports; pure functions, no I/O
 adapters -> contract, ports
-application -> contract, ports, core, agent_engines.contract, tools.contract
-composition -> contract, ports, core, adapters, application, tools, worker; imported by web alone
+application -> contract, ports, core
 
 ## Inside web
 

@@ -17,9 +17,10 @@ robinauts/
                         echo_engine/, langchain_engine/, pydantic_ai_engine/
       controller/       the application: contract/ (and contract/broker/),
                         core/, ports/, application/,
-                        adapters/{in_process,postgres}/, composition/
+                        adapters/{in_process,postgres}/
       worker/           runs the turns; of the controller it sees
                         contract/ alone, the broker's included
+      composition/      builds the controller and the worker; web alone imports it
       web/              the HTTP server, sign-in, the CLI, the worker's process
     tests/              unit/, fast/, api/, adapters_free/, adapters_metered/,
                         e2e/, tooling/, util/
