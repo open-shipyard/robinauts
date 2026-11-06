@@ -465,15 +465,12 @@ ignore_imports = ["robinauts.composition -> robinauts.worker.*"]
 # another.
 
 [[tool.importlinter.contracts]]
-name = "tools import the tools' contract, the engines' contract and the controller's contract"
+name = "tools import the tools' contract and the engines' contract"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.tools"]
 forbidden_modules = [
-    "robinauts.controller.ports",
-    "robinauts.controller.core",
-    "robinauts.controller.adapters",
-    "robinauts.controller.application",
+    "robinauts.controller",
     "robinauts.composition",
     "robinauts.agent_engines.echo_engine",
     "robinauts.agent_engines.langchain_engine",
