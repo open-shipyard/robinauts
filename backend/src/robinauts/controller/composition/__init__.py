@@ -4,7 +4,8 @@
 """Loads a configuration file, and builds a controller: the store for the storage asked, the
 application over it, what a worker needs of the core over that store, and the worker that
 claims and runs its turns through it, with the credentials sign-in keeps on the same storage.
-A worker in a process of its own is built with `compose_worker`, over the core it is handed.
+A worker in a process of its own is built with `compose_worker`, over the core it is handed:
+`http_turn_broker`, the server's API.
 The file holds web's tables beside the controller's, so web is handed the tables of one
 reading and parses its own. Also
 what `robinauts db init` does, since it is the one other thing that names the store and the
@@ -42,6 +43,7 @@ from robinauts.tools import sessions
 from robinauts.tools.contract.ports import ToolProvider
 from robinauts.worker.agent_engine_store import PoolAgentEngineStore
 from robinauts.worker.engine_settings import SecretLookup, engine_settings
+from robinauts.worker.http_turn_broker import HttpTurnBroker
 from robinauts.worker.worker import Worker
 
 DATABASE_URL_VARIABLE = "ROBINAUTS_DATABASE_URL"
@@ -139,6 +141,12 @@ def compose_worker(
         engines=engines,
         tools=built_in_tools(),
     )
+
+
+def http_turn_broker(url: str, secret: str) -> TurnBroker:
+    """What a worker in a process of its own reaches the core through: the API of the server
+    at `url`, with the secret that server handed it."""
+    return HttpTurnBroker(url, secret)
 
 
 def build(config: Config, *, storage: StorageConfig, secret_for: SecretLookup) -> Controller:

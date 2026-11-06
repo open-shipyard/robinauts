@@ -521,7 +521,7 @@ ignore_imports = [
 unmatched_ignore_imports_alerting = "none"
 
 [[tool.importlinter.contracts]]
-name = "httpx only under web and the two framework engines"
+name = "httpx only under web, the worker's HTTP turn broker and the two framework engines"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts"]
@@ -529,6 +529,7 @@ forbidden_modules = ["httpx"]
 ignore_imports = [
     "robinauts.web -> *",
     "robinauts.web.** -> *",
+    "robinauts.worker.http_turn_broker -> *",
     "robinauts.agent_engines.langchain_engine -> *",
     "robinauts.agent_engines.langchain_engine.** -> *",
     "robinauts.agent_engines.pydantic_ai_engine -> *",

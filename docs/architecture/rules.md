@@ -47,6 +47,6 @@ langchain, langchain_core, langchain_*, langgraph, langchain_mcp_adapters, langs
 pydantic_ai, pydantic_graph, fastmcp, logfire, logfire_api, opentelemetry -> pydantic_ai_engine
 anthropic, openai, mcp -> langchain_engine, pydantic_ai_engine
 asyncpg, sqlite3, aiosqlite -> langchain_engine, pydantic_ai_engine, controller.adapters
-httpx -> web, langchain_engine, pydantic_ai_engine
+httpx -> web, worker.http_turn_broker, langchain_engine, pydantic_ai_engine
 fastapi, starlette, uvicorn, ag_ui -> web
 qrcodegen -> web
