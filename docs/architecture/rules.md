@@ -16,11 +16,6 @@ cli -> web, controller, worker, tools, agent_engines.contract, all but web and c
 
 ```mermaid
 flowchart TD
-    cli --> web
-    cli -- "contract (composition: all)" --> controller
-    cli -- composition --> worker
-    cli -- composition --> tools
-    cli -- composition --> agent_engines
     web -- contract --> controller
     worker -- contract.broker --> controller
     worker -- contract.broker --> web
