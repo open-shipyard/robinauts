@@ -11,7 +11,20 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 
-from robinauts.shared_domain.domain import Message, Role, Session, Turn, TurnState
+from robinauts.shared_domain.domain import (
+    ArgumentsPiece,
+    CallCompleted,
+    CallStarted,
+    Message,
+    MessageCompleted,
+    MessageStarted,
+    ReasoningPiece,
+    ResultLanded,
+    Session,
+    TextPiece,
+    Turn,
+    TurnEnded,
+)
 
 # --- errors -------------------------------------------------------------------
 
@@ -262,67 +275,6 @@ class TurnStarted:
     session_id: uuid.UUID
     turn_id: uuid.UUID
     question: Message
-
-
-@dataclass(frozen=True, slots=True)
-class MessageStarted:
-    message_id: uuid.UUID
-    parent_id: uuid.UUID
-    role: Role = Role.ASSISTANT
-
-
-@dataclass(frozen=True, slots=True)
-class TextPiece:
-    message_id: uuid.UUID
-    text: str
-
-
-@dataclass(frozen=True, slots=True)
-class ReasoningPiece:
-    message_id: uuid.UUID
-    text: str
-
-
-@dataclass(frozen=True, slots=True)
-class CallStarted:
-    message_id: uuid.UUID
-    call_id: str
-    name: str
-
-
-@dataclass(frozen=True, slots=True)
-class ArgumentsPiece:
-    message_id: uuid.UUID
-    call_id: str
-    text: str
-
-
-@dataclass(frozen=True, slots=True)
-class CallCompleted:
-    message_id: uuid.UUID
-    call_id: str
-
-
-@dataclass(frozen=True, slots=True)
-class ResultLanded:
-    message_id: uuid.UUID
-    call_id: str
-    text: str
-    is_error: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class MessageCompleted:
-    """The answer is stored in the same operation; a copy here would store it twice."""
-
-    message_id: uuid.UUID
-
-
-@dataclass(frozen=True, slots=True)
-class TurnEnded:
-    """The state alone: the error is on the turn's record, for the operator."""
-
-    state: TurnState
 
 
 TurnEvent = (

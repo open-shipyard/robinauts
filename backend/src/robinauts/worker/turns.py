@@ -38,29 +38,25 @@ from robinauts.controller.contract.broker.documents import (
 from robinauts.controller.contract.broker.domain import StoredEvent
 from robinauts.controller.contract.broker.partial import failed_answer, with_text
 from robinauts.controller.contract.broker.ports import TurnBroker
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.domain import SessionNotFoundError, TurnEvent, TurnLostError
+from robinauts.shared_domain.domain import (
     ArgumentsPiece,
     CallCompleted,
     CallStarted,
+    Message,
     MessageCompleted,
+    MessagePart,
     MessageStarted,
     ReasoningPiece,
     ResultLanded,
-    SessionNotFoundError,
-    TextPiece,
-    TurnEnded,
-    TurnEvent,
-    TurnLostError,
-)
-from robinauts.shared_domain.domain import (
-    Message,
-    MessagePart,
     Role,
     Session,
     TextPart,
+    TextPiece,
     ToolCallPart,
     ToolResultPart,
     Turn,
+    TurnEnded,
     TurnState,
 )
 

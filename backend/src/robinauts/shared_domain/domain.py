@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""The records more than one package uses: the configuration, the storage asked for, and a
-session with its messages and turns."""
+"""The records more than one package uses: the configuration, the storage asked for, a session
+with its messages and turns, and the events a turn is told as."""
 
 from __future__ import annotations
 
@@ -205,3 +205,67 @@ class Turn:
     """For the operator, on a turn that ended badly; never sent to a browser."""
     retries_message_id: uuid.UUID | None = None
     """The failed answer this turn tries again, which the model is told about."""
+
+
+# --- turn events ------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class MessageStarted:
+    message_id: uuid.UUID
+    parent_id: uuid.UUID
+    role: Role = Role.ASSISTANT
+
+
+@dataclass(frozen=True, slots=True)
+class TextPiece:
+    message_id: uuid.UUID
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningPiece:
+    message_id: uuid.UUID
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class CallStarted:
+    message_id: uuid.UUID
+    call_id: str
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ArgumentsPiece:
+    message_id: uuid.UUID
+    call_id: str
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class CallCompleted:
+    message_id: uuid.UUID
+    call_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResultLanded:
+    message_id: uuid.UUID
+    call_id: str
+    text: str
+    is_error: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class MessageCompleted:
+    """The answer is stored in the same operation; a copy here would store it twice."""
+
+    message_id: uuid.UUID
+
+
+@dataclass(frozen=True, slots=True)
+class TurnEnded:
+    """The state alone: the error is on the turn's record, for the operator."""
+
+    state: TurnState

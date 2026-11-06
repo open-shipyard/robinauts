@@ -32,7 +32,6 @@ from robinauts.controller.contract.domain import (
     NumberedEvent,
     OpenedSession,
     SessionPage,
-    TurnEnded,
     TurnStarted,
     UnknownModelError,
     User,
@@ -47,6 +46,7 @@ from robinauts.shared_domain.domain import (
     Session,
     TextPart,
     Turn,
+    TurnEnded,
     TurnState,
 )
 

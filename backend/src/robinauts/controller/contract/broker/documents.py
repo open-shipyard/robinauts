@@ -22,28 +22,28 @@ from typing import Any
 
 from robinauts.controller.contract.broker.domain import StoredMessage
 from robinauts.controller.contract.domain import (
-    ArgumentsPiece,
-    CallCompleted,
-    CallStarted,
     InvalidValueError,
-    MessageCompleted,
-    MessageStarted,
     NumberedEvent,
-    ReasoningPiece,
-    ResultLanded,
-    TextPiece,
-    TurnEnded,
     TurnEvent,
     TurnStarted,
 )
 from robinauts.shared_domain.domain import (
+    ArgumentsPiece,
+    CallCompleted,
+    CallStarted,
     Message,
+    MessageCompleted,
     MessagePart,
+    MessageStarted,
     ReasoningPart,
+    ReasoningPiece,
+    ResultLanded,
     Role,
     TextPart,
+    TextPiece,
     ToolCallPart,
     ToolResultPart,
+    TurnEnded,
     TurnState,
 )
 
