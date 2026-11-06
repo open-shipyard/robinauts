@@ -12,6 +12,7 @@ robinauts/
   frontend/         the UI (ADR 0006)
   backend/
     src/robinauts/
+      shared_domain/    the records more than one package uses
       agent_engines/    the agent port and its engines: contract/,
                         echo_engine/, langchain_engine/, pydantic_ai_engine/
       controller/       the application: contract/ (and contract/broker/),

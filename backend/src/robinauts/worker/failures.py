@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 
-from robinauts.controller.contract.core.domain import (
+from robinauts.shared_domain.domain import (
     Message,
     TextPart,
     ToolCallPart,

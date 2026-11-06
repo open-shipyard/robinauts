@@ -2,7 +2,7 @@
 # Copyright The Robinauts Authors
 
 """What crosses the controller port, as plain data (``docs/architecture/controller.md``), beside
-the records of ``controller.contract.core``."""
+the records of ``shared_domain``."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 
-from robinauts.controller.contract.core.domain import Message, Role, Session, Turn, TurnState
+from robinauts.shared_domain.domain import Message, Role, Session, Turn, TurnState
 
 # --- errors -------------------------------------------------------------------
 

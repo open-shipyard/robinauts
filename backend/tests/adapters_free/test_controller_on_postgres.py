@@ -15,7 +15,8 @@ import asyncpg
 import pytest
 
 from robinauts.controller.composition import SCHEMA_READY, compose, init_database
-from robinauts.controller.contract.core.domain import (
+from robinauts.controller.contract.domain import ConfigError, Identity, UserSession
+from robinauts.shared_domain.domain import (
     AgentConfig,
     Config,
     ModelConfig,
@@ -25,7 +26,6 @@ from robinauts.controller.contract.core.domain import (
     StorageKind,
     TextPart,
 )
-from robinauts.controller.contract.domain import ConfigError, Identity, UserSession
 from robinauts.web.cli import run
 from robinauts.web.lifecycle import Lifecycle
 from util.aio import asyncio_test

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright The Robinauts Authors
 
-"""What every part of the controller's contract builds on: the configuration, the storage asked
-for, and a session with its messages and turns."""
+"""The records more than one package uses: the configuration, the storage asked for, and a
+session with its messages and turns."""
 
 from __future__ import annotations
 

@@ -226,11 +226,30 @@ root_package = "robinauts"
 include_external_packages = true
 
 [[tool.importlinter.contracts]]
+name = "shared_domain imports nothing from robinauts outside itself"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["robinauts.shared_domain"]
+forbidden_modules = [
+    "robinauts.agent_engines",
+    "robinauts.controller",
+    "robinauts.tools",
+    "robinauts.worker",
+    "robinauts.web",
+]
+
+[[tool.importlinter.contracts]]
 name = "agent_engines imports nothing from robinauts outside itself"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["robinauts.agent_engines"]
-forbidden_modules = ["robinauts.controller", "robinauts.tools", "robinauts.worker", "robinauts.web"]
+forbidden_modules = [
+    "robinauts.shared_domain",
+    "robinauts.controller",
+    "robinauts.tools",
+    "robinauts.worker",
+    "robinauts.web",
+]
 
 [[tool.importlinter.contracts]]
 name = "the engines' contract imports no engine"
@@ -278,17 +297,6 @@ forbidden_modules = [
     "robinauts.agent_engines",
     "robinauts.tools",
     "robinauts.worker",
-]
-
-[[tool.importlinter.contracts]]
-name = "the contract's core imports nothing else of the contract, which builds on it"
-type = "forbidden"
-allow_indirect_imports = true
-source_modules = ["robinauts.controller.contract.core"]
-forbidden_modules = [
-    "robinauts.controller.contract.domain",
-    "robinauts.controller.contract.ports",
-    "robinauts.controller.contract.broker",
 ]
 
 [[tool.importlinter.contracts]]

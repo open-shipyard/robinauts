@@ -47,9 +47,9 @@ from robinauts.controller.composition import (
     read_tables,
     storage_from,
 )
-from robinauts.controller.contract.core.domain import Config, StorageConfig, StorageKind
 from robinauts.controller.contract.domain import ConfigError, DeviceSession, User
 from robinauts.controller.contract.ports import Credentials
+from robinauts.shared_domain.domain import Config, StorageConfig, StorageKind
 from robinauts.web.app import create_app
 from robinauts.web.contract.broker.wire import SERVER_KEEP_ALIVE_SECONDS
 from robinauts.web.sign_in import SIGN_IN_KEYS, SignInConfig, is_loopback, parse_sign_in

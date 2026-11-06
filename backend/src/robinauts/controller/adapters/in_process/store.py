@@ -13,7 +13,6 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 
 from robinauts.controller.contract.broker.domain import Task, TaskState
-from robinauts.controller.contract.core.domain import Session, Turn, TurnState
 from robinauts.controller.contract.domain import (
     SessionNotFoundError,
     TurnActiveError,
@@ -27,6 +26,7 @@ from robinauts.controller.ports.store import (
     StoredEvent,
     StoredMessage,
 )
+from robinauts.shared_domain.domain import Session, Turn, TurnState
 
 
 class InProcessStore(Store):

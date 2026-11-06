@@ -11,7 +11,6 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from datetime import datetime
 
-from robinauts.controller.contract.core.domain import Session
 from robinauts.controller.contract.domain import (
     AgentListing,
     ApiToken,
@@ -30,6 +29,7 @@ from robinauts.controller.contract.domain import (
     User,
     UserSession,
 )
+from robinauts.shared_domain.domain import Session
 
 
 class Controller(ABC):

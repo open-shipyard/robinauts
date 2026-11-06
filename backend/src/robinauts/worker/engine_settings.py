@@ -14,14 +14,14 @@ from robinauts.agent_engines.contract.ports import (
     ToolSecretLookup,
 )
 from robinauts.controller.contract import domain
-from robinauts.controller.contract.core import domain as core
+from robinauts.shared_domain import domain as shared
 
 SecretLookup = Callable[[str], str | None]
 """An environment variable's value by its name, or ``None``."""
 
 
 class _Keys(ProviderKeyLookup):
-    def __init__(self, config: core.Config, secret_for: SecretLookup) -> None:
+    def __init__(self, config: shared.Config, secret_for: SecretLookup) -> None:
         self._config = config
         self._secret_for = secret_for
 
@@ -34,7 +34,7 @@ class _Keys(ProviderKeyLookup):
 
 
 class _ToolSecrets(ToolSecretLookup):
-    def __init__(self, config: core.Config, secret_for: SecretLookup) -> None:
+    def __init__(self, config: shared.Config, secret_for: SecretLookup) -> None:
         self._config = config
         self._secret_for = secret_for
 
@@ -46,7 +46,7 @@ class _ToolSecrets(ToolSecretLookup):
         return secret
 
 
-def engine_settings(config: core.Config, secret_for: SecretLookup) -> EngineSettings:
+def engine_settings(config: shared.Config, secret_for: SecretLookup) -> EngineSettings:
     """The controller's configuration as the engines take it: the same tables, no agents."""
     models = engine_domain.ModelsConfig(
         providers={
@@ -86,10 +86,10 @@ def engine_settings(config: core.Config, secret_for: SecretLookup) -> EngineSett
     )
 
 
-def engine_storage(storage: core.StorageConfig, pool: object | None) -> StorageConfig:
+def engine_storage(storage: shared.StorageConfig, pool: object | None) -> StorageConfig:
     """The controller's storage as an engine takes it. A PostgreSQL pool is the controller's."""
-    if storage.kind is core.StorageKind.POSTGRES:
+    if storage.kind is shared.StorageKind.POSTGRES:
         return StorageConfig(StorageKind.POSTGRES, {"pool": pool})
-    if storage.kind is core.StorageKind.LOCAL:
+    if storage.kind is shared.StorageKind.LOCAL:
         return StorageConfig(StorageKind.LOCAL, {"path": storage.path})
     return StorageConfig(StorageKind.IN_PROCESS, {})

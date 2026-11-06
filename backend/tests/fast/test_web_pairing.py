@@ -22,7 +22,6 @@ import pytest
 from echo_controller import CONFIG
 
 from robinauts.controller.composition import Composed, compose
-from robinauts.controller.contract.core.domain import StorageConfig, StorageKind
 from robinauts.controller.contract.domain import (
     DeviceDescription,
     DeviceSession,
@@ -30,6 +29,7 @@ from robinauts.controller.contract.domain import (
     User,
     UserSession,
 )
+from robinauts.shared_domain.domain import StorageConfig, StorageKind
 from robinauts.web import pairing
 from robinauts.web.app import create_app
 from robinauts.web.cookies import Cookies

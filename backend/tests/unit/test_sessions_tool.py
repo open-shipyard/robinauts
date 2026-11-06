@@ -14,7 +14,8 @@ from typing import Any
 import pytest
 
 from robinauts.agent_engines.contract.domain import FunctionTool, FunctionToolError
-from robinauts.controller.contract.core.domain import (
+from robinauts.controller.contract.domain import SessionNotFoundError
+from robinauts.shared_domain.domain import (
     Message,
     MessagePart,
     ReasoningPart,
@@ -24,7 +25,6 @@ from robinauts.controller.contract.core.domain import (
     ToolCallPart,
     ToolResultPart,
 )
-from robinauts.controller.contract.domain import SessionNotFoundError
 from robinauts.tools import sessions
 from robinauts.tools.contract.ports import ScopedData, TurnScope
 from robinauts.tools.sessions import search

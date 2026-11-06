@@ -21,15 +21,6 @@ from robinauts.controller.contract.broker.documents import (
 )
 from robinauts.controller.contract.broker.domain import RUN_TURN, Task, TaskState
 from robinauts.controller.contract.broker.partial import failed_answer, partial_answer
-from robinauts.controller.contract.core.domain import (
-    Config,
-    Message,
-    Role,
-    Session,
-    TextPart,
-    Turn,
-    TurnState,
-)
 from robinauts.controller.contract.domain import (
     ActiveTurn,
     AgentListing,
@@ -49,6 +40,15 @@ from robinauts.controller.contract.domain import (
 from robinauts.controller.contract.ports import Controller
 from robinauts.controller.core.titles import title_from_text
 from robinauts.controller.ports.store import Cursor, Store
+from robinauts.shared_domain.domain import (
+    Config,
+    Message,
+    Role,
+    Session,
+    TextPart,
+    Turn,
+    TurnState,
+)
 
 _log = logging.getLogger(__name__)
 

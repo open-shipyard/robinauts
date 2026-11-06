@@ -23,7 +23,6 @@ from robinauts.controller.application.controller import RobinautsController
 from robinauts.controller.application.turn_broker import InProcessTurnBroker
 from robinauts.controller.composition import Composed
 from robinauts.controller.contract.broker.documents import event_from_document
-from robinauts.controller.contract.core.domain import StorageConfig, StorageKind, TurnState
 from robinauts.controller.contract.domain import (
     ActiveTurn,
     Identity,
@@ -33,6 +32,7 @@ from robinauts.controller.contract.domain import (
     TurnStarted,
     User,
 )
+from robinauts.shared_domain.domain import StorageConfig, StorageKind, TurnState
 from robinauts.web.lifecycle import Lifecycle
 from robinauts.worker.worker import Worker
 from util.aio import asyncio_test

@@ -25,7 +25,8 @@ from robinauts.agent_engines.contract.domain import AgentDefinition
 from robinauts.agent_engines.contract.ports import AgentEngine, EngineFactory, installed
 from robinauts.controller.contract.broker.domain import RUN_TURN, Task
 from robinauts.controller.contract.broker.ports import TurnBroker
-from robinauts.controller.contract.core.domain import (
+from robinauts.controller.contract.domain import UnknownEngineError
+from robinauts.shared_domain.domain import (
     Config,
     Message,
     StorageConfig,
@@ -34,7 +35,6 @@ from robinauts.controller.contract.core.domain import (
     Turn,
     TurnState,
 )
-from robinauts.controller.contract.domain import UnknownEngineError
 from robinauts.tools.contract.ports import ToolProvider
 from robinauts.worker.agent_engine_store import AgentEngineStore
 from robinauts.worker.engine_settings import (

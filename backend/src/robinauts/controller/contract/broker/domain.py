@@ -13,7 +13,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from robinauts.controller.contract.core.domain import Role
+from robinauts.shared_domain.domain import Role
 
 # --- tasks ----------------------------------------------------------------------
 

@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from robinauts.agent_engines.contract.ports import AgentEngine
 from robinauts.controller.composition import compose
-from robinauts.controller.contract.core.domain import (
+from robinauts.controller.contract.domain import TurnStarted, User
+from robinauts.controller.contract.ports import Controller
+from robinauts.shared_domain.domain import (
     AgentConfig,
     Config,
     ModelConfig,
@@ -16,8 +18,6 @@ from robinauts.controller.contract.core.domain import (
     StorageConfig,
     StorageKind,
 )
-from robinauts.controller.contract.domain import TurnStarted, User
-from robinauts.controller.contract.ports import Controller
 from robinauts.web.lifecycle import Lifecycle
 
 CONFIG = Config(

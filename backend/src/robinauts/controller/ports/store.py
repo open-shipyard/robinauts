@@ -26,8 +26,8 @@ from robinauts.controller.contract.broker.domain import (
     StoredMessage,
     Task,
 )
-from robinauts.controller.contract.core.domain import Session, Turn, TurnState
 from robinauts.controller.contract.domain import User
+from robinauts.shared_domain.domain import Session, Turn, TurnState
 
 
 class Store(ABC):

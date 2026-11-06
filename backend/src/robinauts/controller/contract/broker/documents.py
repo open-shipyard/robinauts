@@ -21,16 +21,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from robinauts.controller.contract.broker.domain import StoredMessage
-from robinauts.controller.contract.core.domain import (
-    Message,
-    MessagePart,
-    ReasoningPart,
-    Role,
-    TextPart,
-    ToolCallPart,
-    ToolResultPart,
-    TurnState,
-)
 from robinauts.controller.contract.domain import (
     ArgumentsPiece,
     CallCompleted,
@@ -45,6 +35,16 @@ from robinauts.controller.contract.domain import (
     TurnEnded,
     TurnEvent,
     TurnStarted,
+)
+from robinauts.shared_domain.domain import (
+    Message,
+    MessagePart,
+    ReasoningPart,
+    Role,
+    TextPart,
+    ToolCallPart,
+    ToolResultPart,
+    TurnState,
 )
 
 VERSION = 1

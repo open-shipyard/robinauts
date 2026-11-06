@@ -35,11 +35,11 @@ from robinauts.controller.adapters.postgres.store import PostgresStore
 from robinauts.controller.application.controller import RobinautsController
 from robinauts.controller.application.turn_broker import InProcessTurnBroker
 from robinauts.controller.contract.broker.ports import TurnBroker
-from robinauts.controller.contract.core.domain import Config, StorageConfig, StorageKind
 from robinauts.controller.contract.domain import ConfigError
 from robinauts.controller.contract.ports import Controller, Credentials
 from robinauts.controller.core.config import parse_config
 from robinauts.controller.ports.store import Store
+from robinauts.shared_domain.domain import Config, StorageConfig, StorageKind
 from robinauts.tools import sessions
 from robinauts.tools.contract.ports import ToolProvider
 from robinauts.worker.agent_engine_store import PoolAgentEngineStore

@@ -20,15 +20,6 @@ from robinauts.controller.contract.broker.documents import (
     message_from_document,
     message_to_document,
 )
-from robinauts.controller.contract.core.domain import (
-    Message,
-    ReasoningPart,
-    Role,
-    TextPart,
-    ToolCallPart,
-    ToolResultPart,
-    TurnState,
-)
 from robinauts.controller.contract.domain import (
     ArgumentsPiece,
     CallCompleted,
@@ -42,6 +33,15 @@ from robinauts.controller.contract.domain import (
     TextPiece,
     TurnEnded,
     TurnStarted,
+)
+from robinauts.shared_domain.domain import (
+    Message,
+    ReasoningPart,
+    Role,
+    TextPart,
+    ToolCallPart,
+    ToolResultPart,
+    TurnState,
 )
 
 NOW = datetime(2026, 10, 2, 12, 0, 3, 141592, tzinfo=UTC)

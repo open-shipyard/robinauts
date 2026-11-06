@@ -17,8 +17,8 @@ import httpx
 from echo_controller import CONFIG
 
 from robinauts.controller.composition import Composed, compose
-from robinauts.controller.contract.core.domain import StorageConfig, StorageKind
 from robinauts.controller.contract.domain import ApiToken, Identity, User, UserSession
+from robinauts.shared_domain.domain import StorageConfig, StorageKind
 from robinauts.web.app import LOCAL_IDENTITY, TOKEN_LIFE, create_app
 from robinauts.web.cookies import Cookies
 from robinauts.web.sign_in import (

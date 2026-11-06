@@ -6,6 +6,7 @@ runs them.
 
 ## Top level
 
+shared_domain -> nothing from robinauts; any package but agent_engines may import it
 agent_engines -> nothing from robinauts
 tools -> agent_engines.contract, controller.contract
 controller -> agent_engines.contract, tools.contract; a tool and the worker, by composition alone
@@ -29,7 +30,6 @@ no tool imports another; only controller.composition imports a tool
 ## Inside controller
 
 contract -> nothing from robinauts
-contract.core -> nothing from robinauts; the rest of contract builds on it
 contract.broker -> contract; contract never imports contract.broker
 ports -> contract
 core -> contract, ports, agent_engines.contract; pure functions, no I/O

@@ -43,16 +43,6 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from robinauts.controller.composition import Composed, SecretLookup
-from robinauts.controller.contract.core.domain import (
-    Message,
-    ReasoningPart,
-    Role,
-    Session,
-    TextPart,
-    ToolCallPart,
-    ToolResultPart,
-    Turn,
-)
 from robinauts.controller.contract.domain import (
     ApiToken,
     ControllerError,
@@ -69,6 +59,16 @@ from robinauts.controller.contract.domain import (
     UnknownAgentError,
     UnknownModelError,
     User,
+)
+from robinauts.shared_domain.domain import (
+    Message,
+    ReasoningPart,
+    Role,
+    Session,
+    TextPart,
+    ToolCallPart,
+    ToolResultPart,
+    Turn,
 )
 from robinauts.web import agui
 from robinauts.web.cookies import Cookies

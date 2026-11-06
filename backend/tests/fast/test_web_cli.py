@@ -14,13 +14,13 @@ import pytest
 import uvicorn
 
 from robinauts.controller.composition import compose
-from robinauts.controller.contract.core.domain import Config, StorageConfig, StorageKind
 from robinauts.controller.contract.domain import (
     ConfigError,
     DeviceDescription,
     DeviceSession,
     Identity,
 )
+from robinauts.shared_domain.domain import Config, StorageConfig, StorageKind
 from robinauts.web.cli import devices_command, run, serving, worker_broker_url
 from util.aio import asyncio_test
 

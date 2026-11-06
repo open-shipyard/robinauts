@@ -23,8 +23,8 @@ from robinauts.controller.contract.broker.domain import (
     Task,
 )
 from robinauts.controller.contract.broker.ports import TurnBroker
-from robinauts.controller.contract.core.domain import Session, Turn, TurnState
 from robinauts.controller.ports.store import Store
+from robinauts.shared_domain.domain import Session, Turn, TurnState
 
 
 class InProcessTurnBroker(TurnBroker):
