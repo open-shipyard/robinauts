@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 import httpx
 from echo_controller import CONFIG
 
-from robinauts.composition import compose
+from robinauts.cli.composition import compose
 from robinauts.shared_domain.domain import StorageConfig, StorageKind
 from util.aio import asyncio_test
 from util.app import running

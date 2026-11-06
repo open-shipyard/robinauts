@@ -11,9 +11,9 @@ agent_engines -> nothing from robinauts
 tools -> agent_engines.contract
 controller -> shared_domain
 worker -> controller.contract.broker, web.contract.broker, agent_engines.contract, tools.contract
-composition -> controller, worker, tools, agent_engines.contract; imported by cli alone
 web -> controller.contract
-cli -> composition, web, controller.contract; imported by nothing
+cli -> web, controller.contract; imported by nothing
+cli.composition -> controller, worker, tools, agent_engines.contract
 
 ## Inside agent_engines
 
@@ -27,7 +27,7 @@ no engine imports another
 
 contract -> agent_engines.contract
 each tool (sessions) -> contract, agent_engines.contract
-no tool imports another; only composition imports a tool
+no tool imports another; only cli.composition imports a tool
 
 ## Inside controller
 

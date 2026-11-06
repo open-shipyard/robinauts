@@ -11,9 +11,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from robinauts.cli.composition import Composed
 from robinauts.cli.lifecycle import Lifecycle
 from robinauts.cli.main import build_app
-from robinauts.composition import Composed
 from robinauts.web.oidc import SecretLookup
 from robinauts.web.sign_in import SignInConfig
 

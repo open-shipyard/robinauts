@@ -38,8 +38,7 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI
 
-from robinauts.cli.lifecycle import Lifecycle
-from robinauts.composition import (
+from robinauts.cli.composition import (
     CONTROLLER_TABLES,
     DATABASE_URL_VARIABLE,
     Composed,
@@ -51,6 +50,7 @@ from robinauts.composition import (
     read_tables,
     storage_from,
 )
+from robinauts.cli.lifecycle import Lifecycle
 from robinauts.controller.contract.domain import ConfigError, DeviceSession, User
 from robinauts.controller.contract.ports import Credentials
 from robinauts.shared_domain.domain import Config, StorageConfig, StorageKind

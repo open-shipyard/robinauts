@@ -20,10 +20,9 @@ robinauts/
                         adapters/{in_process,postgres}/
       worker/           runs the turns; of the controller it sees
                         contract/ alone, the broker's included
-      composition/      builds the controller and the worker; cli alone imports it
       web/              the HTTP server and sign-in
-      cli/              the robinauts command: starts and stops the controller, the
-                        worker (here or in its own process) and the HTTP server
+      cli/              the robinauts command: builds the controller and the worker
+                        (composition.py), and starts and stops them and the HTTP server
     tests/              unit/, fast/, api/, adapters_free/, adapters_metered/,
                         e2e/, tooling/, util/
 ```

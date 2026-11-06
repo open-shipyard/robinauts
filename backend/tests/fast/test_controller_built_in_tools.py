@@ -23,8 +23,8 @@ from robinauts.agent_engines.contract.domain import (
     ToolResult,
 )
 from robinauts.agent_engines.echo_engine.engine import EchoEngine
+from robinauts.cli.composition import compose
 from robinauts.cli.lifecycle import Lifecycle
-from robinauts.composition import compose
 from robinauts.controller.contract.domain import Identity, User
 from robinauts.shared_domain.domain import (
     AgentConfig,

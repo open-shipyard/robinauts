@@ -17,8 +17,8 @@ from echo_controller import CONFIG, start_echo_controller, wait_for_turn_end
 from robinauts.agent_engines.contract.domain import Event
 from robinauts.agent_engines.contract.ports import AgentEngine
 from robinauts.agent_engines.echo_engine.engine import EchoEngine
+from robinauts.cli.composition import Composed
 from robinauts.cli.lifecycle import Lifecycle
-from robinauts.composition import Composed
 from robinauts.controller.adapters.in_process.credentials import InProcessCredentials
 from robinauts.controller.adapters.in_process.store import InProcessStore
 from robinauts.controller.application.controller import RobinautsController

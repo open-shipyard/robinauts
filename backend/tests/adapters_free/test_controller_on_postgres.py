@@ -14,9 +14,9 @@ from datetime import UTC, datetime, timedelta
 import asyncpg
 import pytest
 
+from robinauts.cli.composition import SCHEMA_READY, compose, init_database
 from robinauts.cli.lifecycle import Lifecycle
 from robinauts.cli.main import run
-from robinauts.composition import SCHEMA_READY, compose, init_database
 from robinauts.controller.contract.domain import ConfigError, Identity, UserSession
 from robinauts.shared_domain.domain import (
     AgentConfig,

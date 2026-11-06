@@ -13,8 +13,8 @@ from unittest.mock import create_autospec
 import pytest
 import uvicorn
 
+from robinauts.cli.composition import compose
 from robinauts.cli.main import devices_command, run, serving, worker_broker_url
-from robinauts.composition import compose
 from robinauts.controller.contract.domain import (
     ConfigError,
     DeviceDescription,

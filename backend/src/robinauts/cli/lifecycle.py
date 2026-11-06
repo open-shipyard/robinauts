@@ -19,6 +19,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from robinauts.cli.composition import Composed
 from robinauts.cli.worker_process import (
     ACTIVITY_VARIABLE,
     BROKER_URL_VARIABLE,
@@ -27,7 +28,6 @@ from robinauts.cli.worker_process import (
     READY_VARIABLE,
     SECRET_VARIABLE,
 )
-from robinauts.composition import Composed
 from robinauts.web.worker_api import WorkerAccess
 
 _log = logging.getLogger(__name__)

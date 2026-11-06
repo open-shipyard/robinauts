@@ -16,7 +16,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 from echo_controller import CONFIG
 
-from robinauts.composition import Composed, compose
+from robinauts.cli.composition import Composed, compose
 from robinauts.controller.contract.domain import ApiToken, Identity, User, UserSession
 from robinauts.shared_domain.domain import StorageConfig, StorageKind
 from robinauts.web.app import LOCAL_IDENTITY, TOKEN_LIFE

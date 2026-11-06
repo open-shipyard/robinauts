@@ -14,9 +14,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from robinauts.cli.composition import compose
 from robinauts.cli.lifecycle import Lifecycle
 from robinauts.cli.main import build_app
-from robinauts.composition import compose
 from robinauts.shared_domain.domain import Config, StorageConfig, StorageKind
 
 SNAPSHOT = Path(__file__).resolve().parents[2] / "openapi.json"
