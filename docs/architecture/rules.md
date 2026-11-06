@@ -12,8 +12,7 @@ tools -> agent_engines.contract
 controller -> shared_domain
 worker -> controller.contract.broker, web.contract.broker, agent_engines.contract, tools.contract
 web -> controller.contract
-cli -> web, controller.contract; imported by nothing
-cli.composition -> controller, worker, tools, agent_engines.contract
+cli -> web, controller, worker, tools, agent_engines.contract, all but web and controller.contract by cli.composition alone; imported by nothing
 
 ## Inside agent_engines
 
