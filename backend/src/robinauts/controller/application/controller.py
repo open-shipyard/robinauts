@@ -14,41 +14,41 @@ from collections.abc import AsyncGenerator, Callable
 from datetime import UTC, datetime, timedelta
 
 from robinauts.controller.application.intervals import run_at_intervals
-from robinauts.controller.application.turns import load_messages
+from robinauts.controller.contract.broker.documents import (
+    event_from_document,
+    message_from_document,
+    stored_message,
+)
+from robinauts.controller.contract.broker.domain import RUN_TURN, Task, TaskState
+from robinauts.controller.contract.broker.partial import failed_answer, partial_answer
 from robinauts.controller.contract.domain import (
-    RUN_TURN,
     ActiveTurn,
     AgentListing,
-    Config,
     Identity,
     InvalidValueError,
-    Message,
     MessageNotFoundError,
     ModelListing,
     NoActiveTurnError,
     NumberedEvent,
     OpenedSession,
+    SessionPage,
+    UnknownModelError,
+    User,
+)
+from robinauts.controller.contract.ports import Controller
+from robinauts.controller.core.titles import title_from_text
+from robinauts.controller.ports.store import Cursor, Store
+from robinauts.shared_domain.domain import (
+    Config,
+    Message,
     Role,
     Session,
-    SessionPage,
-    Task,
-    TaskState,
     TextPart,
     Turn,
     TurnEnded,
     TurnStarted,
     TurnState,
-    UnknownModelError,
-    User,
 )
-from robinauts.controller.contract.ports import Controller
-from robinauts.controller.core.documents import (
-    event_from_document,
-    stored_message,
-)
-from robinauts.controller.core.partial import failed_answer, partial_answer
-from robinauts.controller.core.titles import title_from_text
-from robinauts.controller.ports.store import Cursor, Store
 
 _log = logging.getLogger(__name__)
 
@@ -422,6 +422,11 @@ class RobinautsController(Controller):
         answer = failed_answer(answer_id or uuid.uuid4(), session, turn, parts, now)
         stored = stored_message(answer)
         await self._store.end_expired_turn(session.owner_id, session.id, turn.id, now, stored)
+
+
+async def load_messages(store: Store, owner: uuid.UUID, session: uuid.UUID) -> list[Message]:
+    """Every message of the session, decoded, oldest first."""
+    return [message_from_document(d) for d in await store.messages_of(owner, session)]
 
 
 def _encode_cursor(session: Session) -> str:

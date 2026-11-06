@@ -18,20 +18,17 @@ from typing import Any
 
 import pytest
 
-from robinauts.controller.contract.domain import (
-    RUN_TURN,
+from robinauts.controller.contract.broker.domain import RUN_TURN, Task, TaskState
+from robinauts.controller.contract.domain import TurnActiveError, User
+from robinauts.controller.ports.store import Store, StoredEvent, StoredMessage
+from robinauts.shared_domain.domain import (
     Role,
     Session,
     SessionNotFoundError,
-    Task,
-    TaskState,
     Turn,
-    TurnActiveError,
     TurnLostError,
     TurnState,
-    User,
 )
-from robinauts.controller.ports.store import Store, StoredEvent, StoredMessage
 
 NOW = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
 MINUTE = timedelta(minutes=1)

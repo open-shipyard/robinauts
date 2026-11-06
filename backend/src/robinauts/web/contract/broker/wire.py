@@ -20,14 +20,8 @@ from typing import Any
 
 from pydantic import AwareDatetime, BaseModel, Field
 
-from robinauts.controller.contract.domain import (
-    Session,
-    StoredEvent,
-    StoredMessage,
-    Task,
-    Turn,
-    TurnState,
-)
+from robinauts.controller.contract.broker.domain import StoredEvent, StoredMessage, Task
+from robinauts.shared_domain.domain import Session, Turn, TurnState
 
 PREFIX = "/internal/worker"
 

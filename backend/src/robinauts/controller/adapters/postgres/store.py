@@ -28,24 +28,22 @@ import asyncpg
 
 from robinauts.controller.adapters.postgres.pool import close_pool, open_pool
 from robinauts.controller.adapters.postgres.schema import check_schema
-from robinauts.controller.contract.domain import (
-    Role,
-    Session,
-    SessionNotFoundError,
-    Task,
-    TaskState,
-    Turn,
-    TurnActiveError,
-    TurnLostError,
-    TurnState,
-    User,
-)
+from robinauts.controller.contract.broker.domain import Task, TaskState
+from robinauts.controller.contract.domain import TurnActiveError, User
 from robinauts.controller.ports.store import (
     Cursor,
     Document,
     Store,
     StoredEvent,
     StoredMessage,
+)
+from robinauts.shared_domain.domain import (
+    Role,
+    Session,
+    SessionNotFoundError,
+    Turn,
+    TurnLostError,
+    TurnState,
 )
 
 _log = logging.getLogger(__name__)

@@ -2,7 +2,8 @@
 # Copyright The Robinauts Authors
 
 """The API's routes a worker in a process of its own reaches the core through: the operations
-of ``TurnBroker`` (``web/worker_wire.py``), served by the core over the controller's store.
+of ``TurnBroker`` (``web/contract/broker/wire.py``), served by the core over the
+controller's store.
 
 They answer only while such a worker runs, and only the secret the server handed it at its
 start, which ``WorkerAccess`` holds: 404 while none runs, 401 for any other credential. The
@@ -25,9 +26,9 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import AwareDatetime
 
-from robinauts.controller.contract.domain import SessionNotFoundError, TurnLostError
-from robinauts.controller.contract.ports import TurnBroker
-from robinauts.web.worker_wire import (
+from robinauts.controller.contract.broker.ports import TurnBroker
+from robinauts.shared_domain.domain import SessionNotFoundError, TurnLostError
+from robinauts.web.contract.broker.wire import (
     MAX_WAIT_SECONDS,
     PREFIX,
     SESSION_NOT_FOUND,

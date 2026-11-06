@@ -6,8 +6,11 @@
 from __future__ import annotations
 
 from robinauts.agent_engines.contract.ports import AgentEngine
-from robinauts.controller.composition import compose
-from robinauts.controller.contract.domain import (
+from robinauts.cli.composition import compose
+from robinauts.cli.lifecycle import Lifecycle
+from robinauts.controller.contract.domain import User
+from robinauts.controller.contract.ports import Controller
+from robinauts.shared_domain.domain import (
     AgentConfig,
     Config,
     ModelConfig,
@@ -16,10 +19,7 @@ from robinauts.controller.contract.domain import (
     StorageConfig,
     StorageKind,
     TurnStarted,
-    User,
 )
-from robinauts.controller.contract.ports import Controller
-from robinauts.web.lifecycle import Lifecycle
 
 CONFIG = Config(
     providers={"echo": ProviderConfig("echo", ProviderKind.ANTHROPIC, "ECHO_API_KEY")},

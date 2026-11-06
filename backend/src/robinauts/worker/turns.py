@@ -29,7 +29,16 @@ from robinauts.agent_engines.contract.domain import (
     ToolResult,
 )
 from robinauts.agent_engines.contract.ports import AgentEngine
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.broker.documents import (
+    clean_text,
+    event_to_document,
+    message_from_document,
+    stored_message,
+)
+from robinauts.controller.contract.broker.domain import StoredEvent
+from robinauts.controller.contract.broker.partial import failed_answer, with_text
+from robinauts.controller.contract.broker.ports import TurnBroker
+from robinauts.shared_domain.domain import (
     ArgumentsPiece,
     CallCompleted,
     CallStarted,
@@ -52,15 +61,6 @@ from robinauts.controller.contract.domain import (
     TurnLostError,
     TurnState,
 )
-from robinauts.controller.contract.ports import TurnBroker
-from robinauts.controller.core.documents import (
-    clean_text,
-    event_to_document,
-    message_from_document,
-    stored_message,
-)
-from robinauts.controller.core.partial import failed_answer, with_text
-from robinauts.controller.ports.store import Store, StoredEvent
 
 CLOSE = "close"
 """The reason a closing worker cancels a task with. The runner ends such a turn as
@@ -82,12 +82,9 @@ TIMED_OUT = "a call timed out before the turn's deadline"
 """The error of a turn whose silent ``TimeoutError`` came early, such as a query's."""
 
 
-async def load_messages(
-    source: Store | TurnBroker, owner: uuid.UUID, session: uuid.UUID
-) -> list[Message]:
-    """Every message of the session, decoded, oldest first: from the store for the controller,
-    from the core for a worker."""
-    return [message_from_document(d) for d in await source.messages_of(owner, session)]
+async def load_messages(broker: TurnBroker, owner: uuid.UUID, session: uuid.UUID) -> list[Message]:
+    """Every message of the session, decoded, oldest first, from the core."""
+    return [message_from_document(d) for d in await broker.messages_of(owner, session)]
 
 
 async def end_if_running(

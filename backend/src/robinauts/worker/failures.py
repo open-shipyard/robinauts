@@ -19,7 +19,12 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 
-from robinauts.controller.contract.domain import Message, TextPart, ToolCallPart, ToolResultPart
+from robinauts.shared_domain.domain import (
+    Message,
+    TextPart,
+    ToolCallPart,
+    ToolResultPart,
+)
 
 LONGEST = 500
 """How much of a tool result, or of the text written, the note quotes."""

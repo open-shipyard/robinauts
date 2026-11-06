@@ -15,18 +15,16 @@ import uuid
 from collections.abc import Callable, Sequence
 from datetime import datetime
 
-from robinauts.controller.contract.domain import (
+from robinauts.controller.contract.broker.domain import (
     Cursor,
     Document,
-    Session,
     StoredEvent,
     StoredMessage,
     Task,
-    Turn,
-    TurnState,
 )
-from robinauts.controller.contract.ports import TurnBroker
+from robinauts.controller.contract.broker.ports import TurnBroker
 from robinauts.controller.ports.store import Store
+from robinauts.shared_domain.domain import Session, Turn, TurnState
 
 
 class InProcessTurnBroker(TurnBroker):

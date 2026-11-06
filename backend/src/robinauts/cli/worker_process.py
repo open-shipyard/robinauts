@@ -5,7 +5,7 @@
 
 It reads the configuration and the environment ``robinauts start`` read, and runs only the
 worker, until SIGTERM or SIGINT. It then stops the worker, which waits for its tasks. It
-reaches the core through its parent's API alone (``web/worker_client.py``), at the URL its
+reaches the core through its parent's API alone (``worker/http_turn_broker.py``), at the URL its
 environment names, with the secret its parent wrote to a pipe; the database it opens is for
 the engines' state. It writes a line to its parent once the worker has started. On Linux it
 also ends with its parent, killed or not.
@@ -21,8 +21,13 @@ import signal
 import sys
 from pathlib import Path
 
-from robinauts.controller.composition import compose_worker, load, storage_from
-from robinauts.web.worker_client import HttpTurnBroker, QuietRequests
+from robinauts.cli.composition import (
+    compose_worker,
+    http_turn_broker,
+    load,
+    storage_from,
+)
+from robinauts.web.contract.broker.wire import PREFIX
 
 PARENT_VARIABLE = "ROBINAUTS_WORKER_PARENT"
 """The id of the process that spawned this one, which it ends with."""
@@ -43,6 +48,19 @@ SECRET_VARIABLE = "ROBINAUTS_WORKER_SECRET_FD"
 """The pipe this process reads the secret it presents to that API from, to its end."""
 
 _PR_SET_PDEATHSIG = 1
+
+
+class QuietRequests(logging.Filter):
+    """Leaves out of httpx's log the worker's requests to the core, one per event a turn
+    writes, which its server logs already; the engines' requests stay."""
+
+    def __init__(self, url: str) -> None:
+        super().__init__()
+        self._root = url.rstrip("/") + PREFIX
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args if isinstance(record.args, tuple) else ()
+        return not any(str(arg).startswith(self._root) for arg in args)
 
 
 def _end_with_parent() -> None:
@@ -72,7 +90,7 @@ async def _run() -> None:
     config, secret_for = load(Path(os.environ["ROBINAUTS_CONFIG"]), os.environ)
     url = os.environ[BROKER_URL_VARIABLE]
     logging.getLogger("httpx").addFilter(QuietRequests(url))
-    broker = HttpTurnBroker(url, _read_secret())
+    broker = http_turn_broker(url, _read_secret())
     worker = compose_worker(
         config, storage=storage_from(os.environ), secret_for=secret_for, broker=broker
     )
