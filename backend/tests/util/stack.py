@@ -29,6 +29,8 @@ from typing import Any
 import asyncpg
 import pytest
 
+from robinauts.cli.lifecycle import WORKER_START_SECONDS
+
 ROOT = Path(__file__).resolve().parents[3]
 ROBINAUTS = Path(sys.executable).with_name("robinauts")
 
@@ -110,7 +112,10 @@ def free_port() -> int:
 
 
 def wait_until_up(url: str, server: subprocess.Popen[bytes]) -> None:
-    for _ in range(100):
+    # A server listens once its slowest worker has started, and the server gives each one
+    # WORKER_START_SECONDS: each worker imports every installed engine first.
+    deadline = time.monotonic() + WORKER_START_SECONDS
+    while time.monotonic() < deadline:
         if server.poll() is not None:
             raise RuntimeError(f"the server exited with {server.returncode}")
         try:
