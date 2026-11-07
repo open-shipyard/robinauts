@@ -17,10 +17,10 @@ uv run --locked --no-build python "$root/scripts/licence_gate.py" "$@"
 
 for project in "$root"/extra-workers/*/; do
     [ -f "$project/uv.lock" ] || continue
-    printf '\n== %s ==\n' "$(basename "$project")"
-    # Synced first, so the gate reads its metadata from what is installed. The backend
-    # is installed editable there, which builds its metadata: no --no-build.
-    (cd "$project" && uv sync --locked)
-    uv run --locked --no-build python "$root/scripts/licence_gate.py" \
-        --lock "$project/uv.lock" --environment "$project/.venv" "$@"
+    name=$(basename "$project")
+    printf '\n== %s ==\n' "$name"
+    # Synced first, so the gate reads its metadata from what is installed. The gate
+    # reads third-party metadata only, so the local projects stay out and nothing is built.
+    (cd "$project" && uv sync --locked --no-build --no-install-local)
+    uv run --locked --no-build python "$root/scripts/licence_gate.py" --extra-worker "$name" "$@"
 done
