@@ -339,12 +339,25 @@ export function Shell({
   // conversation's agent, or on the empty chat the one picked for it.
   const sideAgent = current === null ? agentId : conversationAgent;
   const apps = useApps(sideAgent);
+  // A turn can change what an open app shows, so its tab reads it again.
+  const [turnsEnded, setTurnsEnded] = useState(0);
+  const turnEnded = () => {
+    history.refresh();
+    setTurnsEnded((count) => count + 1);
+  };
   const renderers: TabRenderers = {
     app: (offer) => {
       const app = appOf(apps, offer);
       if (sideAgent === null || app === undefined) return null;
       // Keyed by the agent: the same app of another agent is another view.
-      return <AppTab key={sideAgent} agent={sideAgent} app={app} />;
+      return (
+        <AppTab
+          key={sideAgent}
+          agent={sideAgent}
+          app={app}
+          turnsEnded={turnsEnded}
+        />
+      );
     },
   };
   const offers = useMemo(() => appOffers(apps), [apps]);
@@ -480,7 +493,7 @@ export function Shell({
                 onModelRefused={forgetModel}
                 onConversationStarted={startedConversation}
                 onConversationOpened={conversationOpened}
-                onTurnEnded={history.refresh}
+                onTurnEnded={turnEnded}
                 welcome={welcome}
               />
             </>

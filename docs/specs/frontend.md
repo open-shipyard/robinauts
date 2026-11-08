@@ -50,7 +50,9 @@
     app's own tool once the view says it is ready and hands it the result,
     relays the view's `tools/call` to the backend, answers `ping`, and
     refuses anything else. It reads only messages from that frame, and
-    tells the view when the theme changes. The view is hidden until the
+    tells the view when the theme changes. Each turn that ends has the
+    app's own tool called again and the new result handed to the view. A
+    call that fails leaves the view as it is. The view is hidden until the
     first call has answered; a view that does not start, or a first call
     that fails, is said so in its place, with "Try again".
   - The keyboard: Left and Right move between tabs, Delete closes one;
