@@ -10,7 +10,7 @@ license = "Apache-2.0"
 authors = [{ name = "The Robinauts Authors" }]
 dependencies = [
     # The MCP SDK, at the version backend/uv.lock pins: one vetted copy of it in the repository.
-    "mcp==1.30.0",
+    "mcp==2.3.0",
 ]
 
 [project.scripts]
