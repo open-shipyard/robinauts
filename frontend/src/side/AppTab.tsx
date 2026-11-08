@@ -24,12 +24,14 @@
  *
  * **After a turn.** A turn may change what the app shows, so each one that
  * ends has the app's own tool called again and its result handed to the view.
- * A call that fails leaves the view as it is.
+ * A call that fails leaves the view as it is. A tool of the app's server
+ * that answers in the chat does the same, so what the agent changes shows
+ * while the turn goes on; only the newest of these reads reaches the view.
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { detailOf, request } from "../api/client";
-import { type App, viewUrl } from "./apps";
+import { type App, type ToolResults, viewUrl } from "./apps";
 import {
   callToolResult,
   dispatch,
@@ -106,7 +108,13 @@ export function AppTab({
   agent,
   app,
   turnsEnded,
-}: Readonly<{ agent: string; app: App; turnsEnded: number }>) {
+  results,
+}: Readonly<{
+  agent: string;
+  app: App;
+  turnsEnded: number;
+  results?: ToolResults | undefined;
+}>) {
   // "Try again" is a new frame, and a new handshake with it.
   const [attempt, setAttempt] = useState(0);
   return (
@@ -115,6 +123,7 @@ export function AppTab({
       agent={agent}
       app={app}
       turnsEnded={turnsEnded}
+      results={results}
       onRetry={() => {
         setAttempt((count) => count + 1);
       }}
@@ -131,11 +140,13 @@ function AppFrame({
   agent,
   app,
   turnsEnded,
+  results,
   onRetry,
 }: Readonly<{
   agent: string;
   app: App;
   turnsEnded: number;
+  results?: ToolResults | undefined;
   onRetry: () => void;
 }>) {
   const theme = useHostTheme();
@@ -147,6 +158,9 @@ function AppFrame({
   const phase = useRef<Phase>("waiting");
   // The theme the view was last told, once it has been told one.
   const told = useRef<HostTheme | null>(null);
+  // Reads of the app's tool after a change, numbered: a tool's answer and a
+  // turn's end may both ask, and only the newest answer is handed over.
+  const asked = useRef(0);
 
   useEffect(() => {
     shownTheme.current = theme;
@@ -209,11 +223,25 @@ function AppFrame({
       }
     };
     window.addEventListener("message", onMessage);
+    const deaf = results?.subscribe((name) => {
+      if (phase.current !== "running" || !name.startsWith(`${app.server}__`))
+        return;
+      const mine = ++asked.current;
+      call(app.tool, {}).then(
+        (answer) => {
+          if (mine === asked.current) post(target, toolResult(answer));
+        },
+        () => {
+          // The view keeps what it shows; the next change asks again.
+        },
+      );
+    });
     return () => {
       window.removeEventListener("message", onMessage);
+      deaf?.();
       dropped.abort();
     };
-  }, [agent, app.server, app.tool]);
+  }, [agent, app.server, app.tool, results]);
 
   // The next turn's read cancels this one, so the newest result is the last
   // one the view is handed. A view still starting reads the list then.
@@ -223,9 +251,11 @@ function AppFrame({
     seenTurns.current = turnsEnded;
     if (phase.current !== "running") return undefined;
     const dropped = new AbortController();
+    const mine = ++asked.current;
     callTool(agent, app.server, app.tool, {}, dropped.signal).then(
       (answer) => {
-        if (!dropped.signal.aborted) post(frame.current, toolResult(answer));
+        if (!dropped.signal.aborted && mine === asked.current)
+          post(frame.current, toolResult(answer));
       },
       () => undefined,
     );
