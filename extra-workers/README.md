@@ -40,7 +40,7 @@ The workers:
 
 | folder | what it runs | state |
 | --- | --- | --- |
-| [base-worker/](base-worker/README.md) | the backend's worker module and nothing else: any engine the backend ships, for the agents of its worker | in memory, as long as the container |
+| [base-worker/](base-worker/README.md) | the backend's worker module: any engine the backend ships, for the agents of its worker | in memory, as long as the container |
 
 `base-worker/` is what a new extra worker starts from: copy it, add the package
 that brings the engine, keep the rest. One that runs its turns on Claude Code
