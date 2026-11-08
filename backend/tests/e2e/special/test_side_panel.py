@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from playwright.sync_api import FrameLocator, Page, expect
+from playwright.sync_api import FrameLocator, Page, Route, expect
 
 from util.browser import send
 from util.fake_openai import FakeModel, ToolEchoModel
@@ -145,6 +145,18 @@ def test_side_panel_and_an_app(server: str, page: Page) -> None:
             {"id": "2", "text": "eggs", "done": False},
         ]
     }
+    # While a tick is on its way, the other to-dos stay as they are drawn. Disabled, a whole
+    # list of boxes greys out and comes back.
+    held: list[Route] = []
+    page.route("**/tools/toggle_todo", lambda route: held.append(route))
+    with page.expect_request("**/tools/toggle_todo"):
+        frame.get_by_role("checkbox", name="eggs").click()
+    expect(frame.get_by_role("checkbox", name="milk")).to_be_enabled()
+    held[0].continue_()
+    page.unroute("**/tools/toggle_todo")
+    expect(frame.get_by_text("2 to-dos, 2 done")).to_be_visible()
+    frame.get_by_role("checkbox", name="eggs").uncheck()
+    expect(frame.get_by_text("2 to-dos, 1 done")).to_be_visible()
 
     # 4. The view follows the theme on the screen.
     page.get_by_role("button", name="Dark").click()
