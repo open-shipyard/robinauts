@@ -20,4 +20,4 @@ The servers:
 
 | folder | what it serves | state |
 | --- | --- | --- |
-| [to-do-list/](to-do-list/README.md) | a to-do list: four tools and a view for the side panel (MCP Apps) | one JSON file |
+| [to-do-list/](to-do-list/README.md) | a to-do list: five tools and a view for the side panel (MCP Apps) | one JSON file |

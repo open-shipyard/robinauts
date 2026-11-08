@@ -34,7 +34,7 @@ function answering(answer: (call: Call) => Response = () => json(LIST)) {
 
 /** The tab, its frame, and what the frame's window is posted. */
 function tab() {
-  render(<AppTab agent="planner" app={APP} />);
+  render(<AppTab agent="planner" app={APP} turnsEnded={0} />);
   const frame = screen.getByTitle<HTMLIFrameElement>("To-do list");
   const view = frame.contentWindow;
   if (view === null) throw new Error("the frame has no window");
