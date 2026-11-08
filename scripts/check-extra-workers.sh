@@ -26,12 +26,12 @@ for project in "$root"/extra-workers/*/; do
     name=$(basename "$project")
     printf '\n== %s ==\n' "$name"
     cd "$project"
-    # The backend is installed editable, which builds its metadata: no --no-build.
-    uv sync --locked
+
+    uv sync --locked --no-build --no-binary-package robinauts
     # The project's own files: its tests, and its package where it has one.
-    uv run --locked ruff check .
-    uv run --locked black --check .
-    uv run --locked pytest -q -p no:cacheprovider
+    uv run --locked --no-build --no-binary-package robinauts ruff check .
+    uv run --locked --no-build --no-binary-package robinauts black --check .
+    uv run --locked --no-build --no-binary-package robinauts pytest -q -p no:cacheprovider
     if [ -f "$project/Dockerfile" ]; then
         if docker info >/dev/null 2>&1; then
             printf '\n-- the image --\n'
