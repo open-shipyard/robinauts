@@ -862,7 +862,13 @@ def _closure(roots: Iterable[str], edges: dict[str, list[str]]) -> set[str]:
     return reached
 
 
-def _is_ours(name: str, source: dict, members: set[str], project: str | None) -> bool:
+def _is_ours(
+    name: str,
+    source: dict,
+    members: set[str],
+    project: str | None,
+    backend: tuple[str, str] | None = None,
+) -> bool:
     """Whether a locked package is this repository's own code.
 
     Two ways to be ours, and no other: to be the project itself, which is
@@ -871,10 +877,15 @@ def _is_ours(name: str, source: dict, members: set[str], project: str | None) ->
     uv names in `[manifest]`. A third party's code that happens to live in a
     directory of ours is judged like anything else, whatever it calls itself
     and however its source is spelled.
+
+    An extra worker's lock adds one more: the backend, as `backend` names it,
+    locked editable at exactly the path `backend` gives.
     """
     if not {"editable", "virtual"} & set(source):
         return False
     if name in members:
+        return True
+    if backend is not None and (name, source.get("editable")) == backend:
         return True
     if project is None or name != project:
         return False
@@ -915,7 +926,9 @@ def _entries(lock: dict) -> list[dict]:
     return entries
 
 
-def read_lock(lock: dict, project: str | None = None) -> tuple[list[LockedPackage], set[str]]:
+def read_lock(
+    lock: dict, project: str | None = None, backend: tuple[str, str] | None = None
+) -> tuple[list[LockedPackage], set[str]]:
     """The locked packages, and the names that only development brings in.
 
     Everything that could leave the gate with nothing to check is an error
@@ -940,7 +953,7 @@ def read_lock(lock: dict, project: str | None = None) -> tuple[list[LockedPackag
     for entry in _entries(lock):
         name = canonical_name(entry["name"])
         source = entry.get("source") or {}
-        local = _is_ours(name, source, members, project)
+        local = _is_ours(name, source, members, project, backend)
         packages.append(
             LockedPackage(
                 name,
@@ -1347,7 +1360,16 @@ def run(
 ) -> int:
     policy = parse_policy(dependencies_path.read_text(encoding="utf-8"))
     lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
-    packages, development_only = read_lock(lock, _project_name(lock_path.parent / "pyproject.toml"))
+    backend = None
+    if lock_path.parent != LOCK.parent:
+        # An extra worker's lock: the backend it is composed from is ours too.
+        backend_name = _project_name(LOCK.parent / "pyproject.toml")
+        if backend_name is not None:
+            path = LOCK.parent.relative_to(lock_path.parent, walk_up=True).as_posix()
+            backend = (backend_name, path)
+    packages, development_only = read_lock(
+        lock, _project_name(lock_path.parent / "pyproject.toml"), backend
+    )
     source = MetadataSource(environment if environment and environment.exists() else None, offline)
 
     outcomes: list[Outcome] = []
@@ -1437,6 +1459,11 @@ DEPENDENCIES = ROOT / "DEPENDENCIES.md"
 """The document that states the policy and names the exceptions."""
 ENVIRONMENT = ROOT / "backend" / ".venv"
 """A synced virtual environment to read metadata from first."""
+EXTRA_WORKERS = {
+    lock.parent.name: (lock, lock.parent / ".venv")
+    for lock in sorted((ROOT / "extra-workers").glob("*/uv.lock"))
+}
+"""Each extra worker with a lock, by its directory name: its lock and its environment."""
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1446,9 +1473,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="do not ask PyPI about packages the environment does not have",
     )
+    parser.add_argument(
+        "--extra-worker",
+        choices=sorted(EXTRA_WORKERS),
+        help="check this extra worker's lock and environment; the backend's when not given",
+    )
     arguments = parser.parse_args(argv)
     try:
-        return run(LOCK, DEPENDENCIES, ENVIRONMENT, arguments.offline)
+        # The paths come from the table, never from the argument itself.
+        lock, environment = EXTRA_WORKERS.get(arguments.extra_worker, (LOCK, ENVIRONMENT))
+        return run(lock, DEPENDENCIES, environment, arguments.offline)
     except (ValueError, TypeError, KeyError, AttributeError, OSError) as problem:
         # Nothing was checked, so nothing passed. Exit 2 rather than 1, to
         # separate "this dependency fails the policy" from "the gate could not

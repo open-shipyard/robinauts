@@ -1134,6 +1134,38 @@ def test_a_vendored_package_that_claims_the_project_root_is_not_ours():
     assert [package.name for package in packages if package.local] == ["robinauts"]
 
 
+EXTRA_WORKER_LOCK = """
+version = 1
+
+[[package]]
+name = "worker"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [{ name = "robinauts" }]
+
+[[package]]
+name = "robinauts"
+version = "0.1.0"
+source = { editable = "../../backend" }
+"""
+
+
+@pytest.mark.parametrize(
+    ("backend", "editable", "ours"),
+    [
+        (("robinauts", "../../backend"), "../../backend", ["robinauts", "worker"]),
+        (None, "../../backend", ["worker"]),
+        (("robinauts", "../../backend"), "../../vendor/robinauts", ["worker"]),
+        (("robinauts", "../../backend"), "../../backend/", ["worker"]),
+        (("other", "../../backend"), "../../backend", ["worker"]),
+    ],
+)
+def test_an_extra_worker_lock_owns_the_backend_at_its_exact_path(backend, editable, ours):
+    lock = EXTRA_WORKER_LOCK.replace('"../../backend"', f'"{editable}"')
+    packages, _ = read_lock(tomllib.loads(lock), "worker", backend)
+    assert sorted(package.name for package in packages if package.local) == ours
+
+
 def test_the_index_a_package_came_from_is_remembered():
     lock = SMALL_LOCK.replace(
         'name = "asyncpg"\nversion = "0.30.0"\nsource = { registry = "https://pypi.org/simple" }',
