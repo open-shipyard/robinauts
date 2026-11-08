@@ -2,8 +2,9 @@
 
 ## The interface
 
-- The layout is neorc's: a collapsible left navigation panel, and the chat
-  in the middle. There is no top bar.
+- The layout is neorc's: a collapsible left navigation panel, the chat
+  in the middle, and a collapsible side panel on the right. There is no
+  top bar.
 - **The panel is ours**, and not part of the chat window
   ([ADR 0006](../adr/0006-chat-ui-on-react-alone.md)). Top to
   bottom: the collapse button and the brand; "new chat"; the conversation
@@ -27,6 +28,33 @@
   model is forgotten by the browser.
 - On a small screen the panel becomes an overlay drawer opened from a
   button, and the chat is usable on a phone.
+- **The right side panel** is ours too (`src/side/`). It holds tabs
+  beside the conversation on the screen:
+  - It collapses to a thin rail, and starts as one. Its left edge is a
+    separator that a pointer drags and the arrow keys move, from 260px to
+    60% of the window. The rail and the width are remembered per browser.
+  - On a small screen it is an overlay drawer from the right edge, opened
+    from a button, like the left panel. The two are never open together.
+  - A tab strip, each tab with a close button. "Add a tab" opens a menu of
+    every tab not open in this conversation: the agent's MCP apps
+    (`GET /api/apps`; on the empty chat, the agent picked for it). Picking
+    one opens it on top. With nothing left to add, the button is disabled.
+    An open tab stays mounted while another is on top, so an app keeps
+    what it shows.
+  - Open tabs are remembered per conversation, per browser. Tabs opened on
+    the empty chat move to the conversation its first message creates.
+  - An MCP app's tab frames the app's view
+    ([ADR 0007](../adr/0007-mcp-apps-in-the-side-panel.md)), with
+    `sandbox="allow-scripts"` and never `allow-same-origin`. The panel is
+    the view's host: it answers `ui/initialize` with the theme, calls the
+    app's own tool once the view says it is ready and hands it the result,
+    relays the view's `tools/call` to the backend, answers `ping`, and
+    refuses anything else. It reads only messages from that frame, and
+    tells the view when the theme changes. The view is hidden until the
+    first call has answered; a view that does not start, or a first call
+    that fails, is said so in its place, with "Try again".
+  - The keyboard: Left and Right move between tabs, Delete closes one;
+    the menu takes the arrow keys and closes on Escape.
 - The theme follows the operating system by default. A light / dark /
   system toggle is remembered per browser.
 - Until someone is signed in, the sign-in page stands in place of every
@@ -91,14 +119,19 @@ neorc's rules (`neorc/contributing/js-dependencies.md`):
 - The typed API client is generated from the committed OpenAPI snapshot.
 - Content-Security-Policy: `default-src 'none'`; `script-src`, `font-src`,
   `connect-src` `'self'`; `style-src 'self' 'unsafe-inline'`;
-  `img-src 'self' data:`; `frame-ancestors 'none'`; plus `base-uri 'none'`
+  `img-src 'self' data:`; `frame-src 'self'`, so that the side panel can
+  frame an MCP app's view, which this server serves under a policy of its
+  own ([ADR 0007](../adr/0007-mcp-apps-in-the-side-panel.md));
+  `frame-ancestors 'none'`; plus `base-uri 'none'`
   and `form-action 'none'`, which `default-src` does not cover — the page's
   script and stylesheet are named relatively, so an injected `<base>` would
   re-point both, and no form here posts anywhere. Plus `nosniff`, and
   `X-Frame-Options: DENY` for a browser too old to read `frame-ancestors`.
   Every answer carries them, refusals and API answers included, with
   `Referrer-Policy: same-origin`. The policy does nothing on JSON, and one
-  list is simpler than two.
+  list is simpler than two. The one exception is an MCP app's view, whose
+  answer carries its own policy and `X-Frame-Options: SAMEORIGIN`
+  ([architecture/web.md](../architecture/web.md), "Apps").
 - The interface's paths are read: `GET` and `HEAD`, and a write to one is a
   `405` with `Allow: GET, HEAD`. Nothing under `/ui/` whose name begins with
   a dot is served or packaged: a directory a build writes into is one an

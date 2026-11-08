@@ -53,6 +53,9 @@ function otherwise(call: Call): Response {
       ],
     });
   }
+  if (call.url.startsWith("/api/apps")) {
+    return json({ apps: [] });
+  }
   return json(page([]));
 }
 
@@ -1125,4 +1128,143 @@ test("#/devices is a page of the shell: the panel stays, the chat goes", async (
     "aria-current",
     "page",
   );
+});
+
+const sidePanel = () =>
+  screen.getByRole("complementary", { name: "Side panel" });
+
+/** The helper agent's one app, as `GET /api/apps` lists it. */
+const TO_DO_APP = {
+  id: "todo/show_todos",
+  server: "todo",
+  tool: "show_todos",
+  title: "To-do list",
+  description: "The list.",
+};
+
+/** The helper agent has the to-do list app; the rest as `otherwise`. */
+function withApp(call: Call): Response | undefined {
+  return call.url === "/api/apps?agent=helper"
+    ? json({ apps: [TO_DO_APP] })
+    : undefined;
+}
+
+test("the agent's apps are offered, and open as a sandboxed frame", async () => {
+  location.hash = `#/c/${id(1)}`;
+  await shell(undefined, (call) => {
+    if (call.url === `/api/conversations/${id(1)}`) {
+      return json(opened(conversation(1, "Robins"), []));
+    }
+    return withApp(call) ?? withConversation(call);
+  });
+  fireEvent.click(
+    screen.getByRole("button", { name: "Expand the side panel" }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Add a tab" }));
+  await waitFor(() => {
+    expect(
+      screen.getAllByRole("menuitem").map((item) => item.textContent),
+    ).toEqual(["To-do list"]);
+  });
+  fireEvent.click(screen.getByRole("menuitem", { name: "To-do list" }));
+  const app = within(screen.getByRole("tabpanel", { name: "To-do list" }));
+  const frame = app.getByTitle("To-do list");
+  expect(frame).toHaveAttribute(
+    "src",
+    "/api/apps/todo/show_todos/view?agent=helper",
+  );
+  expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+});
+
+test("on a small screen the side panel is a drawer, opened from the right", async () => {
+  narrow();
+  const { container } = await shell();
+  const aside = sidePanel();
+  expect(aside).toHaveAttribute("inert");
+  const open = screen.getByRole("button", { name: "Open the side panel" });
+  fireEvent.click(open);
+  expect(aside).toHaveAttribute("data-drawer", "open");
+  expect(aside).toHaveAttribute("role", "dialog");
+  // Drawn whole, whatever this browser left the rail as.
+  expect(screen.getByRole("button", { name: "Add a tab" })).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Close the side panel" }),
+  ).toHaveFocus();
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(aside).toHaveAttribute("data-drawer", "closed");
+  expect(open).toHaveFocus();
+
+  // The two drawers are never open together. Held on to, as above: open,
+  // a panel is a dialog and no longer a landmark.
+  const left = panel();
+  fireEvent.click(open);
+  fireEvent.click(screen.getByRole("button", { name: "Open the panel" }));
+  expect(aside).toHaveAttribute("data-drawer", "closed");
+  expect(left).toHaveAttribute("data-drawer", "open");
+  const backdrop = container.querySelector("[data-backdrop]");
+  fireEvent.click(backdrop as Element);
+  expect(left).toHaveAttribute("data-drawer", "closed");
+});
+
+test("Escape in the side panel's menu closes the menu, not the drawer", async () => {
+  narrow();
+  await shell(undefined, withApp);
+  const aside = sidePanel();
+  fireEvent.click(screen.getByRole("button", { name: "Open the side panel" }));
+  const add = screen.getByRole("button", { name: "Add a tab" });
+  await waitFor(() => {
+    expect(add).toBeEnabled();
+  });
+  fireEvent.click(add);
+  fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+  expect(screen.queryByRole("menu")).toBeNull();
+  expect(aside).toHaveAttribute("data-drawer", "open");
+});
+
+test("tabs opened on the empty chat go with the conversation it starts", async () => {
+  localStorage.setItem("robinauts.side", "open");
+  const created = id(9);
+  await shell(undefined, (call) => {
+    if (call.url === "/api/turns") {
+      return streamed(
+        [event("RUN_FINISHED", { threadId: created, runId: RUN }, 2)],
+        { headers: streamHeaders(RUN, created) },
+      );
+    }
+    if (call.url === `/api/conversations/${created}`) {
+      return json(opened(conversation(9, "Robins"), []));
+    }
+    return withApp(call);
+  });
+  const add = screen.getByRole("button", { name: "Add a tab" });
+  await waitFor(() => {
+    expect(add).toBeEnabled();
+  });
+  fireEvent.click(add);
+  fireEvent.click(screen.getByRole("menuitem", { name: "To-do list" }));
+  const box = screen.getByRole("textbox", { name: "Message input" });
+  fireEvent.change(box, { target: { value: "Why do robins sing?" } });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await settled();
+  });
+  expect(location.hash).toBe(`#/c/${created}`);
+  expect(screen.getByRole("tab", { name: "To-do list" })).toBeInTheDocument();
+  // And a new chat starts with nothing open.
+  fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+  await act(async () => {
+    await settled();
+  });
+  expect(screen.queryByRole("tab")).toBeNull();
+});
+
+test("the side panel is about a conversation, so not on a page that is not one", async () => {
+  location.hash = "#/devices";
+  await shell();
+  expect(
+    screen.queryByRole("complementary", { name: "Side panel" }),
+  ).toBeNull();
+  expect(
+    screen.queryByRole("button", { name: "Open the side panel" }),
+  ).toBeNull();
 });
