@@ -26,6 +26,9 @@ path = [
     "extra-workers/*/README.md",
     "extra-workers/*/CREDENTIALS.md",
     "extra-workers/*/uv.lock",
+    "mcp/README.md",
+    "mcp/*/README.md",
+    "mcp/*/uv.lock",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "The Robinauts Authors"
