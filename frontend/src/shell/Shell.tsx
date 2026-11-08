@@ -28,7 +28,7 @@ import type { Session } from "../session/session";
 import { signOut as endSession } from "../session/session";
 import { shownTitle } from "../conversation/conversation";
 import { AppTab } from "../side/AppTab";
-import { appOf, appOffers, useApps } from "../side/apps";
+import { appOf, appOffers, toolResults, useApps } from "../side/apps";
 import { SIDE_ID, SidePanel } from "../side/SidePanel";
 import { carryOpenTabs, NEW_CHAT_TABS, type TabRenderers } from "../side/tabs";
 import type { Conversation } from "../conversation/conversation";
@@ -339,6 +339,7 @@ export function Shell({
   // conversation's agent, or on the empty chat the one picked for it.
   const sideAgent = current === null ? agentId : conversationAgent;
   const apps = useApps(sideAgent);
+  const [results] = useState(toolResults);
   // A turn can change what an open app shows, so its tab reads it again.
   const [turnsEnded, setTurnsEnded] = useState(0);
   const turnEnded = () => {
@@ -356,6 +357,7 @@ export function Shell({
           agent={sideAgent}
           app={app}
           turnsEnded={turnsEnded}
+          results={results}
         />
       );
     },
@@ -494,6 +496,7 @@ export function Shell({
                 onConversationStarted={startedConversation}
                 onConversationOpened={conversationOpened}
                 onTurnEnded={turnEnded}
+                onToolResult={results.publish}
                 welcome={welcome}
               />
             </>
