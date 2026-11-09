@@ -10,7 +10,7 @@
  * prefix to build for, and nothing here depends on where the application is
  * mounted.
  *
- * No router library. Four routes, one event, and a store the size of this
+ * No router library. Six routes, one event, and a store the size of this
  * file; a library would be a dependency to vet, to keep pinned and to carry
  * in the bundle for something React already provides through
  * `useSyncExternalStore` (`docs/contributing/js-dependencies.md`).
@@ -19,6 +19,15 @@
  *     #/c/<id>      that conversation
  *     #/devices     "Linked devices": the phones and the API tokens
  *     #/link        what a phone's camera app opens a pairing code at
+ *     #/flows       the orchestrator's runs, when the server has one
+ *     #/flows/new   its flows, each with the form that starts a run
+ *     #/flows/runs/<id>   that run
+ *     #/flows/flow/<name> that flow
+ *
+ * The flows routes frame the orchestrator's page, which the session names
+ * (`flows_url`), and are what the panel's "Flows" section links to. Inside
+ * the frame the orchestrator keeps a hash of its own, which
+ * `./flows/orchestrator.ts` translates both ways.
  *
  * `#/link?v=1&c=…` is the URL inside a pairing QR
  * (`docs/architecture/device-pairing.md`). Its query is cut off like any
@@ -40,7 +49,15 @@ export type Route =
   | { readonly kind: "new" }
   | { readonly kind: "conversation"; readonly id: ConversationId }
   | { readonly kind: "devices" }
-  | { readonly kind: "link" };
+  | { readonly kind: "link" }
+  | { readonly kind: "flows"; readonly view: FlowsView };
+
+/** Which of the orchestrator's pages the flows routes show. */
+export type FlowsView =
+  | { readonly at: "runs" }
+  | { readonly at: "new" }
+  | { readonly at: "run"; readonly run: string }
+  | { readonly at: "flow"; readonly flow: string };
 
 /** The empty chat: the route of a page that has been told nothing else. */
 export const NEW_CHAT: Route = { kind: "new" };
@@ -50,6 +67,23 @@ export const DEVICES: Route = { kind: "devices" };
 
 /** The page a pairing code opens in a browser. */
 export const LINK: Route = { kind: "link" };
+
+/** The orchestrator's runs. */
+export const FLOWS: Route = { kind: "flows", view: { at: "runs" } };
+
+/** The orchestrator's flows, where a run is started. */
+export const NEW_RUN: Route = { kind: "flows", view: { at: "new" } };
+
+/**
+ * The shape of a flow's name, as the orchestrator allows one: an
+ * identifier. Judged here for the same reason as an id: a name goes into a
+ * URL, and a `/` or a `#` in it would forge another.
+ */
+const FLOW_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,199}$/;
+
+export function isFlowName(value: string): boolean {
+  return FLOW_NAME.test(value);
+}
 
 /**
  * The shape of every id the backend gives a conversation.
@@ -91,7 +125,23 @@ export function parseRoute(hash: string): Route {
     (hash.startsWith("#") ? hash.slice(1) : hash).split("?")[0] ?? "";
   if (path === "/devices") return DEVICES;
   if (path === "/link") return LINK;
+  if (path === "/flows") return FLOWS;
+  if (path === "/flows/new") return NEW_RUN;
   const parts = path.split("/");
+  const name = parts[3];
+  if (
+    parts.length === 4 &&
+    parts[0] === "" &&
+    parts[1] === "flows" &&
+    name !== undefined
+  ) {
+    if (parts[2] === "runs" && isUuid(name)) {
+      return { kind: "flows", view: { at: "run", run: name } };
+    }
+    if (parts[2] === "flow" && isFlowName(name)) {
+      return { kind: "flows", view: { at: "flow", flow: name } };
+    }
+  }
   const id = parts[2];
   if (
     parts.length === 3 &&
@@ -119,11 +169,39 @@ export function formatRoute(route: Route): string {
       return "#/devices";
     case "link":
       return "#/link";
+    case "flows":
+      return formatFlowsView(route.view);
     case "conversation":
       return isConversationId(route.id) ? `#/c/${route.id}` : "#/";
     default:
       return "#/";
   }
+}
+
+function formatFlowsView(view: FlowsView): string {
+  switch (view.at) {
+    case "new":
+      return "#/flows/new";
+    case "run":
+      return isUuid(view.run) ? `#/flows/runs/${view.run}` : "#/flows";
+    case "flow":
+      return isFlowName(view.flow) ? `#/flows/flow/${view.flow}` : "#/flows";
+    default:
+      return "#/flows";
+  }
+}
+
+/**
+ * Be there now, in place of where the page was: the address bar says so and
+ * every `useRoute` hears it, but Back skips it. For a move that has already
+ * happened and taken its own step in the history, as a page in the
+ * orchestrator's frame does (`./flows/FlowsPage.tsx`).
+ */
+export function replaceRoute(route: Route): void {
+  const hash = formatRoute(route);
+  if (location.hash === hash) return;
+  history.replaceState(history.state, "", hash);
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
 }
 
 /** Go there. The hash is the whole of the navigation. */

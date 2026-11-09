@@ -20,7 +20,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Chat } from "../chat";
+import { useChanges } from "../changes/changes";
 import { DevicesPage } from "../devices/DevicesPage";
+import { FlowsPage } from "../flows/FlowsPage";
 import { conversationIn, useHistory } from "../history/history";
 import { MenuIcon, PanelRightIcon } from "../icons";
 import { navigate, NEW_CHAT, useRoute } from "../router";
@@ -170,7 +172,24 @@ export function Shell({
   // Where the interface is: `#/`, `#/c/<id>` or `#/devices`
   // (`src/router.ts`).
   const route = useRoute();
+  // The orchestrator's page, framed, when the server has one; a flows
+  // route on a server with none is the empty chat, as any unknown hash is.
+  const flowsUrl = session.flows_url ?? null;
+  const flowsView =
+    route.kind === "flows" && flowsUrl !== null ? route.view : null;
+  // The pages that are not about a conversation: no side panel there.
+  const aPage = route.kind === "devices" || flowsView !== null;
   const history = useHistory();
+  // Something of this user changed in another tab or client: the list is
+  // asked for again, and the chat reads its conversation again
+  // (`../changes/changes.ts`).
+  const [changes, setChanges] = useState(0);
+  const refreshHistory = history.refresh;
+  const changed = useCallback(() => {
+    refreshHistory();
+    setChanges((count) => count + 1);
+  }, [refreshHistory]);
+  useChanges(changed);
   // "New chat" pressed while the empty chat is already up changes no hash
   // and so re-renders nothing; the count is what remounts the area, so
   // nothing typed into it carries over into the next one.
@@ -371,6 +390,8 @@ export function Shell({
         history={history}
         current={current}
         onDevices={route.kind === "devices"}
+        flowsUrl={flowsUrl}
+        flowsView={flowsView}
         collapsed={collapsed}
         onCollapse={setCollapsed}
         drawer={drawer}
@@ -416,7 +437,7 @@ export function Shell({
           >
             <MenuIcon className="shell-icon" />
           </button>
-          {route.kind !== "devices" && (
+          {!aPage && (
             <button
               type="button"
               ref={sideOpener}
@@ -450,6 +471,8 @@ export function Shell({
               the page stands where the chat would be. */}
           {route.kind === "devices" ? (
             <DevicesPage session={session} />
+          ) : flowsUrl !== null && flowsView !== null ? (
+            <FlowsPage url={flowsUrl} view={flowsView} />
           ) : (
             <>
               <h1 className="shell-title">
@@ -496,6 +519,7 @@ export function Shell({
                 onConversationStarted={startedConversation}
                 onConversationOpened={conversationOpened}
                 onTurnEnded={turnEnded}
+                changes={changes}
                 onToolResult={results.publish}
                 welcome={welcome}
               />
@@ -504,7 +528,7 @@ export function Shell({
         </main>
       </div>
       {/* About the conversation, so not on a page that is not one. */}
-      {route.kind !== "devices" && (
+      {!aPage && (
         <SidePanel
           conversation={current ?? NEW_CHAT_TABS}
           offers={offers}

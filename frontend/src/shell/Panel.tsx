@@ -3,7 +3,8 @@
 
 /**
  * The left panel: the collapse button and the brand, "new chat", the
- * history, and the profile block pinned to the bottom
+ * history, "Flows" when the server has an orchestrator, and the profile
+ * block pinned to the bottom
  * (`docs/specs/frontend.md`).
  *
  * **The panel is ours** (ADR 0001, kept by ADR 0006): it reads the API
@@ -30,7 +31,8 @@ import {
   PlusIcon,
   XIcon,
 } from "../icons";
-import { DEVICES, formatRoute } from "../router";
+import { DEVICES, formatRoute, type FlowsView } from "../router";
+import { FlowsSection } from "../flows/FlowsSection";
 import type { User } from "../session/session";
 import { useWide } from "./breakpoint";
 import { useLockedScroll, useTrappedFocus } from "./drawer";
@@ -48,6 +50,13 @@ export interface PanelProps {
   current: ConversationId | null;
   /** Whether the page is "Linked devices", so its link can say so. */
   onDevices?: boolean;
+  /**
+   * Where the server serves an orchestrator's page, which the "Flows"
+   * section opens; with none, there is no "Flows" (`../flows/`).
+   */
+  flowsUrl?: string | null;
+  /** Which of its pages is up, if one is, so its link can say so. */
+  flowsView?: FlowsView | null;
   /** Collapsed to a rail of icons. Only on a screen wide enough for one. */
   collapsed: boolean;
   onCollapse: (collapsed: boolean) => void;
@@ -67,6 +76,8 @@ export function Panel({
   history,
   current,
   onDevices = false,
+  flowsUrl = null,
+  flowsView = null,
   collapsed,
   onCollapse,
   drawer,
@@ -148,6 +159,16 @@ export function Panel({
           onOpened={onCloseDrawer}
         />
       </nav>
+
+      {/* Below the history: the orchestrator's navigation, which its framed
+          page leaves out, so there is one panel and one menu button. */}
+      {flowsUrl !== null && (
+        <FlowsSection
+          url={flowsUrl}
+          view={flowsView}
+          onOpened={onCloseDrawer}
+        />
+      )}
 
       {/* Everything that is not the history sits at the foot of the panel,
           because `docs/specs/frontend.md` leaves no top bar to put it in.

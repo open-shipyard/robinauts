@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
-from fastapi import Depends, FastAPI, Header, Request, Response
+from fastapi import Depends, FastAPI, Header, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
@@ -75,6 +75,8 @@ from robinauts.shared_domain.domain import (
 )
 from robinauts.web import agui
 from robinauts.web.apps import Apps, NoSuchAppError, ToolResult, UnansweredCallError
+from robinauts.web.changes import FeedGate
+from robinauts.web.changes import changes as changes_of
 from robinauts.web.cookies import Cookies
 from robinauts.web.headers import VIEW_HEADERS, SecurityHeaders
 from robinauts.web.logs import loggable
@@ -106,6 +108,12 @@ from robinauts.web.sign_in import (
 from robinauts.web.worker_api import WorkerAccess, worker_router
 
 DEFAULT_PAGE = 30
+
+CHANGES_TIMEOUT = 25.0
+"""The seconds ``GET /api/changes`` waits when the client names none: under the minute after
+which a proxy commonly closes a quiet request."""
+MAX_CHANGES_TIMEOUT = 30.0
+"""The longest ``GET /api/changes`` waits."""
 
 STATUS_OF: dict[type[ControllerError], int] = {
     InvalidValueError: 422,
@@ -285,6 +293,9 @@ class UserSessionResponse(BaseModel):
     """The token a token bearer is."""
     pairing: PairingStateView | None = None
     """The pairing the bearer of a claim waits on, before it is approved."""
+    flows_url: str | None = None
+    """Where this server serves an orchestrator's page of flows and runs, when it mounts one:
+    a path of its own origin, which the interface frames."""
 
 
 class MintedPairingResponse(BaseModel):
@@ -421,9 +432,19 @@ class ConversationSummary(BaseModel):
     updated_at: datetime
 
 
+class ListedConversation(ConversationSummary):
+    running: bool
+    """The conversation has an active turn."""
+
+
 class ConversationListResponse(BaseModel):
-    items: list[ConversationSummary]
+    items: list[ListedConversation]
     next_cursor: str | None
+
+
+class ChangesResponse(BaseModel):
+    version: int
+    """The signed-in user's change version (``docs/specs/wire.md``, "The change feed")."""
 
 
 class TextContent(BaseModel):
@@ -639,13 +660,20 @@ def create_app(
     secret_for: SecretLookup,
     config: Config,
     ui_dir: Path | None = None,
+    flows_url: str | None = None,
+    feed: FeedGate | None = None,
 ) -> FastAPI:
     """The HTTP server alone. Whoever runs it opens the controller and starts the worker before
     it serves, and stops the worker and closes the controller after (``cli/lifecycle.py``).
     ``brokers``, one per worker by name, and ``worker_access`` serve the workers in processes
     of their own at ``/internal/worker/``; ``healthy`` says whether this node's workers are
     heard from, for ``/health``. ``sign_in`` is ``None`` in the local development mode.
-    ``config`` names the agents' tool servers, whose secrets ``secret_for`` reads too."""
+    ``config`` names the agents' tool servers, whose secrets ``secret_for`` reads too.
+    ``flows_url`` is where whoever runs the app mounts an orchestrator's page on it, if
+    anywhere: the session says so, and the interface frames it. The app knows nothing else of
+    it. ``feed`` ends the waits of ``GET /api/changes`` once it is closed, by whoever stops the
+    server."""
+    gate = FeedGate() if feed is None else feed
     exchange: Exchange | None = None
     flow: SignIn | None = None
     if sign_in is not None:
@@ -839,7 +867,10 @@ def create_app(
     async def current_user_session(request: Request) -> UserSessionResponse:
         if sign_in is None:
             return UserSessionResponse(
-                sign_in=False, local_development=True, user=user_summary(local_user)
+                sign_in=False,
+                local_development=True,
+                user=user_summary(local_user),
+                flows_url=flows_url,
             )
         now = datetime.now(UTC)
         answer = UserSessionResponse(
@@ -857,6 +888,7 @@ def create_app(
                     answer.pairing = PairingStateView(state=state.value)
             return answer
         answer.user = user_summary(asker.user)
+        answer.flows_url = flows_url
         if asker.device is not None:
             answer.device = device_summary(asker.device)
         elif asker.via is Via.TOKEN:
@@ -1068,9 +1100,26 @@ def create_app(
         page = await controller.list_sessions(user, limit=limit, cursor=cursor)
         defaults = {a.id: a.default_model for a in await controller.list_agents()}
         return ConversationListResponse(
-            items=[summary(c, defaults[c.agent]) for c in page.sessions],
+            items=[
+                ListedConversation(
+                    **summary(c, defaults[c.agent]).model_dump(), running=c.id in page.running
+                )
+                for c in page.sessions
+            ],
             next_cursor=page.cursor,
         )
+
+    @app.get("/api/changes")
+    async def changes(
+        request: Request,
+        after: Annotated[int | None, Query(ge=0)] = None,
+        timeout: Annotated[float, Query(ge=0, le=MAX_CHANGES_TIMEOUT)] = CHANGES_TIMEOUT,
+        user: User = asking,
+    ) -> ChangesResponse:
+        """The user's change version: at once without ``after``, else once it differs from
+        ``after`` or ``timeout`` seconds have passed. It signals and carries nothing else."""
+        version = await changes_of(controller, user, after, timeout, request, gate)
+        return ChangesResponse(version=version)
 
     @app.get("/api/conversations/{conversation_id}")
     async def open_session(
