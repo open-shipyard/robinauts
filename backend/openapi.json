@@ -1068,6 +1068,17 @@
               }
             ]
           },
+          "flows_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flows Url"
+          },
           "local_development": {
             "default": false,
             "title": "Local Development",

@@ -5,7 +5,11 @@ import { expect, test } from "vitest";
 
 import {
   DEVICES,
+  FLOWS,
   formatRoute,
+  NEW_RUN,
+  replaceRoute,
+  type Route,
   isConversationId,
   LINK,
   navigate,
@@ -47,6 +51,59 @@ test("and written back the same way, round trip included", () => {
   expect(parseRoute(formatRoute(LINK))).toEqual(LINK);
 });
 
+test("the orchestrator's pages are read out of the hash", () => {
+  expect(parseRoute("#/flows")).toEqual({
+    kind: "flows",
+    view: { at: "runs" },
+  });
+  expect(parseRoute("#/flows/new")).toEqual(NEW_RUN);
+  expect(parseRoute(`#/flows/runs/${ID}`)).toEqual({
+    kind: "flows",
+    view: { at: "run", run: ID },
+  });
+  expect(parseRoute("#/flows/flow/guess_number")).toEqual({
+    kind: "flows",
+    view: { at: "flow", flow: "guess_number" },
+  });
+});
+
+test("the orchestrator's pages are written back the same way, round trip included", () => {
+  const routes: Route[] = [
+    FLOWS,
+    NEW_RUN,
+    { kind: "flows", view: { at: "run", run: ID } },
+    { kind: "flows", view: { at: "flow", flow: "guess_number" } },
+  ];
+  expect(routes.map(formatRoute)).toEqual([
+    "#/flows",
+    "#/flows/new",
+    `#/flows/runs/${ID}`,
+    "#/flows/flow/guess_number",
+  ]);
+  for (const route of routes) {
+    expect(parseRoute(formatRoute(route))).toEqual(route);
+  }
+  // A run id or a flow name that is not one of ours is the runs, not a path.
+  expect(
+    formatRoute({ kind: "flows", view: { at: "run", run: "../elsewhere" } }),
+  ).toBe("#/flows");
+  expect(
+    formatRoute({ kind: "flows", view: { at: "flow", flow: "a/b" } }),
+  ).toBe("#/flows");
+});
+
+test("replacing the route moves it in place and is heard", async () => {
+  const { result } = renderHook(() => useRoute());
+  const before = history.length;
+  await act(async () => {
+    replaceRoute(NEW_RUN);
+    await settled();
+  });
+  expect(location.hash).toBe("#/flows/new");
+  expect(result.current).toEqual(NEW_RUN);
+  expect(history.length).toBe(before);
+});
+
 test("a pairing code's query is cut off, and the route is the link page", () => {
   // The URL inside a pairing QR: the code is the app's, never this page's.
   expect(parseRoute("#/link?v=1&c=abc123")).toEqual({ kind: "link" });
@@ -71,6 +128,17 @@ test("every other hash is the empty chat", () => {
     "#/devices/",
     "#/devices/x",
     "#/link/x",
+    "#/flows/",
+    "#/flows/runs",
+    "#/flows/runs/",
+    `#/flows/runs/${ID}/x`,
+    "#/flows/runs/nope",
+    `#/flows/run/${ID}`,
+    "#/flows/new/x",
+    "#/flows/flow/",
+    "#/flows/flow/1abc",
+    "#/flows/flow/a-b",
+    "#/flows/guess_number",
     "#/Devices",
     // The sign-in page's own hash, which it reads for itself: this must not
     // claim it, and reading it writes nothing.
