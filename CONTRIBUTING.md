@@ -56,9 +56,12 @@ or one at a time:
                                 the extra workers: lint, tests, the image
     scripts/check-mcp-servers.sh
                                 the MCP servers under mcp/: lint, tests
+    scripts/check-services.sh   the services under services/: lint, import
+                                contracts, tests
     scripts/check-licences.sh   the dependency licence gate of DEPENDENCIES.md,
-                                over the backend's lock, the extra workers'
-                                and the MCP servers'
+                                over the backend's lock, the extra workers',
+                                the MCP servers' and the services' (every
+                                extra included)
     scripts/check-audit.sh      pip-audit over the whole locked set
     scripts/check-frontend.sh   the frontend: format, lint, types, tests,
                                 the build with its licence gate, npm audit

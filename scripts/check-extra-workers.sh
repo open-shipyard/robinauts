@@ -8,7 +8,7 @@
 # environment, ruff and black under its own configuration (the backend's rules,
 # copied), its tests, and its image, built where Docker is there to build it.
 # Then the one rule the backend's import-linter cannot see: nothing under
-# backend/src names an extra worker.
+# backend/src names an extra worker, nor a service (services/README.md).
 set -eu
 
 if [ "$#" -ne 0 ]; then
@@ -47,6 +47,13 @@ printf '\n== backend/src names no extra worker ==\n'
 if grep -rn "robinauts_claude_worker\|robinauts_worker_common\|claude_agent_sdk\|extra_workers" \
     "$root/backend/src"; then
     printf 'backend/src names an extra worker: the layers are the other way round\n' >&2
+    exit 1
+fi
+printf 'none\n'
+
+printf '\n== backend/src names no service ==\n'
+if grep -rn "sql_analytics\|robinauts_sql_analytics" "$root/backend/src"; then
+    printf 'backend/src names a service: a service stands alone\n' >&2
     exit 1
 fi
 printf 'none\n'

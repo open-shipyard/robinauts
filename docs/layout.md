@@ -14,6 +14,8 @@ robinauts/
                     own composed from backend/ (extra-workers/README.md)
   mcp/              MCP servers to try the platform with, each a project of its
                     own that stands alone (mcp/README.md)
+  services/         services an operator deploys beside the platform, each a
+                    project of its own that stands alone (services/README.md)
   orchestration/    the neorc flows Robinauts ships and their handlers, which the
                     neorc `robinauts start` runs beside itself uploads
                     (docs/architecture/orchestration.md)

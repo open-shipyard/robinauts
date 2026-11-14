@@ -5,7 +5,7 @@
 # Says which areas a pull request changes, in the form $GITHUB_OUTPUT reads.
 # The areas are backend, frontend, contract (backend/openapi.json, which is in
 # backend too), android (clients/android), extra_workers (extra-workers),
-# mcp_servers (mcp) and repo. A file in no other area marks repo, and so does an empty diff. CI runs
+# mcp_servers (mcp), services (services) and repo. A file in no other area marks repo, and so does an empty diff. CI runs
 # every suite on repo. A rename counts as both of its paths.
 #
 #     scripts/changed-areas.sh <base> <head>
@@ -24,6 +24,7 @@ contract=false
 android=false
 extra_workers=false
 mcp_servers=false
+services=false
 repo=false
 
 [ -n "$changed" ] || repo=true
@@ -37,6 +38,7 @@ while IFS= read -r path; do
         clients/android/*) android=true ;;
         extra-workers/*) extra_workers=true ;;
         mcp/*) mcp_servers=true ;;
+        services/*) services=true ;;
         *) repo=true ;;
     esac
 done <<EOF
@@ -49,4 +51,5 @@ echo "contract=$contract"
 echo "android=$android"
 echo "extra_workers=$extra_workers"
 echo "mcp_servers=$mcp_servers"
+echo "services=$services"
 echo "repo=$repo"
