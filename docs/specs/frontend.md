@@ -7,10 +7,29 @@
   top bar.
 - **The panel is ours**, and not part of the chat window
   ([ADR 0006](../adr/0006-chat-ui-on-react-alone.md)). Top to
-  bottom: the collapse button and the brand; "new chat"; the conversation
-  history; projects, once they exist; and, pinned to the bottom, the
-  profile block with sign-out. Collapsed, it becomes an icon rail. The state is remembered
+  bottom: the collapse button and the brand; when the server has an
+  orchestrator, a switch of two tabs, **Sessions** and **Flows**; "new chat"
+  and the conversation history, a project at a time; and, pinned to the
+  bottom, the profile block with sign-out. Each project is a heading that folds its
+  conversations away and opens them again, which is remembered per
+  browser, with a "+" that starts a conversation in it; "New project", at the
+  head of the history, makes another. The empty chat has a project picker
+  beside the agent's, on "Default" until another is picked. Collapsed, it becomes an icon rail. The state is remembered
   per browser.
+- **Sessions or Flows.** The two tabs choose what the panel holds between
+  the switch and the profile block: Sessions is "new chat" and the history,
+  with no heading of its own; Flows is the orchestrator's navigation, with
+  "New run" where "new chat" was. One at a time, each with the whole height,
+  so a long history never squeezes the runs, nor they it. The tab and the
+  page agree: a flows page shows Flows, a conversation or the empty chat
+  shows Sessions, and choosing a tab goes back to the page last open under
+  it -- under Sessions the conversation last open, or the empty chat; under
+  Flows the flows page last open, or the runs. A page of neither, such as
+  "Linked devices", keeps the tab shown last, which is remembered per
+  browser. A switch loses nothing: the tab not shown is hidden, not
+  dropped, so the history keeps its scroll and what was typed in it, and
+  the Flows lists stay up to date. In the rail the switch is the two icons,
+  one above the other. With no orchestrator there is no switch.
 - The application opens on an empty chat, ready for a first message, with
   the agent to talk to and the model selectable side by side. The model
   picker lists the operator's models, with no "default" entry: until one is
@@ -38,6 +57,10 @@
   six per origin over HTTP/1.1.
 - The history marks a conversation with a running turn, from the list's
   `running` field.
+- **Archiving takes one click.** A row of the history has an archive button.
+  It shows on hover and while the row has the focus, and always on a screen
+  without hover. A click takes the conversation off the list, with no
+  question. Its next message brings it back.
 - On a small screen the panel becomes an overlay drawer opened from a
   button, and the chat is usable on a phone.
 - **The right side panel** is ours too (`src/side/`). It holds tabs

@@ -24,6 +24,10 @@ class SessionNotFoundError(ControllerError):
     """Also for a session that exists and is not the user's."""
 
 
+class ProjectNotFoundError(ControllerError):
+    """Also for a project that exists and is not the user's."""
+
+
 class UnknownEngineError(ControllerError):
     """An agent configured on an engine this build does not have."""
 
@@ -100,13 +104,19 @@ class AgentConfig:
     id: str
     title: str
     system_prompt: str
-    model: str
+    # The models its turns may run on, in the configuration's order, its default first.
+    models: tuple[str, ...]
     engine: str
     tools: tuple[str, ...] = ()
     # How long one of its turns may run; left out, ``[work]``'s ``max_turn_seconds``.
     turn_timeout_seconds: float | None = None
     # The worker its turns run on, a process of its own on PostgreSQL; left out, the default.
     worker: str = DEFAULT_WORKER
+
+    @property
+    def model(self) -> str:
+        """Its default model: the first of its models."""
+        return self.models[0]
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +221,11 @@ class ToolResultPart:
 MessagePart = TextPart | ReasoningPart | ToolCallPart | ToolResultPart
 
 
+TASK_KEY = "task_key"
+"""The one key a task payload must hold: a string naming what kind of task it is, with its
+version (``code_task/1``), which an engine reads first and acts on only when it knows it."""
+
+
 @dataclass(frozen=True, slots=True)
 class Message:
     id: uuid.UUID
@@ -227,6 +242,24 @@ class Message:
     """The turn that produced an answer, which web shows as the run id; ``None`` on a question."""
     failed: bool = False
     """An answer whose turn failed: what it streamed before it failed, and no checkpoint."""
+    task_payload: Mapping[str, Any] | None = None
+    """A question's structured data beside its text, for the engine rather than the model: a
+    JSON object whose ``task_key`` names the kind of task; untyped past that. ``None`` on an
+    answer, and on a question asked with text alone."""
+
+
+DEFAULT_PROJECT = "Default"
+"""The name of the project every owner has, which a session is in unless another is chosen."""
+
+
+@dataclass(frozen=True, slots=True)
+class Project:
+    """A named group of one owner's sessions. Each owner's names are unique."""
+
+    id: uuid.UUID
+    owner_id: uuid.UUID
+    name: str
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +273,11 @@ class Session:
     created_at: datetime
     updated_at: datetime
     title: str = ""
+    project_id: uuid.UUID = field(kw_only=True)
+    """The owner's project the session is in: ``DEFAULT_PROJECT`` unless another was chosen."""
+    archived_at: datetime | None = field(default=None, kw_only=True)
+    """When the owner archived it, or ``None``. An archived session is left out of the listing,
+    and keeps everything else. Its next turn unarchives it."""
 
 
 class TurnState(StrEnum):

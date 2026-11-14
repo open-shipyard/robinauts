@@ -10,8 +10,9 @@ import base64
 import dataclasses
 import logging
 import uuid
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Mapping
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from robinauts.controller.application.intervals import run_at_intervals
 from robinauts.controller.contract.broker.documents import (
@@ -36,11 +37,15 @@ from robinauts.controller.contract.domain import (
     User,
 )
 from robinauts.controller.contract.ports import Controller
+from robinauts.controller.core.projects import project_name
+from robinauts.controller.core.task_payloads import check_task_payload
 from robinauts.controller.core.titles import title_from_text
 from robinauts.controller.ports.store import Cursor, Store
 from robinauts.shared_domain.domain import (
+    DEFAULT_PROJECT,
     Config,
     Message,
+    Project,
     Role,
     Session,
     TextPart,
@@ -107,7 +112,8 @@ class RobinautsController(Controller):
 
     async def list_agents(self) -> tuple[AgentListing, ...]:
         return tuple(
-            AgentListing(a.id, a.title, default_model=a.model) for a in self._config.agents.values()
+            AgentListing(a.id, a.title, default_model=a.model, models=a.models)
+            for a in self._config.agents.values()
         )
 
     async def list_models(self) -> tuple[ModelListing, ...]:
@@ -150,6 +156,11 @@ class RobinautsController(Controller):
         await self._store.update_session(renamed)
         return renamed
 
+    async def archive_session(self, user: User, session_id: uuid.UUID) -> None:
+        session = await self._store.get_session(user.id, session_id)
+        if session.archived_at is None:
+            await self._store.update_session(dataclasses.replace(session, archived_at=self._now()))
+
     async def delete_session(self, user: User, session_id: uuid.UUID) -> None:
         session = await self._store.get_session(user.id, session_id)
         await self._end_expired(session)
@@ -165,8 +176,38 @@ class RobinautsController(Controller):
     ) -> Session:
         raise NotImplementedError("fork_session")
 
-    async def start_session(self, user: User, *, agent: str, model: str, text: str) -> TurnStarted:
+    async def list_projects(self, user: User) -> tuple[Project, ...]:
+        await self._default_project(user)
+        return tuple(await self._store.projects_of(user.id))
+
+    async def create_project(self, user: User, name: str) -> Project:
+        return await self._store.ensure_project(
+            Project(uuid.uuid4(), user.id, project_name(name), self._now())
+        )
+
+    async def _default_project(self, user: User) -> Project:
+        return await self._store.ensure_project(
+            Project(uuid.uuid4(), user.id, DEFAULT_PROJECT, self._now())
+        )
+
+    async def start_session(
+        self,
+        user: User,
+        *,
+        agent: str,
+        model: str,
+        text: str,
+        project: uuid.UUID | None = None,
+        task_payload: Mapping[str, Any] | None = None,
+    ) -> TurnStarted:
+        payload = check_task_payload(task_payload)
         agent_config = self._config.agents[agent]
+        # Before the session is stored, so that a refused model leaves no empty conversation.
+        self._check_model(agent, model)
+        if project is None:
+            project = (await self._default_project(user)).id
+        else:
+            project = (await self._store.get_project(user.id, project)).id
         now = self._now()
         session = Session(
             uuid.uuid4(),
@@ -176,6 +217,7 @@ class RobinautsController(Controller):
             created_at=now,
             updated_at=now,
             title=title_from_text(text),
+            project_id=project,
         )
         question = Message(
             uuid.uuid4(),
@@ -187,6 +229,7 @@ class RobinautsController(Controller):
             agent=agent,
             engine=session.engine,
             model=model,
+            task_payload=payload,
         )
         await self._store.add_session(session)
         # The worker creates the engine's session before it runs this first turn.
@@ -203,12 +246,14 @@ class RobinautsController(Controller):
         parent_id: uuid.UUID,
         model: str,
         text: str,
+        task_payload: Mapping[str, Any] | None = None,
     ) -> TurnStarted:
+        payload = check_task_payload(task_payload)
         session = await self._store.get_session(user.id, session_id)
         messages = await load_messages(self._store, user.id, session_id)
         if all(m.id != parent_id for m in messages):
             raise MessageNotFoundError(str(parent_id))
-        return await self._ask(user, session, parent_id, model, text)
+        return await self._ask(user, session, parent_id, model, text, payload)
 
     async def edit_message(
         self,
@@ -218,16 +263,26 @@ class RobinautsController(Controller):
         message_id: uuid.UUID,
         model: str,
         text: str,
+        task_payload: Mapping[str, Any] | None = None,
     ) -> TurnStarted:
+        payload = check_task_payload(task_payload)
         session = await self._store.get_session(user.id, session_id)
         messages = await load_messages(self._store, user.id, session_id)
         edited = next((m for m in messages if m.id == message_id), None)
         if edited is None or edited.role is not Role.USER:
             raise MessageNotFoundError(str(message_id))
-        return await self._ask(user, session, edited.parent_id, model, text)
+        # An edit from the interface sends text alone: the task stays the edited question's.
+        kept = edited.task_payload if payload is None else payload
+        return await self._ask(user, session, edited.parent_id, model, text, kept)
 
     async def _ask(
-        self, user: User, session: Session, parent_id: uuid.UUID | None, model: str, text: str
+        self,
+        user: User,
+        session: Session,
+        parent_id: uuid.UUID | None,
+        model: str,
+        text: str,
+        task_payload: Mapping[str, Any] | None = None,
     ) -> TurnStarted:
         if not text or not text.strip():
             raise InvalidValueError("a message needs some text")
@@ -241,6 +296,7 @@ class RobinautsController(Controller):
             agent=session.agent,
             engine=session.engine,
             model=model,
+            task_payload=task_payload,
         )
         turn = await self._queue_turn(user, session, question, model, new_question=True)
         return TurnStarted(session.id, turn.id, question)
@@ -312,6 +368,14 @@ class RobinautsController(Controller):
         and announces a running one to the worker that runs it."""
         await self._store.request_cancel(user.id, turn.session_id, turn.id, self._now())
 
+    def _check_model(self, agent: str, model: str) -> None:
+        """``UnknownModelError`` for a model not configured, or not one the agent lists."""
+        if model not in self._config.models:
+            raise UnknownModelError(model)
+        listed = self._config.agents[agent].models if agent in self._config.agents else ()
+        if model not in listed:
+            raise UnknownModelError(f"{model} is not one of agent {agent}'s models")
+
     async def _queue_turn(
         self,
         user: User,
@@ -324,10 +388,10 @@ class RobinautsController(Controller):
         create_session: bool = False,
         resume: bool = False,
     ) -> Turn:
-        model_config = self._config.models.get(model)
-        if model_config is None:
-            raise UnknownModelError(model)
+        self._check_model(session.agent, model)
         await self._end_expired(session)
+        if session.archived_at is not None:
+            await self._store.update_session(dataclasses.replace(session, archived_at=None))
         now = self._now()
         turn_id = uuid.uuid4()
         payload: dict[str, object] = {"turn_id": str(turn_id), "create_session": create_session}

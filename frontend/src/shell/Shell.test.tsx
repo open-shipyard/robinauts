@@ -41,7 +41,13 @@ function otherwise(call: Call): Response {
   if (call.url.startsWith("/api/agents")) {
     return json({
       items: [
-        { id: "helper", title: "Helper", engine: "langgraph", model: "sonnet" },
+        {
+          id: "helper",
+          title: "Helper",
+          engine: "langgraph",
+          model: "sonnet",
+          models: ["sonnet", "opus"],
+        },
       ],
     });
   }
@@ -1163,16 +1169,52 @@ function orchestrator(call: Call): Response | undefined {
 
 const flowsSection = () => screen.getByRole("navigation", { name: "Flows" });
 
-test("the orchestrator's navigation is a section of the panel, below the history", async () => {
-  const { unmount } = await shell();
+const tab = (name: string) => screen.getByRole("tab", { name });
+
+test("with no orchestrator there is no switch, and the panel holds the sessions", async () => {
+  await shell();
+  expect(screen.queryByRole("tablist", { name: "Panel" })).toBeNull();
+  expect(screen.queryByRole("tabpanel")).toBeNull();
+  expect(screen.getByRole("navigation", { name: "History" })).toBeVisible();
   expect(screen.queryByRole("navigation", { name: "Flows" })).toBeNull();
-  unmount();
+});
+
+test("Sessions and Flows are two tabs, and each takes the whole of the panel's middle", async () => {
   await shell(undefined, orchestrator, WITH_FLOWS);
-  const section = flowsSection();
-  const history = screen.getByRole("navigation", { name: "History" });
+  const tabs = screen.getByRole("tablist", { name: "Panel" });
+  // Under the brand, above "New chat".
   expect(
-    history.compareDocumentPosition(section) & Node.DOCUMENT_POSITION_FOLLOWING,
+    screen.getByText("Robinauts").compareDocumentPosition(tabs) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
   ).toBeTruthy();
+  expect(
+    tabs.compareDocumentPosition(
+      screen.getByRole("button", { name: "New chat" }),
+    ) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  // On the empty chat, and nothing remembered: the sessions.
+  expect(tab("Sessions")).toHaveAttribute("aria-selected", "true");
+  expect(tab("Flows")).toHaveAttribute("aria-selected", "false");
+  expect(screen.getByRole("tabpanel", { name: "Sessions" })).toContainElement(
+    screen.getByRole("navigation", { name: "History" }),
+  );
+  // The history has no heading of its own: the tab says what it is.
+  expect(screen.queryByRole("heading", { name: "History" })).toBeNull();
+  expect(screen.queryByRole("navigation", { name: "Flows" })).toBeNull();
+
+  fireEvent.click(tab("Flows"));
+  expect(tab("Flows")).toHaveAttribute("aria-selected", "true");
+  expect(screen.queryByRole("navigation", { name: "History" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "New chat" })).toBeNull();
+  const section = flowsSection();
+  expect(screen.getByRole("tabpanel", { name: "Flows" })).toContainElement(
+    section,
+  );
+  // The middle follows: the runs, the first flows page there has been.
+  await waitFor(() => {
+    expect(location.hash).toBe("#/flows");
+  });
+  expect(frame()).toHaveAttribute("src", "/neorc/ui/?embedded#/runs");
   expect(
     within(section).getByRole("link", { name: "New run" }),
   ).toHaveAttribute("href", "#/flows/new");
@@ -1189,12 +1231,133 @@ test("the orchestrator's navigation is a section of the panel, below the history
   const run = within(runs).getByRole("link");
   expect(run).toHaveAttribute("href", `#/flows/runs/${RUN}`);
   expect(run).toHaveAttribute("title", "guess_number 11111111, active");
-  // In the rail, the two ways in stay, as icons with their names.
+  // In the rail, the tabs and the two ways in stay, as icons with their names.
   fireEvent.click(screen.getByRole("button", { name: "Collapse the panel" }));
+  expect(tab("Sessions")).toHaveAttribute("title", "Sessions");
   expect(within(section).getByRole("link", { name: "Runs" })).toHaveAttribute(
     "title",
     "Runs",
   );
+
+  fireEvent.click(tab("Sessions"));
+  expect(screen.getByRole("navigation", { name: "History" })).toBeVisible();
+  expect(screen.queryByRole("navigation", { name: "Flows" })).toBeNull();
+});
+
+test("switching tabs keeps both in place: no reload of the flows, nothing typed lost", async () => {
+  const { fetch } = await shell(undefined, orchestrator, WITH_FLOWS);
+  fireEvent.click(tab("Flows"));
+  await within(flowsSection()).findByRole("list", { name: "Workflows" });
+  const read = callsTo(fetch, "/neorc/flows").length;
+
+  // Half a name for a new project, typed on Sessions.
+  fireEvent.click(tab("Sessions"));
+  fireEvent.click(screen.getByRole("button", { name: "New project" }));
+  fireEvent.change(screen.getByLabelText("Project name"), {
+    target: { value: "Half a na" },
+  });
+
+  // To Flows and back: its lists are there at once, read no more.
+  fireEvent.click(tab("Flows"));
+  expect(
+    within(flowsSection()).getByRole("list", { name: "Workflows" }),
+  ).toBeVisible();
+  expect(
+    within(flowsSection()).getByRole("list", { name: "Recent runs" }),
+  ).toBeVisible();
+  expect(callsTo(fetch, "/neorc/flows")).toHaveLength(read);
+  fireEvent.click(tab("Sessions"));
+  expect(screen.getByLabelText("Project name")).toHaveValue("Half a na");
+});
+
+test("the arrow keys move between the tabs, and show the one they land on", async () => {
+  await shell(undefined, orchestrator, WITH_FLOWS);
+  // One tab stop for the pair: the shown tab.
+  expect(tab("Sessions")).toHaveAttribute("tabindex", "0");
+  expect(tab("Flows")).toHaveAttribute("tabindex", "-1");
+  tab("Sessions").focus();
+  fireEvent.keyDown(tab("Sessions"), { key: "ArrowRight" });
+  expect(tab("Flows")).toHaveFocus();
+  expect(tab("Flows")).toHaveAttribute("aria-selected", "true");
+  expect(tab("Flows")).toHaveAttribute("tabindex", "0");
+  // It wraps round, and Home and End go to the ends.
+  fireEvent.keyDown(tab("Flows"), { key: "ArrowRight" });
+  expect(tab("Sessions")).toHaveFocus();
+  fireEvent.keyDown(tab("Sessions"), { key: "End" });
+  expect(tab("Flows")).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(tab("Flows"), { key: "Home" });
+  expect(tab("Sessions")).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(tab("Sessions"), { key: "ArrowLeft" });
+  expect(tab("Flows")).toHaveAttribute("aria-selected", "true");
+});
+
+test("choosing a tab goes back to the page last open under it", async () => {
+  location.hash = `#/c/${id(1)}`;
+  await shell(
+    undefined,
+    (call) => withConversation(call) ?? orchestrator(call),
+    WITH_FLOWS,
+  );
+  // A conversation is a page of the sessions.
+  expect(tab("Sessions")).toHaveAttribute("aria-selected", "true");
+  // Flows, with no flows page open yet: the runs.
+  fireEvent.click(tab("Flows"));
+  expect(tab("Flows")).toHaveAttribute("aria-selected", "true");
+  await waitFor(() => {
+    expect(location.hash).toBe("#/flows");
+  });
+  // A run, from the panel or anywhere else.
+  act(() => {
+    location.hash = `#/flows/runs/${RUN}`;
+  });
+  const runs = await within(flowsSection()).findByRole("list", {
+    name: "Recent runs",
+  });
+  await waitFor(() => {
+    expect(within(runs).getByRole("link")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+  // Sessions: back to the conversation, not a flow under a Sessions tab.
+  fireEvent.click(tab("Sessions"));
+  await waitFor(() => {
+    expect(location.hash).toBe(`#/c/${id(1)}`);
+  });
+  expect(frameOrNull()).toBeNull();
+  // Flows again: back to that run.
+  fireEvent.click(tab("Flows"));
+  await waitFor(() => {
+    expect(location.hash).toBe(`#/flows/runs/${RUN}`);
+  });
+  // The tab already shown goes nowhere.
+  fireEvent.click(tab("Flows"));
+  await settled();
+  expect(location.hash).toBe(`#/flows/runs/${RUN}`);
+  // A page of neither keeps the tab, and leaves by it.
+  act(() => {
+    location.hash = "#/devices";
+  });
+  await screen.findByRole("heading", { level: 1, name: "Linked devices" });
+  expect(tab("Flows")).toHaveAttribute("aria-selected", "true");
+  fireEvent.click(tab("Sessions"));
+  await waitFor(() => {
+    expect(location.hash).toBe(`#/c/${id(1)}`);
+  });
+});
+
+test("the empty chat is a page of the sessions; the browser remembers the tab for the rest", async () => {
+  localStorage.setItem("robinauts.panel.tab", "flows");
+  const { unmount } = await shell(undefined, orchestrator, WITH_FLOWS);
+  // The empty chat, whatever was remembered.
+  expect(tab("Sessions")).toHaveAttribute("aria-selected", "true");
+  unmount();
+  // A page of neither: the tab shown last.
+  localStorage.setItem("robinauts.panel.tab", "flows");
+  location.hash = "#/devices";
+  await shell(undefined, orchestrator, WITH_FLOWS);
+  expect(tab("Flows")).toHaveAttribute("aria-selected", "true");
+  expect(flowsSection()).toBeVisible();
 });
 
 test("#/flows frames the orchestrator's runs, embedded, where the chat would be", async () => {
@@ -1213,6 +1376,43 @@ test("#/flows frames the orchestrator's runs, embedded, where the chat would be"
   expect(
     screen.queryByRole("button", { name: "Open the side panel" }),
   ).toBeNull();
+});
+
+test("New run is the interface's own page, not the frame, and a flow's form keeps it current", async () => {
+  location.hash = "#/flows/new";
+  await shell(
+    undefined,
+    (call) =>
+      call.url === "/api/flows"
+        ? json({
+            items: [
+              {
+                name: "guess_number",
+                title: "guess_number",
+                has_form: false,
+                inputs: [],
+              },
+            ],
+          })
+        : orchestrator(call),
+    WITH_FLOWS,
+  );
+  expect(await screen.findByRole("heading", { name: "New run" })).toBeVisible();
+  expect(frameOrNull()).toBeNull();
+  const link = within(
+    screen.getByRole("list", { name: "Flows to start" }),
+  ).getByRole("link");
+  expect(link).toHaveAttribute("href", "#/flows/new/guess_number");
+  act(() => {
+    location.hash = "#/flows/new/guess_number";
+  });
+  expect(
+    await screen.findByRole("form", { name: "Start guess_number" }),
+  ).toBeVisible();
+  expect(frameOrNull()).toBeNull();
+  expect(
+    within(flowsSection()).getByRole("link", { name: "New run" }),
+  ).toHaveAttribute("aria-current", "page");
 });
 
 test("a run's route opens that run in the frame, and its link says so", async () => {

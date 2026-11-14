@@ -11,7 +11,8 @@ A worker in a process of its own is built with `compose_worker`, over the core i
 The file holds web's tables beside the controller's, so web is handed the tables of one
 reading and parses its own. Also
 what `robinauts db init` does, since it is the one other thing that names the store and the
-engines together."""
+engines together. The orchestrator is built apart, in ``cli/orchestration.py``: a worker in a
+process of its own imports this module, and the extra workers' images leave neorc out."""
 
 from __future__ import annotations
 

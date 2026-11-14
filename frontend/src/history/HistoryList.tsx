@@ -9,22 +9,37 @@
  * the way to it is an `<a href>`: it can be opened in a new tab, copied, and
  * the browser's own "you are here" is `aria-current="page"`.
  *
+ * Archiving is one click on the row's archive button, with no question: it
+ * takes the conversation off the list and keeps everything, and the next
+ * message sent in it brings it back.
+ *
  * Renaming and deleting are inline, in the row. No `window.confirm`, which
  * is the browser's dialogue rather than this interface's and which a person
  * cannot read the title of the thing they are deleting in; a "Delete?
  * Yes / No" in the row says what is about to go and can be left alone.
  *
  * Everything here is reachable with a keyboard alone: the actions button is
- * always drawn rather than appearing on hover, Escape closes what is open
+ * always drawn rather than appearing on hover, the archive button shows
+ * while the row has the focus, Escape closes what is open
  * and puts the focus back on the button that opened it, and the focus
  * follows into the rename box and onto "No".
+ *
+ * **A project at a time**, once the projects are known: each is a group
+ * with a heading that folds it away and opens it again, and a "+" that
+ * starts a new chat in it. A project nobody has a conversation in yet is
+ * still drawn, so that one just made is there to start a chat in. A
+ * conversation of a project the list does not know -- made since the
+ * projects were last asked for -- goes under the first group, "Default",
+ * rather than nowhere.
  */
 import {
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 
 import { ApiError, detailOf } from "../api/client";
@@ -32,12 +47,16 @@ import type { ConversationId } from "../chat";
 import type { ListedConversation } from "../conversation/conversation";
 import { shownTitle } from "../conversation/conversation";
 import {
+  ArchiveIcon,
   CheckIcon,
+  ChevronDownIcon,
   EllipsisIcon,
   PencilIcon,
+  PlusIcon,
   TrashIcon,
   XIcon,
 } from "../icons";
+import type { Folded, Project } from "../projects/projects";
 import { formatRoute, navigate, NEW_CHAT } from "../router";
 import type { History } from "./history";
 import "./history.css";
@@ -73,12 +92,41 @@ export interface HistoryListProps {
   current: ConversationId | null;
   /** Opening one closes the drawer it was opened from, on a small screen. */
   onOpened?: () => void;
+  /**
+   * The user's projects, oldest first, to draw the list a project at a
+   * time; left out or `null` -- not asked for yet, or not answered -- the
+   * list is drawn as one.
+   */
+  projects?: readonly Project[] | null;
+  /** Which projects are folded away. */
+  folded?: Folded;
+  /** "+" on a project: start a new chat in it. */
+  onNewChatIn?: (project: string) => void;
+}
+
+/** The conversations of each project, in the projects' order. */
+export function groupByProject(
+  projects: readonly Project[],
+  items: readonly ListedConversation[],
+): { project: Project; items: ListedConversation[] }[] {
+  const groups = projects.map((project) => ({
+    project,
+    items: [] as ListedConversation[],
+  }));
+  const byId = new Map(groups.map((group) => [group.project.id, group]));
+  for (const item of items) {
+    (byId.get(item.project_id) ?? groups[0])?.items.push(item);
+  }
+  return groups;
 }
 
 export function HistoryList({
   history,
   current,
   onOpened,
+  projects = null,
+  folded,
+  onNewChatIn,
 }: Readonly<HistoryListProps>) {
   const { status, items, more, loadingMore, refreshing, error } = history;
   /**
@@ -95,6 +143,17 @@ export function HistoryList({
   const toTheList = useCallback(() => {
     list.current?.focus();
   }, []);
+  const row = (conversation: ListedConversation) => (
+    <HistoryItem
+      key={conversation.id}
+      conversation={conversation}
+      isCurrent={conversation.id === current}
+      history={history}
+      onGone={toTheList}
+      {...(onOpened === undefined ? {} : { onOpened })}
+    />
+  );
+  const grouped = projects !== null && projects.length > 0;
   return (
     <>
       <ul
@@ -103,21 +162,25 @@ export function HistoryList({
         aria-label="Conversations"
         className="history-list"
       >
-        {items.map((conversation) => (
-          <HistoryItem
-            key={conversation.id}
-            conversation={conversation}
-            isCurrent={conversation.id === current}
-            history={history}
-            onGone={toTheList}
-            {...(onOpened === undefined ? {} : { onOpened })}
-          />
-        ))}
+        {grouped
+          ? groupByProject(projects, items).map((group) => (
+              <ProjectGroup
+                key={group.project.id}
+                project={group.project}
+                count={group.items.length}
+                folded={folded?.has(group.project.id) ?? false}
+                onFold={() => folded?.toggle(group.project.id)}
+                {...(onNewChatIn === undefined ? {} : { onNewChatIn })}
+              >
+                {group.items.map(row)}
+              </ProjectGroup>
+            ))
+          : items.map(row)}
       </ul>
       {status === "loading" && (
         <p className="history-note">Loading the conversations…</p>
       )}
-      {status === "ready" && items.length === 0 && (
+      {status === "ready" && items.length === 0 && !grouped && (
         <p className="history-note">No conversations yet.</p>
       )}
       {/* Already a sentence: which ask failed is known where it failed, not
@@ -151,6 +214,71 @@ export function HistoryList({
         </button>
       )}
     </>
+  );
+}
+
+/**
+ * One project: its heading, which folds it away and opens it again, a "+"
+ * for a new chat in it, and its conversations.
+ *
+ * The heading is a button with `aria-expanded` that controls the list under
+ * it: a disclosure, which is what a reader is told it is.
+ */
+function ProjectGroup({
+  project,
+  count,
+  folded,
+  onFold,
+  onNewChatIn,
+  children,
+}: Readonly<{
+  project: Project;
+  count: number;
+  folded: boolean;
+  onFold: () => void;
+  onNewChatIn?: (project: string) => void;
+  children: ReactNode;
+}>) {
+  const listId = useId();
+  return (
+    <li className="history-project" data-folded={folded}>
+      <div className="history-project-head">
+        <button
+          type="button"
+          aria-expanded={!folded}
+          aria-controls={listId}
+          title={folded ? `Open ${project.name}` : `Fold ${project.name}`}
+          onClick={onFold}
+          className="history-project-toggle"
+        >
+          <ChevronDownIcon className="history-icon-small history-chevron" />
+          <span className="history-project-name">{project.name}</span>
+          <span className="history-project-count">{count}</span>
+        </button>
+        {onNewChatIn !== undefined && (
+          <button
+            type="button"
+            title={`Start a conversation in ${project.name}`}
+            aria-label={`Start a conversation in ${project.name}`}
+            onClick={() => {
+              onNewChatIn(project.id);
+            }}
+            className="history-tool"
+          >
+            <PlusIcon className="history-icon-small" />
+          </button>
+        )}
+      </div>
+      <ul
+        id={listId}
+        aria-label={project.name}
+        hidden={folded}
+        className="history-project-list"
+      >
+        {children}
+        {count === 0 && <li className="history-note">No conversations yet.</li>}
+      </ul>
+    </li>
   );
 }
 
@@ -275,6 +403,23 @@ function HistoryItem({
     }
   };
 
+  const archive = async () => {
+    if (busy) return;
+    setBusy(true);
+    setRefused(null);
+    // The focus is on the archive button, which goes with the row.
+    returning.current = true;
+    try {
+      await history.archive(conversation.id);
+      // The page was showing what the list no longer holds.
+      if (isCurrent) navigate(NEW_CHAT);
+    } catch (failure) {
+      setRefused(detailOf(failure));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const remove = async () => {
     if (busy) return;
     setBusy(true);
@@ -381,6 +526,18 @@ function HistoryItem({
               className="history-running"
             />
           )}
+          {/* Drawn on hover, or while the row has the focus, where there is
+              a hover; always, where there is none (history.css). */}
+          <button
+            type="button"
+            title="Archive"
+            aria-label={`Archive ${label}`}
+            aria-disabled={busy}
+            onClick={() => void archive()}
+            className="history-tool history-archive"
+          >
+            <ArchiveIcon className="history-icon" />
+          </button>
           <button
             ref={actions}
             type="button"

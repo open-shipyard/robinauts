@@ -60,10 +60,18 @@ from robinauts.controller.contract.domain import (
     User,
 )
 from robinauts.controller.contract.ports import Controller, Credentials
+from robinauts.orchestrator.contract.domain import (
+    FlowForm,
+    Flows,
+    InvalidInputsError,
+    NoSuchFlowError,
+)
 from robinauts.shared_domain.domain import (
     Config,
     ControllerError,
     Message,
+    Project,
+    ProjectNotFoundError,
     ReasoningPart,
     Role,
     Session,
@@ -118,6 +126,7 @@ MAX_CHANGES_TIMEOUT = 30.0
 STATUS_OF: dict[type[ControllerError], int] = {
     InvalidValueError: 422,
     SessionNotFoundError: 404,
+    ProjectNotFoundError: 404,
     MessageNotFoundError: 404,
     UnknownAgentError: 404,
     UnknownModelError: 422,
@@ -374,6 +383,9 @@ class AgentSummary(BaseModel):
     title: str
     engine: str
     model: str
+    """Its default model."""
+    models: list[str]
+    """The models its turns may run on, in order, its default first."""
 
 
 class AgentListResponse(BaseModel):
@@ -387,6 +399,75 @@ class ModelSummary(BaseModel):
 
 class ModelListResponse(BaseModel):
     items: list[ModelSummary]
+
+
+class FlowOptionSummary(BaseModel):
+    value: str
+    label: str
+    models: list[str] | None = None
+    """An agent's: the models its turns may run on, in order, its default first."""
+
+
+class FlowInputSummary(BaseModel):
+    name: str
+    label: str
+    type: str
+    """The type the flow declares: ``string``, ``number``, ``boolean`` or ``datetime``."""
+    lov: str | None = None
+    """The list of values it takes its value from: ``repo_branch``, ``model`` or ``agent``."""
+    options: list[FlowOptionSummary] | None = None
+    """The values it may take, when it has a list of values."""
+
+
+class FlowSummary(BaseModel):
+    name: str
+    title: str
+    has_form: bool
+    """Whether the flows folder holds a form for it; without one, every input is a plain
+    field."""
+    inputs: list[FlowInputSummary]
+
+
+class FlowListResponse(BaseModel):
+    items: list[FlowSummary]
+
+
+class StartFlowRunRequest(BaseModel):
+    inputs: dict[str, Any] = Field(default_factory=dict)
+
+
+class FlowRunStarted(BaseModel):
+    id: str
+    """The run's id at the orchestrator, which ``flows_url`` shows it under."""
+
+
+def flow_summary(form: FlowForm) -> FlowSummary:
+    return FlowSummary(
+        name=form.name,
+        title=form.title,
+        has_form=form.has_form,
+        inputs=[
+            FlowInputSummary(
+                name=field.name,
+                label=field.label,
+                type=field.type,
+                lov=None if field.lov is None else str(field.lov),
+                options=(
+                    None
+                    if field.options is None
+                    else [
+                        FlowOptionSummary(
+                            value=o.value,
+                            label=o.label,
+                            models=None if o.models is None else list(o.models),
+                        )
+                        for o in field.options
+                    ]
+                ),
+            )
+            for field in form.inputs
+        ],
+    )
 
 
 class AppSummary(BaseModel):
@@ -423,11 +504,27 @@ def tool_call_response(result: ToolResult) -> AppToolCallResponse:
     )
 
 
+class ProjectSummary(BaseModel):
+    id: uuid.UUID
+    name: str
+    created_at: datetime
+
+
+class ProjectListResponse(BaseModel):
+    items: list[ProjectSummary]
+    """Oldest first: the ``Default`` one is always among them."""
+
+
+class NewProjectRequest(BaseModel):
+    name: str
+
+
 class ConversationSummary(BaseModel):
     id: uuid.UUID
     title: str
     agent: str
     model: str
+    project_id: uuid.UUID
     created_at: datetime
     updated_at: datetime
 
@@ -482,6 +579,8 @@ class MessageView(BaseModel):
     provenance: ProvenanceView | None
     failed: bool = False
     """An answer whose turn failed: what it streamed before the failure."""
+    task_payload: dict[str, Any] | None = None
+    """A question's structured data beside its text, as it was asked with it."""
 
 
 class ResumeView(BaseModel):
@@ -519,10 +618,18 @@ class NewChatRequest(BaseModel):
     agent_id: str
     model_id: str | None = None
     text: str
+    project_id: uuid.UUID | None = None
+    """The project the conversation goes in; left out, the user's ``Default`` one."""
+    task_payload: dict[str, Any] | None = None
+    """Structured data beside the text, for the engine: a JSON object whose ``task_key`` names
+    the kind of task (``docs/specs/wire.md``, "Task payloads")."""
 
 
 class TurnRequest(BaseModel):
     text: str | None = None
+    task_payload: dict[str, Any] | None = None
+    """With a new question or an edit: as ``NewChatRequest``'s. An edit without one keeps the
+    edited question's."""
     parent_id: uuid.UUID | None = None
     edit: uuid.UUID | None = None
     regenerate: uuid.UUID | None = None
@@ -565,12 +672,17 @@ def token_summary(token: ApiToken) -> ApiTokenSummary:
     )
 
 
+def project_summary(project: Project) -> ProjectSummary:
+    return ProjectSummary(id=project.id, name=project.name, created_at=project.created_at)
+
+
 def summary(session: Session, model: str) -> ConversationSummary:
     return ConversationSummary(
         id=session.id,
         title=session.title,
         agent=session.agent,
         model=model,
+        project_id=session.project_id,
         created_at=session.created_at,
         updated_at=session.updated_at,
     )
@@ -605,6 +717,7 @@ def message_view(message: Message, session: Session) -> MessageView:
         parts=[content(p) for p in message.parts if not isinstance(p, ReasoningPart)],
         provenance=provenance,
         failed=message.failed,
+        task_payload=None if message.task_payload is None else dict(message.task_payload),
     )
 
 
@@ -661,6 +774,7 @@ def create_app(
     config: Config,
     ui_dir: Path | None = None,
     flows_url: str | None = None,
+    flows: Flows | None = None,
     feed: FeedGate | None = None,
 ) -> FastAPI:
     """The HTTP server alone. Whoever runs it opens the controller and starts the worker before
@@ -670,9 +784,9 @@ def create_app(
     heard from, for ``/health``. ``sign_in`` is ``None`` in the local development mode.
     ``config`` names the agents' tool servers, whose secrets ``secret_for`` reads too.
     ``flows_url`` is where whoever runs the app mounts an orchestrator's page on it, if
-    anywhere: the session says so, and the interface frames it. The app knows nothing else of
-    it. ``feed`` ends the waits of ``GET /api/changes`` once it is closed, by whoever stops the
-    server."""
+    anywhere: the session says so, and the interface frames it. ``flows`` are its flows as
+    forms, which ``/api/flows`` lists and starts: none without an orchestrator. ``feed`` ends
+    the waits of ``GET /api/changes`` once it is closed, by whoever stops the server."""
     gate = FeedGate() if feed is None else feed
     exchange: Exchange | None = None
     flow: SignIn | None = None
@@ -827,6 +941,14 @@ def create_app(
     @app.exception_handler(UnansweredCallError)
     async def unanswered(request: Request, exc: UnansweredCallError) -> JSONResponse:
         return JSONResponse({"error": "BadGateway", "detail": str(exc)}, status_code=502)
+
+    @app.exception_handler(NoSuchFlowError)
+    async def no_such_flow(request: Request, exc: NoSuchFlowError) -> JSONResponse:
+        return JSONResponse({"error": "NotFound", "detail": str(exc)}, status_code=404)
+
+    @app.exception_handler(InvalidInputsError)
+    async def invalid_inputs(request: Request, exc: InvalidInputsError) -> JSONResponse:
+        return JSONResponse({"error": "InvalidInputs", "detail": str(exc)}, status_code=422)
 
     @app.exception_handler(ControllerError)
     async def refused(request: Request, exc: ControllerError) -> JSONResponse:
@@ -1055,7 +1177,9 @@ def create_app(
         agents = await controller.list_agents()
         return AgentListResponse(
             items=[
-                AgentSummary(id=a.id, title=a.title, engine="", model=a.default_model)
+                AgentSummary(
+                    id=a.id, title=a.title, engine="", model=a.default_model, models=list(a.models)
+                )
                 for a in agents
             ]
         )
@@ -1064,6 +1188,19 @@ def create_app(
     async def list_models() -> ModelListResponse:
         models = await controller.list_models()
         return ModelListResponse(items=[ModelSummary(id=m.id, title=m.title) for m in models])
+
+    # --- flows, as forms: the orchestrator's (orchestrator/) ---------------------
+
+    @app.get("/api/flows", dependencies=[asking])
+    async def list_flows() -> FlowListResponse:
+        forms = () if flows is None else await flows.forms()
+        return FlowListResponse(items=[flow_summary(form) for form in forms])
+
+    @app.post("/api/flows/{flow}/runs", status_code=201, dependencies=[asking])
+    async def start_flow_run(flow: str, body: StartFlowRunRequest) -> FlowRunStarted:
+        if flows is None:
+            raise NoSuchFlowError(f"no flow {flow!r}: this server runs no orchestrator")
+        return FlowRunStarted(id=await flows.start(flow, body.inputs))
 
     # --- MCP apps, for the side panel: web/apps.py -------------------------------
 
@@ -1090,6 +1227,18 @@ def create_app(
         server: str, tool: str, body: AppToolCallRequest
     ) -> AppToolCallResponse:
         return tool_call_response(await apps.call(body.agent, server, tool, body.arguments))
+
+    # --- projects --------------------------------------------------------------
+
+    @app.get("/api/projects")
+    async def list_projects(user: User = asking) -> ProjectListResponse:
+        projects = await controller.list_projects(user)
+        return ProjectListResponse(items=[project_summary(p) for p in projects])
+
+    @app.post("/api/projects", status_code=201)
+    async def create_project(body: NewProjectRequest, user: User = asking) -> ProjectSummary:
+        """The user's project of that name: a new one, or the one they already had."""
+        return project_summary(await controller.create_project(user, body.name))
 
     # --- sessions --------------------------------------------------------------
 
@@ -1135,6 +1284,10 @@ def create_app(
         renamed = await controller.rename_session(user, conversation_id, body.title)
         return summary(renamed, await default_model(renamed.agent))
 
+    @app.post("/api/conversations/{conversation_id}/archive", status_code=204)
+    async def archive_session(conversation_id: uuid.UUID, user: User = asking) -> None:
+        await controller.archive_session(user, conversation_id)
+
     @app.delete("/api/conversations/{conversation_id}", status_code=204)
     async def delete_session(conversation_id: uuid.UUID, user: User = asking) -> None:
         await controller.delete_session(user, conversation_id)
@@ -1146,6 +1299,10 @@ def create_app(
         # The model goes with each turn now: this stores nothing, and answers the
         # conversation as the picker will send its next turn.
         opened = await controller.open_session(user, conversation_id)
+        agent = opened.session.agent
+        listed = next((a.models for a in await controller.list_agents() if a.id == agent), ())
+        if body.model_id not in listed:
+            raise UnknownModelError(f"{body.model_id} is not one of agent {agent}'s models")
         moved = summary(opened.session, body.model_id)
         moved.updated_at = datetime.now(UTC)
         return moved
@@ -1163,7 +1320,12 @@ def create_app(
     async def start_session(body: NewChatRequest, user: User = asking) -> StreamingResponse:
         model = body.model_id or await default_model(body.agent_id)
         started = await controller.start_session(
-            user, agent=body.agent_id, model=model, text=body.text
+            user,
+            agent=body.agent_id,
+            model=model,
+            text=body.text,
+            project=body.project_id,
+            task_payload=body.task_payload,
         )
         return await stream_turn(user, started.session_id, started.turn_id, 0)
 
@@ -1173,6 +1335,10 @@ def create_app(
     ) -> StreamingResponse:
         opened = await controller.open_session(user, conversation_id)
         model = body.model_id or model_of(opened, await default_model(opened.session.agent))
+        again = (body.regenerate, body.retry, body.resume) != (None, None, None)
+        if body.task_payload is not None and again:
+            # A regeneration, a retry or a resume answers the question as it was asked.
+            raise InvalidValueError("a task_payload goes with a new question or an edit")
         if body.regenerate is not None:
             # The frontend names the answer to produce again; the controller, its question.
             at = next((i for i, m in enumerate(opened.messages) if m.id == body.regenerate), None)
@@ -1192,11 +1358,21 @@ def create_app(
             )
         elif body.edit is not None:
             started = await controller.edit_message(
-                user, conversation_id, message_id=body.edit, model=model, text=body.text
+                user,
+                conversation_id,
+                message_id=body.edit,
+                model=model,
+                text=body.text,
+                task_payload=body.task_payload,
             )
         elif body.parent_id is not None:
             started = await controller.send_message(
-                user, conversation_id, parent_id=body.parent_id, model=model, text=body.text
+                user,
+                conversation_id,
+                parent_id=body.parent_id,
+                model=model,
+                text=body.text,
+                task_payload=body.task_payload,
             )
         else:
             raise InvalidValueError("a message names the parent_id it answers, or the one it edits")

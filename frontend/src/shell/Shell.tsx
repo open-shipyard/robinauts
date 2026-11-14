@@ -19,13 +19,22 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { Chat } from "../chat";
+import { Chat, type Drafts } from "../chat";
 import { useChanges } from "../changes/changes";
 import { DevicesPage } from "../devices/DevicesPage";
 import { FlowsPage } from "../flows/FlowsPage";
+import { NewRunPage } from "../flows/NewRunPage";
 import { conversationIn, useHistory } from "../history/history";
 import { MenuIcon, PanelRightIcon } from "../icons";
-import { navigate, NEW_CHAT, useRoute } from "../router";
+import {
+  FLOWS,
+  formatRoute,
+  isOwnFlowsPage,
+  navigate,
+  NEW_CHAT,
+  type Route,
+  useRoute,
+} from "../router";
 import type { Session } from "../session/session";
 import { signOut as endSession } from "../session/session";
 import { shownTitle } from "../conversation/conversation";
@@ -44,10 +53,18 @@ import { LocalModeBanner } from "./LocalModeBanner";
 import {
   ConversationModel,
   ModelPicker,
+  modelsOf,
   useChosenModel,
   useModels,
 } from "./ModelPicker";
-import { PANEL_ID, Panel } from "./Panel";
+import { PANEL_ID, Panel, type PanelTab } from "./Panel";
+import { ProjectPicker } from "./ProjectPicker";
+import {
+  createProject,
+  useChosenProject,
+  useFolded,
+  useProjects,
+} from "../projects/projects";
 import { remember, remembered } from "./storage";
 import "./shell.css";
 
@@ -67,6 +84,12 @@ export function agentTitle(agents: Agents, id: string): string | null {
   if (agents.status === "loading") return null;
   if (agents.status === "failed") return id;
   return agents.items.find((agent) => agent.id === id)?.title ?? id;
+}
+
+/** The models that agent lists; `null` while the agents are not known. */
+function listedModels(agents: Agents, id: string | null): string[] | null {
+  if (agents.status !== "ready" || id === null) return null;
+  return agents.items.find((agent) => agent.id === id)?.models ?? null;
 }
 
 /** What the shell holds about the conversation on the screen. */
@@ -179,6 +202,14 @@ export function Shell({
     route.kind === "flows" && flowsUrl !== null ? route.view : null;
   // The pages that are not about a conversation: no side panel there.
   const aPage = route.kind === "devices" || flowsView !== null;
+  // The panel's tab this page belongs to, if either.
+  const pageTab: PanelTab | null =
+    route.kind === "new" || route.kind === "conversation"
+      ? "sessions"
+      : flowsView !== null
+        ? "flows"
+        : null;
+  const lastPages = useLastPages(route, pageTab);
   const history = useHistory();
   // Something of this user changed in another tab or client: the list is
   // asked for again, and the chat reads its conversation again
@@ -189,11 +220,30 @@ export function Shell({
     refreshHistory();
     setChanges((count) => count + 1);
   }, [refreshHistory]);
+  // The projects, asked for again with everything else that changes, and
+  // after one is made here; the one a first message goes in; and which are
+  // folded away in the panel (`../projects/projects.ts`).
+  const [projectsRound, setProjectsRound] = useState(0);
+  const projects = useProjects(changes + projectsRound);
+  const [projectId, chooseProject] = useChosenProject(projects);
+  const folded = useFolded();
+  const newProject = useCallback(
+    async (name: string) => {
+      const made = await createProject(name);
+      chooseProject(made.id);
+      setProjectsRound((round) => round + 1);
+    },
+    [chooseProject],
+  );
   useChanges(changed);
   // "New chat" pressed while the empty chat is already up changes no hash
   // and so re-renders nothing; the count is what remounts the area, so
   // nothing typed into it carries over into the next one.
   const [chat, setChat] = useState(0);
+  // What was written and not sent in each conversation, kept across those
+  // remounts, and for as long as somebody is signed in: this shell is
+  // unmounted when they sign out, and the drafts go with it.
+  const [drafts] = useState<Drafts>(() => new Map());
   // Asked for here, not inside the empty chat: that is remounted on every
   // "New chat", and the agents do not change while the server is running.
   // The choice is held here too, because the chat needs it to begin a
@@ -214,8 +264,13 @@ export function Shell({
     agents.status === "ready"
       ? (agents.items.find((agent) => agent.id === agentId)?.model ?? null)
       : null;
+  // Only the chosen agent's models: the backend refuses any other.
+  const agentModels = useMemo(
+    () => modelsOf(models, listedModels(agents, agentId)),
+    [models, agents, agentId],
+  );
   const [modelId, chooseModel, forgetChosenModel] = useChosenModel(
-    models,
+    agentModels,
     agentDefault,
   );
   const forgetModel = useCallback(
@@ -280,6 +335,10 @@ export function Shell({
   const conversationAgent = listed?.agent ?? about?.agent ?? null;
   const withAgent =
     conversationAgent === null ? null : agentTitle(agents, conversationAgent);
+  const conversationModels = useMemo(
+    () => modelsOf(models, listedModels(agents, conversationAgent)),
+    [models, agents, conversationAgent],
+  );
   // Held rather than made at every render: the React Compiler takes a
   // value made from the panel's row by a call of ours for one that may be
   // changed later, and then gives up on every callback below.
@@ -323,11 +382,20 @@ export function Shell({
   );
   const welcome = (
     <div className="shell-welcome">
+      <ProjectPicker
+        projects={projects}
+        chosen={projectId}
+        onChoose={chooseProject}
+      />
       <AgentPicker agents={agents} chosen={agentId} onChoose={chooseAgent} />
       {/* Only once there is an agent to talk to: with none, the agent
           picker's sentence is the whole of what there is to say. */}
       {agentId !== null && (
-        <ModelPicker models={models} chosen={modelId} onChoose={chooseModel} />
+        <ModelPicker
+          models={agentModels}
+          chosen={modelId}
+          onChoose={chooseModel}
+        />
       )}
     </div>
   );
@@ -389,9 +457,22 @@ export function Shell({
         user={session.user ?? null}
         history={history}
         current={current}
+        projects={projects.status === "ready" ? projects.items : null}
+        folded={folded}
+        onNewChatIn={(project) => {
+          chooseProject(project);
+          navigate(NEW_CHAT);
+          setChat((count) => count + 1);
+        }}
+        onNewProject={newProject}
         onDevices={route.kind === "devices"}
         flowsUrl={flowsUrl}
         flowsView={flowsView}
+        pageTab={pageTab}
+        onTab={(tab) => {
+          const to = lastPages[tab];
+          if (formatRoute(to) !== formatRoute(route)) navigate(to);
+        }}
         collapsed={collapsed}
         onCollapse={setCollapsed}
         drawer={drawer}
@@ -471,6 +552,10 @@ export function Shell({
               the page stands where the chat would be. */}
           {route.kind === "devices" ? (
             <DevicesPage session={session} />
+          ) : flowsView !== null && isOwnFlowsPage(flowsView) ? (
+            <NewRunPage
+              flow={flowsView.at === "start" ? flowsView.flow : null}
+            />
           ) : flowsUrl !== null && flowsView !== null ? (
             <FlowsPage url={flowsUrl} view={flowsView} />
           ) : (
@@ -496,7 +581,7 @@ export function Shell({
                   {current !== null && conversationModel !== null && (
                     <ConversationModel
                       key={current}
-                      models={models}
+                      models={conversationModels}
                       conversationId={current}
                       model={conversationModel}
                       onMoved={modelMoved}
@@ -509,6 +594,7 @@ export function Shell({
                 key={chat}
                 conversationId={current}
                 agentId={agentId}
+                projectId={projectId}
                 // The model goes with every turn: an open conversation's is the
                 // one its line's picker shows.
                 modelId={current === null ? modelId : conversationModel}
@@ -522,6 +608,7 @@ export function Shell({
                 changes={changes}
                 onToolResult={results.publish}
                 welcome={welcome}
+                drafts={drafts}
               />
             </>
           )}
@@ -540,4 +627,27 @@ export function Shell({
       )}
     </div>
   );
+}
+
+/**
+ * The page last open under each of the panel's tabs, so choosing a tab goes
+ * back to it: a conversation or the empty chat under Sessions, an
+ * orchestrator's page under Flows. Until one has been open, the empty chat
+ * and the runs. Kept while the page is, not remembered by the browser.
+ *
+ * Followed while rendering, as the panel follows the tab: the page is known
+ * by its route, which is one object per address (`../router.ts`).
+ */
+function useLastPages(
+  route: Route,
+  tab: PanelTab | null,
+): Readonly<Record<PanelTab, Route>> {
+  const [last, setLast] = useState<Readonly<Record<PanelTab, Route>>>({
+    sessions: NEW_CHAT,
+    flows: FLOWS,
+  });
+  if (tab !== null && last[tab] !== route) {
+    setLast({ ...last, [tab]: route });
+  }
+  return tab === null ? last : { ...last, [tab]: route };
 }

@@ -27,7 +27,7 @@ from robinauts.controller.contract.broker.domain import (
     Task,
 )
 from robinauts.controller.contract.domain import User
-from robinauts.shared_domain.domain import Session, Turn, TurnState
+from robinauts.shared_domain.domain import Project, Session, Turn, TurnState
 
 
 class Store(ABC):
@@ -50,10 +50,26 @@ class Store(ABC):
         its ``name``, ``email``, ``hosted_domain`` and ``groups`` replaced by ``user``'s, which
         is what a sign-in said last. Its id and ``created_at`` are kept."""
 
+    # --- projects -----------------------------------------------------------
+
+    @abstractmethod
+    async def ensure_project(self, project: Project) -> Project:
+        """The owner's project of ``project``'s name: ``project`` if there was none, stored
+        then, else the one there, unchanged. Storing one is a change worth knowing."""
+
+    @abstractmethod
+    async def get_project(self, owner: uuid.UUID, project: uuid.UUID) -> Project:
+        """``ProjectNotFoundError`` for a project that is missing or another owner's."""
+
+    @abstractmethod
+    async def projects_of(self, owner: uuid.UUID) -> list[Project]:
+        """Every project of the owner, oldest first, ties broken by id."""
+
     # --- sessions -----------------------------------------------------------
 
     @abstractmethod
-    async def add_session(self, session: Session) -> None: ...
+    async def add_session(self, session: Session) -> None:
+        """``ProjectNotFoundError`` when its project is not its owner's."""
 
     @abstractmethod
     async def get_session(self, owner: uuid.UUID, session: uuid.UUID) -> Session:
@@ -61,14 +77,15 @@ class Store(ABC):
 
     @abstractmethod
     async def update_session(self, session: Session) -> None:
-        """Its title and ``updated_at`` replaced: a rename."""
+        """Its title, ``updated_at`` and ``archived_at`` replaced: a rename, an archive or an
+        unarchive."""
 
     @abstractmethod
     async def sessions_of(
         self, owner: uuid.UUID, limit: int, before: Cursor | None
     ) -> list[Session]:
-        """A page of the owner's visible sessions, most recently updated first, ties broken
-        by id, past ``before``."""
+        """A page of the owner's visible sessions that are not archived, most recently updated
+        first, ties broken by id, past ``before``."""
 
     @abstractmethod
     async def hide_session(self, owner: uuid.UUID, session: uuid.UUID, at: datetime) -> None:
@@ -235,7 +252,8 @@ class Store(ABC):
         have passed; at once for ``after`` ``None``. A user the store does not have is at 0.
 
         The version grows by one in the same operation as each change worth knowing:
-        ``add_session``, ``update_session``, ``hide_session``, ``queue_turn``,
+        an ``ensure_project`` that stores one, ``add_session``, ``update_session``,
+        ``hide_session``, ``queue_turn``,
         ``finish_turn``, ``end_expired_turn``, and a ``request_cancel`` that ends a queued
         turn. A change in any process wakes the wait, which holds no connection of the pool
         while it waits."""

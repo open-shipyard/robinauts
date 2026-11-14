@@ -39,7 +39,7 @@ title = "Claude Opus 5.5"
 [agents.coder]
 title = "Claude Code"
 system_prompt = "You work in this conversation's own directory. Say what you did."
-model = "opus"
+models = ["opus"]
 engine = "claude-code"       # an engine the server does not have: allowed on a worker with a command
 worker = "claude"
 
@@ -48,6 +48,8 @@ command = [
     "docker", "run", "-i", "--rm", "--network", "host",
     "-e", "ROBINAUTS_CONFIG", "-e", "ROBINAUTS_WORKER_NAME", "-e", "ROBINAUTS_WORKER_BROKER_URL",
     "-e", "ROBINAUTS_CLAUDE_AUTH=deployed", "-e", "ANTHROPIC_API_KEY",
+    "--env-file", "/etc/robinauts/github.env",
+    "-e", "ROBINAUTS_FLOWS_DIR", "-v", "/etc/robinauts/flows:/etc/robinauts/flows:ro",
     "-v", "/etc/robinauts/robinauts.toml:/etc/robinauts/robinauts.toml:ro",
     "-v", "robinauts-claude-sessions:/var/lib/claude",
     "-v", "robinauts-claude-workspaces:/workspace",
@@ -73,6 +75,18 @@ worker adds:
   and the conversations' workspaces. Without them nothing outlives the
   container ("What is kept, and what is lost").
 - Every knob of "Configuration" goes in the same way, `-e NAME=value`.
+- `-e ROBINAUTS_FLOWS_DIR` and `-v /etc/robinauts/flows:/etc/robinauts/flows:ro`,
+  optional: the flows' settings, whose `[repositories]` each session gets a
+  worktree of, in its directory, on the branch `rb/<session id>`, before its
+  agent starts; the clones are under `/workspace/repos`
+  ([../worker-common/README.md](../worker-common/README.md), "Repositories and
+  worktrees").
+- `--env-file /etc/robinauts/github.env`, optional: `GITHUB_TOKEN`, for the
+  worker's own clones (`robinauts_worker_common.clone`), checked at the start
+  like every extra worker's
+  ([../worker-common/README.md](../worker-common/README.md)). Claude Code
+  inherits it, so the agent's `Bash` and `git` can use it too; keeping it from
+  the agent is listed under that README's "Enhancements".
 - Not passed, and not to be: `ROBINAUTS_DATABASE_URL`. The worker refuses to
   start with it.
 
@@ -220,6 +234,14 @@ the two branches are two sessions and neither loses anything. A cancelled or
 failed turn leaves what it wrote; the next turn resumes before it, which cuts
 it off. The server's `turn_timeout_seconds`, stall detection, cancels and
 leases work as for every engine, since the worker is the server's own.
+
+Before Claude Code starts, the session's worktrees are made in its directory
+([worker-common](../worker-common/README.md), "Repositories and worktrees"):
+at its first turn, of every repository of the flows' settings, or, when the
+question carries a `code_task/1` task payload, of the repositories it names,
+each from its branch ("A code task" there). A code task this worker cannot set
+up ends the turn with the reason, before the agent starts. The agent sees the
+question's text alone: the payload is the worker's.
 
 ## Checks
 

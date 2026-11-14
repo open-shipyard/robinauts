@@ -39,9 +39,10 @@ until the frontend is revisited.
   browser. This makes our wire a profile of AG-UI, not its stock run input,
   and it is documented with the API.
 - **The model travels with the turn.** Every turn may name the model it
-  runs on, one of those `GET /api/models` lists. Left out, a new conversation
-  runs on its agent's default, and a conversation that exists on the model of
-  its last message. The model is recorded on the messages the turn produces,
+  runs on, one of those its agent lists in `GET /api/agents`. Another model
+  is refused. Left out, a new conversation runs on its agent's default, the
+  first it lists, and a conversation that exists on the model of its last
+  message. The model is recorded on the messages the turn produces,
   so a conversation's model is the one its last answer ran on, and the next
   turn may run on another.
 - **The web shell emits the events.** The controller yields the platform's
@@ -78,8 +79,8 @@ documented here, which is what "documented with the API" means for them.
 
 | method and path | body | answers |
 |---|---|---|
-| `POST /api/turns` | `{"agent_id": str, "model_id": str\|null, "text": str}` | the stream of the turn answering the first question of a **new** conversation |
-| `POST /api/conversations/{id}/turns` | `{"text": str, "parent_id": uuid, "model_id": str\|null}` **or** `{"text": str, "edit": uuid, "model_id": str\|null}` **or** `{"regenerate": uuid, "model_id": str\|null}` **or** `{"retry": uuid, "model_id": str\|null}` **or** `{"resume": uuid, "model_id": str\|null}` | the stream of the turn it began |
+| `POST /api/turns` | `{"agent_id": str, "model_id": str\|null, "text": str, "task_payload": object\|null, "project_id": uuid\|null}` | the stream of the turn answering the first question of a **new** conversation, in that project of the user's, or in their `Default` one when `project_id` is left out or null; a project that is not theirs is refused (404) |
+| `POST /api/conversations/{id}/turns` | `{"text": str, "parent_id": uuid, "model_id": str\|null, "task_payload": object\|null}` **or** `{"text": str, "edit": uuid, "model_id": str\|null, "task_payload": object\|null}` **or** `{"regenerate": uuid, "model_id": str\|null}` **or** `{"retry": uuid, "model_id": str\|null}` **or** `{"resume": uuid, "model_id": str\|null}` | the stream of the turn it began |
 | `GET /api/conversations/{id}/runs/{run_id}/events?after=<position>` | — | the stream of that turn from `after`; `Last-Event-ID` says the same thing, and is read when `after` is absent; a run that is not in that conversation answers 404, as one in somebody else's does |
 | `POST /api/conversations/{id}/runs/{run_id}/cancel` | — | 204; the turn ends as cancelled, at once or soon after |
 
@@ -157,6 +158,35 @@ and are not enforced yet:
 - A body is bounded at one mebibyte, refused with 413 on the declared length
   before a byte of it is read.
 
+### Task payloads
+
+A question may carry structured data beside its text, `task_payload`: a JSON
+object for the **engine**, where the text is for the model. A flow sends one
+to start a task an engine prepares for, a repository's branch to check out
+say, without spelling it out in words.
+
+- **It names its kind** in `task_key`, a non-empty string with its version,
+  `code_task/1`. Past that it is untyped: what a task's payload holds is the
+  business of the flow that sends it and the engine that reads it, and it
+  changes with them. At most 64 KiB as compact JSON.
+- **It is kept on the question**, and returned with it when the conversation
+  is loaded (`task_payload` on the message, `null` on an answer and on a
+  question asked with text alone).
+- **Every turn that answers the question hands it to the engine**: the first,
+  a regeneration, a retry, a resume. Those answer the question as it was
+  asked, and refuse a `task_payload` of their own (422).
+- **An edit keeps the edited question's**, unless it sends another: the
+  interface edits text alone.
+- **An engine acts on the `task_key` values it knows**, as it documents
+  them, and runs every other turn on the text alone, as without one
+  ([agent-engines.md](agent-engines.md)). The engines in the backend know
+  none; the Claude Code worker knows `code_task/1`, which starts a session's
+  worktrees of the repositories it names from their branches
+  ([extra-workers/worker-common](../../extra-workers/worker-common/README.md),
+  "A code task"). The shipped `code_and_review` flow sends it.
+- A payload that is not an object, has no `task_key` string, or is too large
+  is refused before anything is stored (422).
+
 ## The change feed
 
 A turn's stream shows one turn. The change feed tells a client that something
@@ -171,7 +201,7 @@ OpenAPI.
 - **Each user has one change version.** It is an integer that starts at 0 and
   grows by one with each change worth knowing. A store bumps it in the same
   transaction as the change.
-- **These changes bump it:** a conversation created, renamed or deleted; a
+- **These changes bump it:** a conversation created, renamed, archived or deleted; a
   turn started; a turn ended, whichever way it ends. A turn's events do not
   bump it. The turn's stream is what shows them.
 - **The feed only signals.** Its answer holds the version and nothing about
@@ -217,6 +247,7 @@ from that field.
 - A conversation has no model of its own: the model travels with each turn,
   above. `PUT /api/conversations/{id}/model` answers the choice back so that
   a client can show it and send it with the next turn; it stores nothing.
+  It refuses a model the conversation's agent does not list.
 - `POST /api/conversations/{id}/fork` makes a new conversation from a message
   of another ([architecture/controller.md](../architecture/controller.md)).
   Planned: it answers 501 until the controller forks.

@@ -18,7 +18,8 @@ agent to another engine, and what its sessions then do, is stage two.
 | record | key | holds | document |
 |---|---|---|---|
 | user | `id` | `provider` and `subject` (unique together), `name`, `email`, `created_at`, `hosted_domain`, `groups`, `change_version` | no |
-| session | `id` | `owner_id`, `agent`, `engine`, `title`, `created_at`, `updated_at`, `deleted_at` | no |
+| project | `id` | `owner_id`, `name` (unique per owner), `created_at` | no |
+| session | `id` | `owner_id`, `project_id`, `agent`, `engine`, `title`, `created_at`, `updated_at`, `deleted_at`, `archived_at` | no |
 | message | `id` | `session_id`, `parent_id`, `role`, `created_at` | **yes** |
 | turn | `id` | `session_id`, `follows`, `model`, `state`, `started_at`, `ended_at`, `error`, `retries_message_id`, `task_id` | no |
 | task | `id` | `task_name`, `payload`, `state`, `created_at`, `lease_until`, `claimed_at`, `cancel_requested_at` | no |
@@ -45,6 +46,7 @@ inside it.
 ## Relationships
 
 ```
+user 1 ── N project 1 ── N session (same owner)
 user 1 ── N session 1 ── N message ── parent_id ──► message (same session)
                     │
                     └─ N turn ── follows ──► message (the question, same session)
@@ -54,6 +56,12 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
 
 - **A user owns sessions.** Deleting a user deletes their sessions, after their
   sessions have been purged, which calls each engine's `forget`.
+- **A user owns projects, and every session is in one of its owner's.** Each user
+  has a project named `Default`, made the first time it is needed: when their
+  projects are listed, or a session is started without naming one. A session that
+  names no project goes in it. Names are unique per owner, so making a project by a
+  name the owner already has finds that one. Projects are not shared with other
+  people yet, and cannot be renamed or deleted.
 - **A session's messages are a tree.** `parent_id` is a message of the same session,
   or nothing for the first question. An edit is a new message under an earlier parent.
   The visible thread is the path from the root to the newest message.
@@ -105,6 +113,8 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   in another process finds its next write refused. The records and the engine's state
   stay. The purge, which calls `forget` and deletes the records, is deferred to a
   background task.
+- **Archiving keeps.** `archived_at` takes a session off the listing. The session still
+  opens, its turns run, and nothing is purged. Queuing a turn clears it.
 - **A cancel goes through the store.** It ends a turn whose task is queued as
   `cancelled` at once, and the task as `done`. It sets `cancel_requested_at` on a
   running task and announces it. The process that runs the task cancels it. A missed
@@ -130,7 +140,7 @@ user 1 ── N session 1 ── N message ── parent_id ──► message (s
   turn whether or not a reader has found it: every write names its time, and the store
   refuses one past the lease.
 - **A user's `change_version` counts the changes worth knowing.** The store adds
-  one to it in the same operation as each: a session added, renamed or hidden,
+  one to it in the same operation as each: a session added, renamed, archived or hidden,
   `queue_turn`, `finish_turn`, `end_expired_turn`, and a cancel that ends a queued
   turn. Each bump wakes every process that waits on that user's version
   (`docs/specs/wire.md`, "The change feed"). A store without transactions
@@ -212,10 +222,13 @@ same write. The decoder reads the document alone.
 | `checkpoint_id` | `null` | the engine's checkpoint after this answer; `null` on a failed one |
 | `turn_id` | `null` | the turn that produced it, which web shows as the run id |
 | `failed` | absent | `true` on an answer whose turn failed; absent otherwise |
+| `task_payload` | the JSON object it was asked with beside its text, whose `task_key` names the kind of task; absent when none | absent |
 
-Every field but `failed` is present on every message; one that does not apply is
-`null`. `failed` is written only when it is `true`, so the messages stored before it
-read the same. `tool` is a reserved role: no message has it yet.
+Every field but `failed` and `task_payload` is present on every message; one that does
+not apply is `null`. `failed` is written only when it is `true`, and `task_payload` only
+when a question has one, so the messages stored before them read the same. A
+`task_payload` without its `task_key` string is refused, as any document that does not
+read. `tool` is a reserved role: no message has it yet.
 
 ### Parts
 

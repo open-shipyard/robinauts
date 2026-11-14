@@ -3,7 +3,7 @@
 
 /**
  * The orchestrator, as the interface sees it: its page, framed, and the
- * little of its API the panel's "Flows" section reads
+ * little of its API the panel's "Flows" tab reads
  * (`docs/architecture/orchestration.md`).
  *
  * The session names the page (`flows_url`, `/neorc/ui/`); the API is one
@@ -31,6 +31,10 @@ export function framedHash(view: FlowsView): string {
   switch (view.at) {
     case "new":
       return "#/flows";
+    case "start":
+      // Not framed: the interface's own form. Its flow's page, should a
+      // frame ever be asked for it.
+      return isFlowName(view.flow) ? `#/flows/${view.flow}` : "#/flows";
     case "run":
       return isUuid(view.run) ? `#/runs/${view.run}` : "#/runs";
     case "flow":
@@ -76,7 +80,7 @@ export interface RecentRun {
   readonly status: string;
 }
 
-/** What the panel's section shows: the flows, and the latest runs. */
+/** What the panel's Flows tab shows: the flows, and the latest runs. */
 export interface Menu {
   readonly flows: readonly string[];
   readonly runs: readonly RecentRun[];

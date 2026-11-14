@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from datetime import datetime
+from typing import Any
 
 from robinauts.controller.contract.domain import (
     AgentListing,
@@ -28,7 +29,7 @@ from robinauts.controller.contract.domain import (
     User,
     UserSession,
 )
-from robinauts.shared_domain.domain import Session, TurnStarted
+from robinauts.shared_domain.domain import Project, Session, TurnStarted
 
 
 class Controller(ABC):
@@ -77,6 +78,12 @@ class Controller(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def archive_session(self, user: User, session_id: uuid.UUID) -> None:
+        """``SessionNotFoundError``. The session leaves the listing and keeps everything else,
+        a running turn included. Its next turn unarchives it."""
+        raise NotImplementedError
+
+    @abstractmethod
     async def delete_session(self, user: User, session_id: uuid.UUID) -> None:
         """``SessionNotFoundError``. The engine's state goes with the records."""
         raise NotImplementedError
@@ -89,8 +96,33 @@ class Controller(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def start_session(self, user: User, *, agent: str, model: str, text: str) -> TurnStarted:
-        """``UnknownAgentError``, ``UnknownModelError``; ``InvalidValueError`` for empty text."""
+    async def list_projects(self, user: User) -> tuple[Project, ...]:
+        """The user's projects, oldest first: the ``DEFAULT_PROJECT`` one always among them,
+        made if the user had none."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def create_project(self, user: User, name: str) -> Project:
+        """The user's project of that name, made if there was none. ``InvalidValueError`` for
+        a name empty or out of bounds."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def start_session(
+        self,
+        user: User,
+        *,
+        agent: str,
+        model: str,
+        text: str,
+        project: uuid.UUID | None = None,
+        task_payload: Mapping[str, Any] | None = None,
+    ) -> TurnStarted:
+        """``UnknownAgentError``, ``UnknownModelError``; ``InvalidValueError`` for empty text,
+        or a ``task_payload`` that is not a JSON object with a ``task_key``, or too large;
+        ``ProjectNotFoundError`` for a project the user does not have. With no ``project``
+        the session is in the user's ``DEFAULT_PROJECT`` one. The payload is kept on the
+        question, and every turn that answers it hands it to the engine."""
         raise NotImplementedError
 
     @abstractmethod
@@ -102,10 +134,11 @@ class Controller(ABC):
         parent_id: uuid.UUID,
         model: str,
         text: str,
+        task_payload: Mapping[str, Any] | None = None,
     ) -> TurnStarted:
         """``SessionNotFoundError``, ``MessageNotFoundError`` for the parent,
         ``UnknownModelError``, ``TurnActiveError`` while a turn runs, ``InvalidValueError``
-        for empty text."""
+        for empty text or a ``task_payload`` as ``start_session`` refuses it."""
         raise NotImplementedError
 
     @abstractmethod
@@ -117,13 +150,16 @@ class Controller(ABC):
         message_id: uuid.UUID,
         model: str,
         text: str,
+        task_payload: Mapping[str, Any] | None = None,
     ) -> TurnStarted:
         """A new version of a question: a message under the edited one's parent (none for
         the first question), which the visible thread then goes through.
 
         ``SessionNotFoundError``, ``MessageNotFoundError`` for a message that is not a
         question of this session, ``UnknownModelError``, ``TurnActiveError`` while a turn
-        runs, ``InvalidValueError`` for empty text."""
+        runs, ``InvalidValueError`` for empty text or a ``task_payload`` as ``start_session``
+        refuses it. The new version keeps the edited question's task payload, unless
+        ``task_payload`` gives another."""
         raise NotImplementedError
 
     @abstractmethod

@@ -31,6 +31,13 @@
             "title": "Model",
             "type": "string"
           },
+          "models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -40,7 +47,8 @@
           "id",
           "title",
           "engine",
-          "model"
+          "model",
+          "models"
         ],
         "title": "AgentSummary",
         "type": "object"
@@ -350,6 +358,11 @@
             "title": "Model",
             "type": "string"
           },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -365,6 +378,7 @@
           "title",
           "agent",
           "model",
+          "project_id",
           "created_at",
           "updated_at"
         ],
@@ -507,6 +521,146 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "FlowInputSummary": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "lov": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lov"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FlowOptionSummary"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Options"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "type"
+        ],
+        "title": "FlowInputSummary",
+        "type": "object"
+      },
+      "FlowListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FlowSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "FlowListResponse",
+        "type": "object"
+      },
+      "FlowOptionSummary": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "models": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Models"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label"
+        ],
+        "title": "FlowOptionSummary",
+        "type": "object"
+      },
+      "FlowRunStarted": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "FlowRunStarted",
+        "type": "object"
+      },
+      "FlowSummary": {
+        "properties": {
+          "has_form": {
+            "title": "Has Form",
+            "type": "boolean"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/FlowInputSummary"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "title",
+          "has_form",
+          "inputs"
+        ],
+        "title": "FlowSummary",
+        "type": "object"
+      },
       "ForkRequest": {
         "properties": {
           "at_message": {
@@ -541,6 +695,11 @@
             "title": "Model",
             "type": "string"
           },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
           "running": {
             "title": "Running",
             "type": "boolean"
@@ -560,6 +719,7 @@
           "title",
           "agent",
           "model",
+          "project_id",
           "created_at",
           "updated_at",
           "running"
@@ -624,6 +784,18 @@
             ],
             "title": "Role",
             "type": "string"
+          },
+          "task_payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Payload"
           }
         },
         "required": [
@@ -746,6 +918,19 @@
         "title": "NewApiTokenResponse",
         "type": "object"
       },
+      "NewProjectRequest": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "NewProjectRequest",
+        "type": "object"
+      },
       "OpenedConversationResponse": {
         "properties": {
           "conversation": {
@@ -854,6 +1039,47 @@
         "title": "PairingView",
         "type": "object"
       },
+      "ProjectListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "ProjectListResponse",
+        "type": "object"
+      },
+      "ProjectSummary": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "created_at"
+        ],
+        "title": "ProjectSummary",
+        "type": "object"
+      },
       "ProvenanceView": {
         "properties": {
           "agent": {
@@ -951,6 +1177,17 @@
           "model_id"
         ],
         "title": "SetModelRequest",
+        "type": "object"
+      },
+      "StartFlowRunRequest": {
+        "properties": {
+          "inputs": {
+            "additionalProperties": true,
+            "title": "Inputs",
+            "type": "object"
+          }
+        },
+        "title": "StartFlowRunRequest",
         "type": "object"
       },
       "TextContent": {
@@ -1553,6 +1790,39 @@
         "summary": "Rename Session"
       }
     },
+    "/api/conversations/{conversation_id}/archive": {
+      "post": {
+        "operationId": "archive_session_api_conversations__conversation_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal"
+          }
+        },
+        "summary": "Archive Session"
+      }
+    },
     "/api/conversations/{conversation_id}/fork": {
       "post": {
         "operationId": "fork_session_api_conversations__conversation_id__fork_post",
@@ -1696,6 +1966,83 @@
         "summary": "Cancel Turn"
       }
     },
+    "/api/flows": {
+      "get": {
+        "operationId": "list_flows_api_flows_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal"
+          }
+        },
+        "summary": "List Flows"
+      }
+    },
+    "/api/flows/{flow}/runs": {
+      "post": {
+        "operationId": "start_flow_run_api_flows__flow__runs_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "flow",
+            "required": true,
+            "schema": {
+              "title": "Flow",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartFlowRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowRunStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal"
+          }
+        },
+        "summary": "Start Flow Run"
+      }
+    },
     "/api/models": {
       "get": {
         "operationId": "list_models_api_models_get",
@@ -1722,6 +2069,71 @@
           }
         },
         "summary": "List Models"
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "operationId": "list_projects_api_projects_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal"
+          }
+        },
+        "summary": "List Projects"
+      },
+      "post": {
+        "description": "The user's project of that name: a new one, or the one they already had.",
+        "operationId": "create_project_api_projects_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal"
+          }
+        },
+        "summary": "Create Project"
       }
     },
     "/auth/devices": {

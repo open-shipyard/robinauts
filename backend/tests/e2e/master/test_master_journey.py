@@ -85,11 +85,18 @@ def aux_master_journey(agent: str, server: str, page: Page, local_gpt: FakeLocal
 
     # --- Conversation B ---------------------------------------------------------------------
 
-    # 6. "New chat" again: an empty thread; the first message makes a second conversation,
-    #    listed above A in "Conversations", and nothing of A is sent to the model.
+    # 6. "New chat" again: an empty thread. "Model" offers only the chosen agent's models:
+    #    "Pinned to GPT 2" lists Local GPT 2 alone, and the journey's agent both, with its
+    #    default chosen. The first message makes a second conversation, listed above A in
+    #    "Conversations", and nothing of A is sent to the model.
     page.get_by_role("button", name="New chat").click()
     expect_thread(page, [])
+    model = page.get_by_label("Model")
+    page.get_by_label("Agent").select_option("pinned")
+    expect(model.get_by_role("option")).to_have_text(["Local GPT 2"])
     page.get_by_label("Agent").select_option(agent)
+    expect(model.get_by_role("option")).to_have_text(["Local GPT", "Local GPT 2"])
+    expect(model).to_have_value("local_gpt")
     send(page, "beta one")
     expect_thread(page, echoed("beta one"))
     expect(history(page)).to_have_text(["beta one", "alpha one"])
@@ -155,6 +162,28 @@ def aux_master_journey(agent: str, server: str, page: Page, local_gpt: FakeLocal
     page.goto(b_url)
     expect(page.get_by_role("alert")).to_contain_text("This conversation is not here.")
     assert len(calls) == 8
+
+    # --- Archiving --------------------------------------------------------------------------
+
+    # 14. Archive A from its row (hover it, "Archive"): no question; it leaves "Conversations",
+    #     and the page goes to a new chat. A reload keeps it off the list.
+    browser.open_conversation(page, "Project alpha")
+    browser.archive(page, "Project alpha")
+    expect(history(page)).to_have_count(0)
+    expect(page.get_by_label("Agent")).to_be_visible()
+    page.reload()
+    expect(page.get_by_text("No conversations yet.").first).to_be_visible()
+    expect(history(page)).to_have_count(0)
+
+    # 15. Go to A's address: its title and thread are all there. A message goes on from A's
+    #     history, and brings A back to "Conversations".
+    page.goto(a_url)
+    expect(page.get_by_role("heading", level=1)).to_have_text("Project alpha")
+    expect_thread(page, echoed("alpha one", "alpha TWO", "alpha four"))
+    send(page, "alpha five")
+    expect_thread(page, echoed("alpha one", "alpha TWO", "alpha four", "alpha five"))
+    last_call("fake-gpt", "alpha one", "alpha TWO", "alpha four", "alpha five")
+    expect(history(page)).to_have_text(["Project alpha"])
 
 
 def test_langchain_master_journey(server: str, page: Page, local_gpt: FakeLocalGPTServer) -> None:
