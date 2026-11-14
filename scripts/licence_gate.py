@@ -1483,6 +1483,12 @@ MCP_SERVERS = {
 }
 """Each MCP server of this repository with a lock, by its directory name, as EXTRA_WORKERS.
 An MCP server stands alone: nothing of the backend is in its lock, nor counts as ours there."""
+SERVICES = {
+    lock.parent.name: (lock, lock.parent / ".venv")
+    for lock in sorted((ROOT / "services").glob("*/uv.lock"))
+}
+"""Each service of this repository with a lock, by its directory name, as MCP_SERVERS: it
+stands alone too. Its environment is synced with every extra, so every optional driver is read."""
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1503,11 +1509,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         choices=sorted(MCP_SERVERS),
         help="check this MCP server's lock and environment (mcp/<name>/)",
     )
+    which.add_argument(
+        "--service",
+        choices=sorted(SERVICES),
+        help="check this service's lock and environment (services/<name>/)",
+    )
     arguments = parser.parse_args(argv)
     try:
         # The paths come from the tables, never from the argument itself.
         if arguments.mcp_server is not None:
             lock, environment = MCP_SERVERS[arguments.mcp_server]
+            return run(lock, DEPENDENCIES, environment, arguments.offline, composed=False)
+        if arguments.service is not None:
+            lock, environment = SERVICES[arguments.service]
             return run(lock, DEPENDENCIES, environment, arguments.offline, composed=False)
         lock, environment = EXTRA_WORKERS.get(arguments.extra_worker, (LOCK, ENVIRONMENT))
         return run(lock, DEPENDENCIES, environment, arguments.offline)

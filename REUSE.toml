@@ -30,6 +30,9 @@ path = [
     "orchestration/README.md",
     "mcp/*/README.md",
     "mcp/*/uv.lock",
+    "services/README.md",
+    "services/*/README.md",
+    "services/*/uv.lock",
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "The Robinauts Authors"

@@ -4,8 +4,8 @@
 #
 # The dependency licence gate: the policy of DEPENDENCIES.md over the whole
 # locked set of backend/uv.lock, then over each extra worker's lock
-# (extra-workers/*/uv.lock) and each MCP server's (mcp/*/uv.lock), each read
-# against its own synced environment.
+# (extra-workers/*/uv.lock), each MCP server's (mcp/*/uv.lock) and each
+# service's (services/*/uv.lock), each read against its own synced environment.
 # Further arguments are passed on to the gate; see scripts/licence_gate.py --help.
 set -eu
 
@@ -33,4 +33,13 @@ for project in "$root"/mcp/*/; do
     # As for an extra worker: synced first, the server's own package left out, nothing built.
     (cd "$project" && uv sync --locked --no-build --no-install-local)
     uv run --locked --no-build python "$root/scripts/licence_gate.py" --mcp-server "$name" "$@"
+done
+
+for project in "$root"/services/*/; do
+    [ -f "$project/uv.lock" ] || continue
+    name=$(basename "$project")
+    printf '\n== services/%s ==\n' "$name"
+    # As for an MCP server, but with every extra: each optional database driver is gated too.
+    (cd "$project" && uv sync --locked --all-extras --no-build --no-install-local)
+    uv run --locked --no-build python "$root/scripts/licence_gate.py" --service "$name" "$@"
 done

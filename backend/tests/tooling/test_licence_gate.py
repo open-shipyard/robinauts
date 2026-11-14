@@ -20,6 +20,7 @@ import pytest
 from licence_gate import (
     _FORBIDDEN_IDENTIFIER,
     MCP_SERVERS,
+    SERVICES,
     SUPPORTED_LOCK_VERSIONS,
     Finding,
     LockedPackage,
@@ -1196,6 +1197,27 @@ def test_each_mcp_server_is_checked_against_its_own_lock_and_environment():
         ROOT / "mcp" / "to-do-list" / "uv.lock",
         ROOT / "mcp" / "to-do-list" / ".venv",
     )
+
+
+def test_each_service_is_checked_against_its_own_lock_and_environment():
+    assert SERVICES["sql-analytics"] == (
+        ROOT / "services" / "sql-analytics" / "uv.lock",
+        ROOT / "services" / "sql-analytics" / ".venv",
+    )
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--mcp-server", "to-do-list", "--service", "sql-analytics"],
+        ["--extra-worker", "base-worker", "--service", "sql-analytics"],
+    ],
+)
+def test_a_service_is_one_lock_too(capsys, arguments):
+    with pytest.raises(SystemExit) as refused:
+        main(arguments)
+    assert refused.value.code == 2
+    assert "not allowed with argument" in capsys.readouterr().err
 
 
 def test_one_lock_at_a_time(capsys):

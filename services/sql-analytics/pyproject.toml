@@ -1,0 +1,280 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright The Robinauts Authors
+
+[project]
+name = "robinauts-sql-analytics"
+version = "0.1.0.dev0"
+description = "SQL Analytics: an MCP server an agent asks questions of SQL databases through."
+requires-python = ">=3.12"
+license = "Apache-2.0"
+authors = [{ name = "The Robinauts Authors" }]
+dependencies = [
+    # The MCP SDK, at the version backend/uv.lock pins: one vetted copy of it in the repository.
+    # It brings starlette and uvicorn, which serve the ASGI app.
+    "mcp==1.30.0",
+    # The query pipeline (docs: the plan's section 7): every query is DuckDB SQL, parsed,
+    # checked and transpiled by sqlglot, pinned exactly because it moves fast. MIT.
+    "sqlglot==30.31.0",
+    # The built-in connector and the result store's engine. MIT.
+    "duckdb==2.0.0",
+    # Arrow is the one format between connector, result store and encoder. Apache-2.0.
+    "pyarrow==26.0.1",
+]
+
+[project.optional-dependencies]
+# Each database beyond DuckDB and SQLite is an extra the operator picks. SQLite is the
+# standard library's.
+postgres = [
+    # Already vetted by the backend, at the version backend/uv.lock pins. Never psycopg (LGPL).
+    "asyncpg==0.32.0",
+]
+# Not declared yet: `snowflake` (snowflake-connector-python), `bigquery`
+# (google-cloud-bigquery, google-cloud-bigquery-storage) and `spark` (pyspark-client). Their
+# trees fail the licence gate today: all three bring protobuf, whose metadata states
+# "3-Clause BSD License", which names no identifier; BigQuery's also brings pyasn1-modules
+# (the family "BSD") and python-dateutil ("Dual License"), and so does Spark's, through
+# pandas. pyspark-client also publishes no wheel, which `--no-build` refuses. Each is
+# settled in a pull request of its own before its connector is written (README.md).
+
+[project.scripts]
+robinauts-sql-analytics = "sql_analytics.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "httpx>=0.28",
+    "ruff>=0.6",
+    "black>=24.0",
+    "import-linter>=2.0",
+]
+
+[tool.uv]
+# The platforms the backend's lock resolves for, and no other.
+environments = [
+    "sys_platform == 'linux'",
+    "sys_platform == 'darwin'",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sql_analytics"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error"]
+
+# The backend's rules, word for word (backend/pyproject.toml): scripts/check-services.sh
+# runs them over this folder.
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "PT018"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sql_analytics"]
+
+# The layers of README.md ("Architecture"), enforced; tests/tooling/test_architecture.py runs
+# them. Anything not allowed is forbidden. A rule names a package and covers everything under it.
+[tool.importlinter]
+root_package = "sql_analytics"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "contract imports nothing of the service"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["sql_analytics.contract"]
+forbidden_modules = [
+    "sql_analytics.core",
+    "sql_analytics.ports",
+    "sql_analytics.application",
+    "sql_analytics.adapters",
+    "sql_analytics.config",
+    "sql_analytics.composition",
+    "sql_analytics.cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "core imports the contract alone"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["sql_analytics.core"]
+forbidden_modules = [
+    "sql_analytics.ports",
+    "sql_analytics.application",
+    "sql_analytics.adapters",
+    "sql_analytics.config",
+    "sql_analytics.composition",
+    "sql_analytics.cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "ports import the contract alone"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["sql_analytics.ports"]
+forbidden_modules = [
+    "sql_analytics.core",
+    "sql_analytics.application",
+    "sql_analytics.adapters",
+    "sql_analytics.config",
+    "sql_analytics.composition",
+    "sql_analytics.cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "application imports the contract, the ports and the core"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["sql_analytics.application"]
+forbidden_modules = [
+    "sql_analytics.adapters",
+    "sql_analytics.config",
+    "sql_analytics.composition",
+    "sql_analytics.cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "config imports the contract alone"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["sql_analytics.config"]
+forbidden_modules = [
+    "sql_analytics.core",
+    "sql_analytics.ports",
+    "sql_analytics.application",
+    "sql_analytics.adapters",
+    "sql_analytics.composition",
+    "sql_analytics.cli",
+]
+
+[[tool.importlinter.contracts]]
+name = "adapters import the contract, the ports, the core and the application"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["sql_analytics.adapters"]
+forbidden_modules = ["sql_analytics.config", "sql_analytics.composition", "sql_analytics.cli"]
+
+[[tool.importlinter.contracts]]
+name = "no adapter imports another"
+type = "independence"
+modules = ["sql_analytics.adapters.mcp", "sql_analytics.adapters.http"]
+
+[[tool.importlinter.contracts]]
+name = "only composition imports an adapter"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "sql_analytics.contract",
+    "sql_analytics.core",
+    "sql_analytics.ports",
+    "sql_analytics.application",
+    "sql_analytics.config",
+    "sql_analytics.cli",
+]
+forbidden_modules = ["sql_analytics.adapters"]
+
+[[tool.importlinter.contracts]]
+name = "only cli imports composition"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "sql_analytics.contract",
+    "sql_analytics.core",
+    "sql_analytics.ports",
+    "sql_analytics.application",
+    "sql_analytics.adapters",
+    "sql_analytics.config",
+]
+forbidden_modules = ["sql_analytics.composition"]
+
+[[tool.importlinter.contracts]]
+name = "nothing imports cli"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "sql_analytics.contract",
+    "sql_analytics.core",
+    "sql_analytics.ports",
+    "sql_analytics.application",
+    "sql_analytics.adapters",
+    "sql_analytics.config",
+    "sql_analytics.composition",
+]
+forbidden_modules = ["sql_analytics.cli"]
+
+# --- Third-party libraries, where each may be imported ------------------------------------
+# A module that does not exist yet (core.encoding, adapters.connectors, adapters.results,
+# adapters.metadata) is added to its rule when it is written.
+
+[[tool.importlinter.contracts]]
+name = "mcp only under adapters.mcp and adapters.http"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "sql_analytics.contract",
+    "sql_analytics.core",
+    "sql_analytics.ports",
+    "sql_analytics.application",
+    "sql_analytics.config",
+    "sql_analytics.composition",
+    "sql_analytics.cli",
+]
+forbidden_modules = ["mcp"]
+
+[[tool.importlinter.contracts]]
+name = "starlette and uvicorn only under adapters.http and cli"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "sql_analytics.contract",
+    "sql_analytics.core",
+    "sql_analytics.ports",
+    "sql_analytics.application",
+    "sql_analytics.config",
+    "sql_analytics.composition",
+    "sql_analytics.adapters.mcp",
+]
+forbidden_modules = ["starlette", "uvicorn"]
+
+[[tool.importlinter.contracts]]
+name = "sqlglot only under core"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "sql_analytics.contract",
+    "sql_analytics.ports",
+    "sql_analytics.application",
+    "sql_analytics.adapters",
+    "sql_analytics.config",
+    "sql_analytics.composition",
+    "sql_analytics.cli",
+]
+forbidden_modules = ["sqlglot"]
+
+[[tool.importlinter.contracts]]
+name = "duckdb, pyarrow and asyncpg in none of the modules written so far"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "sql_analytics.contract",
+    "sql_analytics.core",
+    "sql_analytics.ports",
+    "sql_analytics.application",
+    "sql_analytics.adapters.mcp",
+    "sql_analytics.adapters.http",
+    "sql_analytics.config",
+    "sql_analytics.composition",
+    "sql_analytics.cli",
+]
+forbidden_modules = ["duckdb", "pyarrow", "asyncpg"]
