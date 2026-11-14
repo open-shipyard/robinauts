@@ -14,6 +14,7 @@ neorc is the real one. Its storage follows the server's: in the process without
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import subprocess
 import time
@@ -184,19 +185,48 @@ def test_a_start_whose_flows_are_refused_is_refused_before_it_binds(tmp_path: Pa
     assert b"neorc refused the flows in" in refused.stderr, refused.stderr
 
 
+NEORC_FORM_FLOW = """
+name: asked
+version: 0.1.0
+inputs:
+  topic: string
+form: asked.form.json
+steps:
+  pick:
+    queue: default
+    handler: robinauts_tasks:pick_number
+"""
+NEORC_FORM = [
+    {"version": "v0.9", "createSurface": {"surfaceId": "asked", "catalogId": "https://github.com/open-shipyard/neorc/forms/v1"}},
+    {"version": "v0.9", "updateComponents": {"surfaceId": "asked", "components": [
+        {"id": "root", "component": "Column", "children": ["topic"]},
+        {"id": "topic", "component": "TextField", "label": "Topic", "value": {"path": "/topic"}},
+    ]}},
+]  # fmt: skip
+"""A flow that names a neorc form file, which is read from beside the flow."""
+
+
 def test_a_folder_of_one_s_own_flows_is_served_as_its_flows_toml_says(tmp_path: Path) -> None:
-    """A folder anywhere, with the shipped handlers as its default, and the UI turned off."""
+    """A folder anywhere, with the shipped handlers as its default, and the UI turned off. A
+    flow naming a neorc form file is listed too."""
     flows = tmp_path / "my-flows"
     flows.mkdir()
     (flows / "guess_number.yaml").write_text((SHIPPED / "guess_number.yaml").read_text())
+    (flows / "asked.yaml").write_text(NEORC_FORM_FLOW)
+    (flows / "asked.form.json").write_text(json.dumps(NEORC_FORM))
     (flows / "flows.toml").write_text("ui = false\n")
     config = tmp_path / "robinauts.toml"
     config.write_text(CONFIG)
     with started(config, environment_for(config, flows)) as (url, _):
         with httpx.Client(base_url=url, timeout=30.0) as api:
             listed = api.get("/neorc/flows").json()["flows"]
+            offered = api.get("/api/flows").json()["items"]
             page = api.get("/neorc/ui/")
-    assert [f["name"] for f in listed] == ["guess_number"]
+    assert sorted(f["name"] for f in listed) == ["asked", "guess_number"]
+    assert {f["name"]: [i["name"] for i in f["inputs"]] for f in offered} == {
+        "asked": ["topic"],
+        "guess_number": [],
+    }
     assert page.status_code == 404
 
 
