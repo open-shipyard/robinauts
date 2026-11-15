@@ -50,7 +50,7 @@ from neorc_core import (
     QueueKind,
     Scheduler,
 )
-from neorc_core.flows import flow_files, load_flow_yaml, read_flows
+from neorc_core.flows import flow_files, load_flow_file, read_flows
 from neorc_core.local import DirectManagerClient, MemoryStore, MemoryTaskNotifier
 
 from robinauts.orchestrator.contract.domain import (
@@ -98,11 +98,11 @@ def neorc_command() -> tuple[str, ...]:
 def declared_inputs(folder: Path) -> dict[str, dict[str, str]]:
     """By flow name, the inputs each flow file in ``folder`` declares and their types, in the
     file's order. A file neorc would refuse is left out: the upload refuses it, with neorc's
-    reason, before anything starts."""
+    reason, before anything starts. A form file a flow names is read from beside it."""
     declared = {}
     for path in flow_files(folder):
         try:
-            definition = load_flow_yaml(path.read_text(encoding="utf-8"))
+            definition = load_flow_file(path)
         except (OSError, NeorcError):
             continue
         declared[definition.name] = {name: str(kind) for name, kind in definition.inputs.items()}
