@@ -85,7 +85,7 @@ dev = [
     # The upper bound on `coverage` is the ten-day cooldown (.github/dependabot.yml): 7.17.2
     # was published on 2026-11-04 and this was adopted on 2026-11-17.
     "pytest-cov>=7.1",
-    "coverage>=7.16.1,<7.17.3",
+    "coverage>=7.16.1,<7.17.4",
     # Spreads one run over the machine's cores: scripts/check-tests.sh passes `-n`.
     "pytest-xdist>=3.8",
 ]
