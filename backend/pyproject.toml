@@ -58,7 +58,7 @@ dependencies = [
     # its OpenID Connect client. Pinned to the commit neorc's pin pins, so the
     # lock holds one oneberth; built from source like neorc.
     "oneberth[web,postgres,providers]",
-    "openai>=3.14.1,<3.38",
+    "openai>=3.14.1,<3.53",
     # The `mcp` extra brings the framework's MCP client (fastmcp), which is how
     # that engine reaches the tool servers (docs/specs/agents.md, "Tools").
     "pydantic-ai-slim[anthropic,mcp,openai]>=2.47,<3",
