@@ -10,6 +10,9 @@
  * stands beside the page, a full panel or -- with `data-collapsed="true"` --
  * a rail of icons.
  *
+ * Beside the page the full panel has the width the user dragged it to,
+ * which `./Panel.tsx` sets as `--panel-width`; the rail keeps its own.
+ *
  * `.panel-wide` marks what the rail leaves out: the labels and the history.
  */
 
@@ -92,7 +95,30 @@
   overflow-y: auto;
 }
 
+/*
+ * The right edge: a strip over the panel's padding, so a pointer can find it
+ * and the history's scrollbar stays clear; a line while it is held or focused.
+ */
+.panel-resize {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  z-index: 1;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.panel-resize[data-dragging="true"],
+.panel-resize:focus-visible {
+  background-color: var(--edge);
+}
+
 @media (hover: hover) {
+  .panel-resize:hover {
+    background-color: var(--line);
+  }
+
   .panel-tool:hover {
     background-color: var(--hover);
     color: var(--ink);
@@ -121,7 +147,7 @@
   .panel {
     position: sticky;
     top: 0;
-    width: 17.5rem;
+    width: var(--panel-width, 17.5rem);
   }
 
   .panel[data-collapsed="true"] {
