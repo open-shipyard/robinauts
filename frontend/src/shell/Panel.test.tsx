@@ -29,6 +29,7 @@ function drawn(collapsed = false) {
       collapsed={collapsed}
       onCollapse={() => undefined}
       onNewChat={() => undefined}
+      onSearch={() => undefined}
     />,
   );
 }

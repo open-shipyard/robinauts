@@ -25,7 +25,7 @@ import { Chat, type Drafts } from "../chat";
 import { useChanges } from "../changes/changes";
 import { conversationIn, useHistory } from "../history/history";
 import { PanelRightIcon } from "../icons";
-import { NEW_CHAT, useRouter } from "../router";
+import { NEW_CHAT, useRouter, type Route } from "../router";
 import { shownTitle } from "../conversation/conversation";
 import { AppTab } from "../side/AppTab";
 import { appOf, appOffers, toolResults, useApps } from "../side/apps";
@@ -46,6 +46,7 @@ import {
   useModels,
 } from "./ModelPicker";
 import { Panel } from "./Panel";
+import { SearchPage } from "./SearchPage";
 import { ProjectPicker } from "./ProjectPicker";
 import {
   createProject,
@@ -155,6 +156,13 @@ function freshest(listed: Opened | null, about: Opened | null): Opened | null {
   if (listed === null) return about;
   if (about === null) return listed;
   return later(listed, about);
+}
+
+function sameRoute(a: Route, b: Route): boolean {
+  return (
+    a.kind === b.kind &&
+    (a.kind !== "conversation" || a.id === (b as typeof a).id)
+  );
 }
 
 /** The rail, as this browser last left it. */
@@ -285,7 +293,18 @@ export function Workspace({
     if (sideDrawer) sideCloser.current?.focus();
   }, [sideDrawer]);
 
-  const current = route.kind === "conversation" ? route.id : null;
+  // The search page is drawn over the chat, which stays mounted under it (and
+  // so keeps its draft and any turn streaming): the chat's own route is the
+  // last one that was not the search page.
+  const [chatRoute, setChatRoute] = useState<Route>(
+    route.kind === "search" ? NEW_CHAT : route,
+  );
+  const searching = route.kind === "search";
+  if (route.kind !== "search" && !sameRoute(route, chatRoute)) {
+    setChatRoute(route);
+  }
+  const view = route.kind === "search" ? chatRoute : route;
+  const current = view.kind === "conversation" ? view.id : null;
   const listed = conversationIn(history.items, current);
   // What the chat's own read said about the conversation on the screen,
   // which the panel's pages need not hold; the title is the panel's first,
@@ -432,6 +451,10 @@ export function Workspace({
             navigate(NEW_CHAT);
             setChat((count) => count + 1);
           }}
+          onSearch={() => {
+            navigate({ kind: "search" });
+          }}
+          searching={searching}
         />
       </ShellPanel>
       {sideDrawer && (
@@ -475,7 +498,13 @@ export function Workspace({
             `chat` count is what "New chat" remounts it by, so that nothing
             typed into one carries over into the next. */}
         <main className="shell-main">
-          <>
+          {searching && (
+            <SearchPage
+              projects={projects.status === "ready" ? projects.items : null}
+              agentName={(id) => agentTitle(agents, id) ?? id}
+            />
+          )}
+          <div hidden={searching} className="shell-chat">
             <h1 className="shell-title">
               {route.kind === "conversation"
                 ? title === null
@@ -526,7 +555,7 @@ export function Workspace({
               welcome={welcome}
               drafts={drafts}
             />
-          </>
+          </div>
         </main>
       </div>
       <SidePanel
