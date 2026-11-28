@@ -18,7 +18,10 @@
   browser, with a "+" that starts a conversation in it; "New project", at the
   head of the history, makes another. The empty chat has a project picker
   beside the agent's, on "Default" until another is picked. Collapsed, it
-  becomes an icon rail. The state is remembered per browser.
+  becomes an icon rail. The state is remembered per browser. Beside the
+  page, its right edge is a separator that a pointer drags and the arrow keys
+  move, from 220px to 40% of the window; not in the rail or the drawer. The
+  width is remembered per browser.
 - **neorc** is the other application on the rail: neorc's own interface, from
   its node package, over neorc's API at `/neorc/`. It draws its own panel of
   runs, flows and queues, and its pages. Each application keeps its state

@@ -14,6 +14,10 @@
  * directly and knows nothing of what draws the chat, and nothing here ever
  * will.
  *
+ * **The width** is the user's beside the page: the right edge is a separator
+ * (`PanelResizer`), and the width is remembered per browser. The rail
+ * and the drawer have no such edge.
+ *
  * **The history is drawn a project at a time** (`../projects/`): each
  * project folds away under its heading, and "New project", at the head of
  * the history, makes another. Projects are the user's own; sharing one
@@ -22,7 +26,7 @@
  * The shape is neorc's, written again for this project; recorded in
  * `docs/legal/ip-clearance.md`.
  */
-import { useEffect, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 
 import { detailOf } from "../api/client";
 import type { ConversationId } from "../chat";
@@ -35,6 +39,7 @@ import {
   type Project,
 } from "../projects/projects";
 import { useWide } from "./breakpoint";
+import { PanelResizer, usePanelWidth } from "./PanelResizer";
 import "./panel.css";
 
 /** The panel's id. */
@@ -79,6 +84,7 @@ export function Panel({
   // In the shell's drawer, on a small screen, the panel is drawn whole.
   const wide = useWide();
   const rail = collapsed && wide;
+  const { shown, max, resizeTo } = usePanelWidth();
   return (
     <aside
       id={PANEL_ID}
@@ -86,7 +92,16 @@ export function Panel({
       // What `./panel.css` draws the rail by: what is hidden in it.
       data-collapsed={rail}
       className="panel"
+      style={{ "--panel-width": `${String(shown)}px` } as CSSProperties}
     >
+      {wide && !rail && (
+        <PanelResizer
+          id={PANEL_ID}
+          width={shown}
+          max={max}
+          onResize={resizeTo}
+        />
+      )}
       <div className="panel-head">
         <button
           type="button"
