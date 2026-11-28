@@ -20,7 +20,7 @@ from robinauts.controller.contract.domain import (
     SessionPage,
     User,
 )
-from robinauts.shared_domain.domain import Project, Session, TurnStarted
+from robinauts.shared_domain.domain import Project, Session, ToolResultPart, TurnStarted
 
 
 class Controller(ABC):
@@ -48,9 +48,12 @@ class Controller(ABC):
 
     @abstractmethod
     async def list_sessions(
-        self, user: User, *, limit: int, cursor: str | None = None
+        self, user: User, *, limit: int, cursor: str | None = None, query: str | None = None
     ) -> SessionPage:
-        """``InvalidValueError`` for a limit out of range or a cursor that does not parse."""
+        """``InvalidValueError`` for a limit out of range or a cursor that does not parse.
+
+        With a ``query``, only the sessions whose title, project name or agent holds every word
+        of it, case aside. A page of a search may be short and still have a cursor."""
         raise NotImplementedError
 
     @abstractmethod
@@ -63,6 +66,17 @@ class Controller(ABC):
     @abstractmethod
     async def open_session(self, user: User, session_id: uuid.UUID) -> OpenedSession:
         """``SessionNotFoundError`` for one the user does not have."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def tool_result(
+        self, user: User, session_id: uuid.UUID, *, message_id: uuid.UUID, call_id: str
+    ) -> ToolResultPart:
+        """The result of one tool call of one answer, whole: its text, and the structured
+        content a view draws (``docs/architecture/mcp-apps.md``). Read from the answer once it
+        is stored, and from the events of the session's active turn before.
+
+        ``SessionNotFoundError``; ``MessageNotFoundError`` for a call with no result there."""
         raise NotImplementedError
 
     @abstractmethod
